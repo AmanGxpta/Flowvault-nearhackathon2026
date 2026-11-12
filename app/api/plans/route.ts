@@ -34,9 +34,12 @@ export async function GET(r: Request) {
 const createSchema = z
   .object({
     key: z.string().uuid(),
-    objective: z.enum(["deploy_surplus", "pay_obligation", "borrow", "repay", "respond_to_change", "access_cash"]),
+    objective: z.enum(["deploy_surplus", "pay_obligation", "borrow", "repay", "respond_to_change", "access_cash", "stake", "unstake"]),
     obligationId: z.string().min(1).max(100).optional(),
     amountRaw: z.string().regex(/^[1-9]\d{0,30}$/).optional(),
+    /** stake: "linear" or a native staking pool account; unstake: the portfolio staking position id. */
+    venue: z.string().regex(/^(linear|(?=.{2,64}$)[a-z\d]+(?:[._-][a-z\d]+)*)$/).optional(),
+    positionId: z.string().min(1).max(120).optional(),
     deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     label: z.string().max(100).optional(),
     text: z.string().max(2000).optional(),

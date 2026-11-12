@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { PlanDock } from "./PlanDock";
 import { DesignApp } from "./design-logic";
 import { api, clearLegacyEvm, emptySnapshot, getScope, loadSnapshot, setScope, takeLegacyEvm, type LiveSnapshot, type Scope } from "./live";
-import { useNearWallet, signSupply, signWithdraw, signPayment, signLending, walletClient } from "@/lib/flowvault/wallet";
+import { useNearWallet, signSupply, signWithdraw, signPayment, signLending, signStaking, signNativeStaking, walletClient } from "@/lib/flowvault/wallet";
 
 const noopSubscribe = () => () => {};
 
@@ -202,8 +202,18 @@ export function FlowVaultRoot() {
         url.searchParams.set("fv_attempt", preparation.attemptId);
         history.replaceState(null, "", url);
         try {
-          const lending = ["collateral_add", "borrow", "repay", "collateral_release"].includes(preparation.kind);
-          const outcomes = await (lending ? signLending(preparation) : preparation.kind === "withdraw" ? signWithdraw(preparation) : preparation.kind === "pay" ? signPayment(preparation) : signSupply(preparation));
+          // One signer per journal kind. Each re-checks its own preparation; none can sign an unauthorized preview.
+          const k = preparation.kind;
+          const lending = ["collateral_add", "borrow", "repay", "collateral_release"].includes(k);
+          const liquidStaking = ["stake", "unstake", "withdraw_unstaked"].includes(k); // LiNEAR: consumes the single-use handoff first
+          const nativeStaking = ["native_stake", "native_unstake", "native_withdraw"].includes(k);
+          const outcomes = await (lending ? signLending(preparation)
+            : liquidStaking ? signStaking({ ...preparation, attemptId: preparation.attemptId })
+            : nativeStaking ? signNativeStaking(preparation)
+            : k === "withdraw" ? signWithdraw(preparation)
+            : k === "pay" ? signPayment(preparation)
+            : k === "supply" || !k ? signSupply(preparation)
+            : Promise.reject(new Error("No signer for a " + k + " preparation. Nothing was sent.")));
           const hashes = (outcomes ?? []).map((o: { transaction: { hash: string } }) => o.transaction.hash);
           if (hashes.length) localStorage.setItem("fv-hashes-" + preparation.attemptId, JSON.stringify(hashes));
           await api("/api/transactions", { id: preparation.attemptId, action: hashes.length ? "attach" : "uncertain", hashes });

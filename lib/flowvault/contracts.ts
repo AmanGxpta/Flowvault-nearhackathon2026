@@ -101,6 +101,10 @@ export type StepKind =
   | "stake"
   | "unstake"
   | "withdraw_unstaked"
+  // Native validator staking (Engines P2): one pool per step, named in expected.venue.
+  | "native_stake"
+  | "native_unstake"
+  | "native_withdraw"
   | "collateral_add"
   | "borrow"
   | "repay"
@@ -149,7 +153,7 @@ export interface PlanStep {
   attemptId?: string;
   paymentPlanId?: string;
   expiresAt?: string;
-  expected: { amountRaw?: string; asset?: string; usdcRaw?: string; note?: string };
+  expected: { amountRaw?: string; asset?: string; usdcRaw?: string; note?: string; /** Staking pool or venue for venue-specific steps (native_*). */ venue?: string };
   actual?: { amountRaw?: string; asset?: string; usdcRaw?: string; evidence?: unknown };
   timeline: ExecutionStep[];
 }
@@ -171,6 +175,8 @@ export interface ActionPlan {
     deadline?: string;
     obligationId?: string;
     positionId?: string;
+    /** Staking venue: "linear" or a native staking pool account. */
+    venue?: string;
   };
   /** Fencing: any change invalidates prepared steps (state -> superseded). */
   context: { workspaceRevision: number; mandateVersion: number; policyVersion: number };

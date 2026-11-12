@@ -354,7 +354,16 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   out.ovPositions = [
     grp("Cash", "$", "#E2EAD6", "#3F6B3C", pos.filter((p: any) => p.kind === "wallet" && p.asset === "USDC"), "Available now · the NEAR wallet holds your holdback", "Supply surplus", () => self.openOp("supply", a?.kind === "supply" ? a.amount : "")),
     grp("Earning", "↑", "#E2EAD6", "#3F6B3C", pos.filter((p: any) => p.kind === "supplied"), "Withdrawable now, liquidity-dependent · timing unverified", "Withdraw", () => self.openOp("withdraw", "")),
-    grp("Staking", "N", "#ECE8F4", "#6B5E99", pos.filter((p: any) => p.kind === "staking"), "Unstaking takes epochs · never counted as dated cash", "Compare staking", () => self.go("strategies")),
+    (() => {
+      // Engines: exits are planned per position (claimable unstaked NEAR first, then the largest position).
+      const rows = pos.filter((p: any) => p.kind === "staking");
+      const exitable = rows.filter((p: any) => /^(native-stake-|native-unstaking-|linear-shares$|linear-unstaking$)/.test(p.id));
+      const claimable = exitable.find((p: any) => p.availableAt && /unstaking/.test(p.id));
+      const target = claimable ?? [...exitable].sort((x: any, y: any) => (posValue(y) ?? 0) - (posValue(x) ?? 0))[0];
+      return target && snap.scope === "personal"
+        ? grp("Staking", "N", "#ECE8F4", "#6B5E99", rows, "Unstaking takes about 4 epochs · never counted as dated cash", (claimable ? "Plan claim · " : "Plan exit · ") + target.label + " →", () => void startPlan({ objective: "unstake", positionId: target.id }).catch(() => undefined))
+        : grp("Staking", "N", "#ECE8F4", "#6B5E99", rows, "Unstaking takes epochs · never counted as dated cash", "Compare staking", () => self.go("strategies"));
+    })(),
     grp("Debt and collateral", "◐", "#F6EBDD", "#8A5F25", pos.filter((p: any) => p.kind === "debt" || p.kind === "collateral"), "Manage on Rhea · not withdrawable here", "Open credit", () => self.go("credit")),
     grp("Protected", "◆", "#ECE8F4", "#5B4F8A", pos.filter((p: any) => p.kind === "wallet" && !["USDC", "NEAR"].includes(p.asset)), "Protected by your policy · never sold or pledged", "View policy", () => self.go("policy")),
     grp("Fees", "N", "#EEF0E8", "#4A5349", pos.filter((p: any) => p.kind === "wallet" && p.asset === "NEAR"), "Gas and fees" + (snap.portfolio?.staking?.exitReserveNear ? " · " + snap.portfolio.staking.exitReserveNear + " NEAR exit reserve" : ""), "Gas and fees only", () => {}, true),
@@ -719,6 +728,20 @@ const REASON: Record<string, string> = {
   RHEA_SUPPLY_SHORT: "Rhea supply doesn’t cover the shortfall",
   NO_PENDING_PAYMENT: "No pending payment",
   NO_ELIGIBLE_SURPLUS: "No surplus above your holdback",
+  NO_IDLE_NEAR: "No idle NEAR above the 0.75 NEAR kept for gas and exits",
+  NOT_ENOUGH_IDLE_NEAR: "More than your idle NEAR (0.75 NEAR stays for gas and exits)",
+  EXCEEDS_VERIFIED_SURPLUS: "Worth more than your verified surplus after reserve and payments",
+  NEAR_BALANCE_UNKNOWN: "Your NEAR balance couldn’t be read",
+  NEAR_VALUATION_UNAVAILABLE: "NEAR has no fresh price right now",
+  SURPLUS_UNAVAILABLE: "Surplus can’t be established",
+  VALIDATOR_NOT_ELIGIBLE: "This validator didn’t pass verification",
+  VALIDATOR_UNREAD: "The validator couldn’t be checked",
+  NO_SWAP_STEP: "Unstaking returns NEAR, not USDC; FlowVault has no swap step",
+  EXCEEDS_POSITION: "More than this position holds",
+  LINEAR_PRICE_UNAVAILABLE: "LiNEAR’s NEAR rate couldn’t be read",
+  STAKE_NEEDS_EXPLICIT_APPROVAL: "Approve the stake first",
+  EXAMPLE_WORKSPACE: "Example workspace · nothing can be prepared",
+  EXAMPLE_WORKSPACE_STAKE_NOT_SIZED: "Example workspace · staking isn’t sized",
   PLAN_EXPIRED: "Plan expired after 24 hours without execution",
   CASH_PLAN_CHANGED: "Your cash plan changed",
   POLICY_CHANGED: "Your policy changed",
@@ -768,6 +791,13 @@ const REASON: Record<string, string> = {
   VENUE_NOT_ALLOWED: "Venue not allowlisted",
   RECIPIENT_NOT_ALLOWED: "Recipient not allowlisted",
 };
+/** "12.5" NEAR → raw yoctoNEAR string; null when not a positive amount with at most 24 decimals. */
+export function nearToYocto(v: string): string | null {
+  if (!/^(0|[1-9]\d{0,12})(\.\d{1,24})?$/.test(v)) return null;
+  const [w, f = ""] = v.split(".");
+  const raw = BigInt(w) * 10n ** 24n + BigInt(f.padEnd(24, "0"));
+  return raw > 0n ? raw.toString() : null;
+}
 export const reasonText = (codes: string[] = []) => codes.map((c) => REASON[c] ?? c.replace(/_/g, " ").toLowerCase()).join(" · ");
 const BIND: Record<string, string> = { stressed_health: "Minimum stressed health", policy_ltv: "Your LTV cap", ltv_cap: "Your LTV cap", protocol_ltv: "Protocol LTV", protocol_limit: "Protocol borrow limit", liquidity: "Available liquidity", existing_debt: "Existing debt" };
 const uuid = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
@@ -908,7 +938,10 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
       const refusals = reasonText((o.refusals ?? []).map((r: any) => (typeof r === "string" ? r : r.code ?? r.message)));
       // Default-deny: LST staking needs its venue and deposit_and_stake; the owner adds exactly those on confirmation.
       const PP: any = snap.policy?.policy;
-      const polMiss = PP && !isNative ? missingEntries(PP, [{ kind: "stake", strategy: o.id }]) : [];
+      // LiNEAR and verified native validators execute through owner-signed plans; rNEAR stays quote-only.
+      const executable = o.id === "linear" || (isNative && !!o.pool);
+      // Only an executable venue asks for policy entries; allowing a quote-only venue would grant nothing usable.
+      const polMiss = PP && executable ? (isNative ? missingEntries(PP, [{ kind: "native_stake", pool: o.pool }]) : missingEntries(PP, [{ kind: "stake", strategy: o.id }])) : [];
       const allowStake = () => {
         self.remember();
         self.setState({
@@ -931,9 +964,14 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
       ];
       return {
         name: NAMES[o.id] ?? o.venue, kind: (o.pool ?? KINDS[o.id] ?? o.venue) + (o.codeHashVerified ? " · code verified" : ""),
-        tag: needsPool ? "PICK A VALIDATOR" : !elig ? "NOT ELIGIBLE" : fits === false ? "MISSES DATE" : "QUOTE ONLY", tagBg: "#F6EBDD", tagColor: "#8A5F25",
+        tag: needsPool ? "PICK A VALIDATOR" : !elig ? "NOT ELIGIBLE" : fits === false ? "MISSES DATE" : !executable ? "QUOTE ONLY" : polMiss.length ? "NEEDS POLICY" : "EXECUTABLE",
+        tagBg: executable && elig && fits !== false && !polMiss.length ? "#E2EAD6" : "#F6EBDD", tagColor: executable && elig && fits !== false && !polMiss.length ? "#3F6B3C" : "#8A5F25",
         net: "—", netColor: "#8A9285",
-        netSub: needsPool ? "Native staking needs a verified validator" : !elig ? refusals || "Rate or availability unknown" : "Inspect only · wallet execution is disabled until NEAR is valued in USDC",
+        netSub: needsPool ? "Native staking needs a verified validator"
+          : !elig ? refusals || "Rate or availability unknown"
+          : !executable ? "Quote only · no execution path for " + (NAMES[o.id] ?? o.id) + " yet"
+          : polMiss.length ? "Executable once your policy allows it · nothing is allowed by default"
+          : "Owner-signed through a plan · you approve the stake, then sign in your wallet · exit takes about 4 epochs",
         rows, exit: o.exit?.reason ? reasonText([o.exit.reason]) : "Unbonding takes at least four epochs",
         fitText: !stOb ? "No payment date to check against" : fits === null ? "Unlock estimate unavailable" : fits ? "✓ Estimated back before " + dlabel(stOb.due) + " with your " + s.lead + "-day lead" : "✕ Estimated unlock plus your " + s.lead + "-day lead misses " + dlabel(stOb.due),
         fitColor: fits ? "#3F6B3C" : "#9A3F32", border: "#E3E6DB",
@@ -945,10 +983,17 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
               onPool: (ev: any) => self.setState({ stkPool: { scope: snap.scope, id: ev.target.value }, stakeQuote: null }),
             }
           : {}),
-        cta: needsPool ? "Validator needed" : polMiss.length ? "Allow in Policy…" : q?.busy ? "Preparing…" : "Inspect unsigned quote", btnBg: "#fff", btnColor: needsPool ? "#8A9285" : polMiss.length ? "#3F6B3C" : "#1E2A22", btnBorder: "1px solid #E3E6DB",
+        cta: needsPool ? "Validator needed" : polMiss.length ? "Allow in Policy…" : executable ? (example ? "Plan staking (example) →" : "Plan staking →") : q?.busy ? "Preparing…" : "Inspect unsigned quote", btnBg: "#fff", btnColor: needsPool ? "#8A9285" : polMiss.length || executable ? "#3F6B3C" : "#1E2A22", btnBorder: "1px solid #E3E6DB",
         onClick: () => {
           if (polMiss.length && !needsPool) return allowStake();
           if (needsPool) return self.toastMsg("Choose a verified validator first; no validator is approved by default.");
+          if (executable) {
+            // Opens a stake plan sized by the engines in raw NEAR (blank amount = idle NEAR within verified surplus).
+            const amt = String(s.stk.amt || "").trim();
+            const amountRaw = amt ? nearToYocto(amt) : undefined;
+            if (amt && !amountRaw) return self.toastMsg("Enter a NEAR amount like 12.5, or leave it blank to stake idle NEAR within your surplus.");
+            return void startPlan({ objective: "stake", venue: isNative ? o.pool : "linear", ...(amountRaw ? { amountRaw } : {}) }).catch(() => undefined);
+          }
           const amount = String(s.stk.amt || "").trim();
           if (!(Number(amount) > 0)) return self.toastMsg("Enter a NEAR amount to quote.");
           self.setState({ stakeQuote: { kind: o.id, scope: snap.scope, busy: true } });
@@ -1690,6 +1735,6 @@ export function livePreviews(snap: LiveSnapshot, v: any, ctx: { self: any; s: an
   out.asstMsgs = (s.asst.msgs ?? []).map((m: any) => (m.role === "user" ? { isUser: true, isAi: false, text: m.text, hasProposal: false, hasAction: false, hasChips: false, chips: [] } : { isUser: false, isAi: true, hasChips: false, chips: [], ...ans(m) }));
   return out;
 }
-const ST_LABEL: Record<string, string> = { confirmed: "confirmed", prepared: "prepared, not signed", awaiting: "waiting for wallet", progress: "checking", failedtx: "failed", stuck: "status unknown" };
 
 export { short, usd, num };
+const ST_LABEL: Record<string, string> = { confirmed: "confirmed", prepared: "prepared, not signed", awaiting: "waiting for wallet", progress: "checking", failedtx: "failed", stuck: "status unknown" };

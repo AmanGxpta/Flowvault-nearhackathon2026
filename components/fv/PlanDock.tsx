@@ -31,7 +31,7 @@ export function openPlan(detail: { planId?: string; plan?: unknown; note?: strin
   window.dispatchEvent(new CustomEvent("fv:plan-open", { detail }));
 }
 /** Creates (idempotently) and opens a plan for an objective, e.g. from Pay, Strategies or Credit. */
-export async function startPlan(body: { objective: string; obligationId?: string }) {
+export async function startPlan(body: { objective: string; obligationId?: string; venue?: string; amountRaw?: string; positionId?: string }) {
   const key = crypto.randomUUID();
   try {
     const r = await api("/api/plans", { key, ...body });
@@ -46,8 +46,9 @@ export async function startPlan(body: { objective: string; obligationId?: string
 
 const IN_FLIGHT = ["awaiting_wallet", "submitted", "unknown", "partial"];
 const STEP_LABEL: Record<string, string> = {
-  supply: "Supply to Rhea", withdraw: "Withdraw from Rhea", stake: "Stake", unstake: "Unstake",
-  withdraw_unstaked: "Withdraw unstaked NEAR", collateral_add: "Add collateral", borrow: "Borrow", repay: "Repay",
+  supply: "Supply to Rhea", withdraw: "Withdraw from Rhea", stake: "Stake NEAR for LiNEAR", unstake: "Unstake LiNEAR",
+  withdraw_unstaked: "Claim unstaked NEAR from LiNEAR", native_stake: "Stake with a validator", native_unstake: "Unstake from the validator",
+  native_withdraw: "Withdraw unstaked NEAR from the validator", collateral_add: "Add collateral", borrow: "Borrow", repay: "Repay",
   collateral_release: "Release collateral", pay_quote: "Get a live exact-output quote", pay_deposit: "Deposit to the 1Click address",
   verify_payout: "Verify the payout on the destination chain", wait_until: "Wait",
 };
@@ -80,6 +81,15 @@ const code = (c: string) => {
   if (head === "PROTECTED_ASSET") return tail + " is protected by your policy";
   if (tail && /^[A-Z_]+$/.test(head)) return reasonText([head]) + ": " + tail.trim();
   return reasonText([c]);
+};
+const STAKING_STEPS = ["stake", "unstake", "withdraw_unstaked", "native_stake", "native_unstake", "native_withdraw"];
+/** Raw 24-decimal NEAR/LiNEAR as text, up to 4 decimals (display only). */
+const raw24 = (r: string | null | undefined) => {
+  if (r == null || !/^\d+$/.test(r)) return null;
+  const n = BigInt(r);
+  const whole = n / 10n ** 24n;
+  const frac = ((n % 10n ** 24n) / 10n ** 20n).toString().padStart(4, "0").replace(/0+$/, "");
+  return whole.toLocaleString() + (frac ? "." + frac : "");
 };
 const raw6 = (r: string | null | undefined) => {
   if (r == null) return null;
@@ -439,8 +449,8 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
                       canSign={canSign}
                       busy={busy}
                       prep={prepared[s.id]}
-                      needsDebtApproval={plan.approvals.some((x) => x.stepId === s.id && x.kind === "new_debt" && !x.grantedAt)}
-                      debtApproved={plan.approvals.some((x) => x.stepId === s.id && x.kind === "new_debt" && !!x.grantedAt)}
+                      needsDebtApproval={plan.approvals.some((x) => x.stepId === s.id && (x.kind === "new_debt" || x.kind === "stake") && !x.grantedAt)}
+                      debtApproved={plan.approvals.some((x) => x.stepId === s.id && (x.kind === "new_debt" || x.kind === "stake") && !!x.grantedAt)}
                       onApprove={() => act("approve", { action: "approve", stepId: s.id })}
                       onPrepare={() => act("prepare", { action: "prepare", stepId: s.id })}
                       onWallet={() => handToWallet(s)}
@@ -512,7 +522,12 @@ function Alt({ a, recommended, canChoose, busy, onChoose }: { a: FundingChoice; 
 }
 
 function StepRow({ n, s, isNext, example, canSign, busy, prep, needsDebtApproval, debtApproved, onPrepare, onWallet, onApprove }: { n: number; s: PlanStep; isNext: boolean; example: boolean; canSign: boolean; busy: string | null; prep?: Preparation; needsDebtApproval: boolean; debtApproved: boolean; onPrepare: () => void; onWallet: () => void; onApprove: () => void }) {
-  const amount = s.expected.usdcRaw ? raw6(s.expected.usdcRaw) + " USDC" : null;
+  // Staking steps move NEAR or LiNEAR; show that quantity first and the USDC value only as an estimate.
+  const staking = STAKING_STEPS.includes(s.kind);
+  const amount = staking && s.expected.amountRaw && s.expected.asset
+    ? raw24(s.expected.amountRaw) + " " + s.expected.asset + (s.expected.usdcRaw && s.expected.usdcRaw !== "0" ? " (≈ " + raw6(s.expected.usdcRaw) + " USDC)" : "")
+    : s.expected.usdcRaw ? raw6(s.expected.usdcRaw) + " USDC" : null;
+  const isStake = s.kind === "stake" || s.kind === "native_stake";
   const tone = s.state === "confirmed" ? "var(--fvc-2F552D)" : s.state === "failed" ? "var(--fvc-9A3F32)" : IN_FLIGHT.includes(s.state) ? "var(--fvc-3F5A7A)" : "var(--fvc-6F786B)";
   const last = s.timeline.at(-1);
   const signed = s.approval === "owner_wallet";
@@ -529,6 +544,9 @@ function StepRow({ n, s, isNext, example, canSign, busy, prep, needsDebtApproval
         {s.kind === "verify_payout" && s.expected.amountRaw && s.expected.asset ? " · exact " + s.expected.asset : ""}
         {(s.kind === "collateral_add" || s.kind === "collateral_release") && s.expected.amountRaw && s.expected.asset ? " · " + (Number(BigInt(s.expected.amountRaw) / 10n ** 18n) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 4 }) + " " + s.expected.asset : ""}
         {s.kind === "borrow" ? (debtApproved ? " · new debt approved by you" : " · needs your explicit new-debt approval") : ""}
+        {isStake ? (debtApproved ? " · stake approved by you" : " · needs your explicit approval (staked NEAR takes about 4 epochs to get back)") : ""}
+        {staking && s.expected.venue ? " · " + (s.expected.venue === "linear-protocol.near" ? "LiNEAR" : "validator " + s.expected.venue) : ""}
+        {s.kind === "wait_until" && s.expected.note ? " · until about " + new Date(s.expected.note).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : ""}
         {s.expiresAt && s.state === "prepared" ? " · expires " + new Date(s.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
       </div>
       {last && (s.state !== "pending" && s.state !== "ready") ? <div style={{ marginTop: "4px", fontSize: "12px", color: "var(--fvc-4A5349)" }}>{last.message}</div> : null}
@@ -536,7 +554,7 @@ function StepRow({ n, s, isNext, example, canSign, busy, prep, needsDebtApproval
         <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {s.state === "ready" && needsDebtApproval ? (
             <button type="button" style={btn(true, !!busy || example)} disabled={!!busy || example} onClick={onApprove}>
-              {busy === "approve" ? "Recording…" : "Approve new debt of " + (raw6(s.expected.amountRaw) ?? "this amount") + " USDC"}
+              {busy === "approve" ? "Recording…" : isStake ? "Approve staking " + (raw24(s.expected.amountRaw) ?? "this amount") + " NEAR" : "Approve new debt of " + (raw6(s.expected.amountRaw) ?? "this amount") + " USDC"}
             </button>
           ) : null}
           {s.state === "ready" && !needsDebtApproval ? (

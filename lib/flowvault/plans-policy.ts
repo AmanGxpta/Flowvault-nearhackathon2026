@@ -17,7 +17,7 @@ const venue = (v: string, what: string): PolicyEntry => ({ type: "venue", venue:
 const method = (receiver: string, m: string, what: string): PolicyEntry => ({ type: "method", receiver, method: m, label: `${m} on ${receiver} (${what})` });
 
 /** Entries one step needs. `asset` is the collateral asset; `strategy` the staking venue id (linear | rnear). */
-export function stepEntries(kind: string, opts: { asset?: string; strategy?: string } = {}): PolicyEntry[] {
+export function stepEntries(kind: string, opts: { asset?: string; strategy?: string; pool?: string } = {}): PolicyEntry[] {
   switch (kind) {
     case "borrow":
       return [venue(RHEA, "Rhea lending"), method(RHEA, "execute_with_pyth", "borrow USDC at Pyth prices")];
@@ -33,6 +33,18 @@ export function stepEntries(kind: string, opts: { asset?: string; strategy?: str
       const v = opts.strategy ? STAKE_VENUE[opts.strategy] : undefined;
       return v ? [venue(v, "liquid staking"), method(v, "deposit_and_stake", "stake NEAR")] : [];
     }
+    // LiNEAR delayed exit (staking-lifecycle.ts: unstake, then withdraw_all).
+    case "unstake":
+      return [venue(STAKE_VENUE.linear, "liquid staking"), method(STAKE_VENUE.linear, "unstake", "unstake LiNEAR")];
+    case "withdraw_unstaked":
+      return [venue(STAKE_VENUE.linear, "liquid staking"), method(STAKE_VENUE.linear, "withdraw_all", "claim unstaked NEAR")];
+    // Native validator staking (staking-native.ts): one pool, its own methods.
+    case "native_stake":
+      return opts.pool ? [venue(opts.pool, "validator"), method(opts.pool, "deposit_and_stake", "stake NEAR with this validator")] : [];
+    case "native_unstake":
+      return opts.pool ? [venue(opts.pool, "validator"), method(opts.pool, "unstake", "unstake from this validator")] : [];
+    case "native_withdraw":
+      return opts.pool ? [venue(opts.pool, "validator"), method(opts.pool, "withdraw", "withdraw unstaked NEAR")] : [];
     default:
       return [];
   }
@@ -44,7 +56,7 @@ function has(policy: Pick<Policy, "venues" | "methods">, e: PolicyEntry) {
 }
 
 /** Entries the policy is missing for these steps, deduplicated, in step order. */
-export function missingEntries(policy: Pick<Policy, "venues" | "methods">, steps: { kind: string; asset?: string; strategy?: string }[]) {
+export function missingEntries(policy: Pick<Policy, "venues" | "methods">, steps: { kind: string; asset?: string; strategy?: string; pool?: string }[]) {
   const seen = new Set<string>();
   const out: PolicyEntry[] = [];
   for (const s of steps)
@@ -73,6 +85,7 @@ export function planPolicySteps(plan: {
   recommendedChoiceId?: string;
   alternatives: { id: string; steps: string[] }[];
   collateral?: { asset: string }[];
+  staking?: Record<string, { venue: string }>;
 }) {
   const choice = plan.alternatives.find((a) => a.id === (plan.selectedChoiceId ?? plan.recommendedChoiceId));
   if (!choice) return [];
@@ -81,7 +94,9 @@ export function planPolicySteps(plan: {
     kind === "collateral_add" || kind === "collateral_release"
       ? { kind, asset: plan.collateral?.[c++]?.asset }
       : kind === "stake"
-        ? { kind, strategy: choice.id }
-        : { kind },
+        ? { kind, strategy: choice.id.startsWith("native:") ? undefined : "linear" }
+        : kind.startsWith("native_")
+          ? { kind, pool: plan.staking?.[choice.id]?.venue }
+          : { kind },
   );
 }

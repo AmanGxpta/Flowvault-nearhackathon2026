@@ -29,8 +29,14 @@ export async function readRpc(
   const run = withDeadline(
     (async () => {
       let failure = "NEAR public RPC unavailable.";
-      for (let round = 0; round < 2; round++) {
-        if (round) await pause(250);
+      // Public providers rate-limit bursts (HTTP 429). Retry with growing, jittered back-off while the call
+      // budget lasts; no cross-request queue (that would reintroduce shared waiting, see R22).
+      for (let round = 0; round < 4; round++) {
+        if (round) {
+          const wait = Math.round([0, 250, 700, 1500][round] * (0.75 + Math.random() * 0.5));
+          if (Date.now() - started + wait >= budget.call) break;
+          await pause(wait);
+        }
         for (const url of URLS) {
           const left = budget.call - (Date.now() - started);
           if (left <= 0) throw new Error(failure + " (read budget spent)");

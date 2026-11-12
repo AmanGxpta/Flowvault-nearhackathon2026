@@ -180,6 +180,7 @@ export function assertPreparable(plan: ActionPlan, stepId: string, now: PlanCont
   if (step.state !== "ready") throw new Error(`Step is ${step.state}; it cannot be prepared.`);
   const blockers = plan.approvals.filter((a) => a.stepId === step.id && !a.grantedAt);
   if (blockers.some((a) => a.kind === "new_debt")) throw new Error("This step creates new debt. Approve the new debt explicitly first.");
+  if (blockers.some((a) => a.kind === "stake")) throw new Error("This step locks NEAR in staking. Approve the stake explicitly first.");
   return { kind: "prepare", step };
 }
 
@@ -239,7 +240,7 @@ export function newPlan(i: NewPlanInput, at = Date.now()): ActionPlan & { recomm
 }
 
 const SIGNED: StepKind[] = [
-  "supply", "withdraw", "stake", "unstake", "withdraw_unstaked", "collateral_add",
+  "supply", "withdraw", "stake", "unstake", "withdraw_unstaked", "native_stake", "native_unstake", "native_withdraw", "collateral_add",
   "borrow", "repay", "collateral_release", "pay_deposit",
 ];
 
@@ -279,7 +280,7 @@ export function review(plan: ActionPlan, choiceId: string, specs: StepSpec[], at
     .filter((s) => s.approval === "owner_wallet")
     .map((s) => ({
       stepId: s.id,
-      kind: s.kind === "borrow" ? ("new_debt" as const) : s.kind === "stake" ? ("stake" as const) : ("spend" as const),
+      kind: s.kind === "borrow" ? ("new_debt" as const) : s.kind === "stake" || s.kind === "native_stake" ? ("stake" as const) : ("spend" as const),
     }));
   plan.state = "reviewed";
   plan.updatedAt = new Date(at).toISOString();
@@ -321,9 +322,12 @@ export function assertSameIntent(existing: ActionPlan, objective: PlanObjective,
 export const STEP_LABEL: Record<StepKind, string> = {
   supply: "Supply to Rhea",
   withdraw: "Withdraw from Rhea",
-  stake: "Stake",
-  unstake: "Unstake",
-  withdraw_unstaked: "Withdraw unstaked NEAR",
+  stake: "Stake NEAR for LiNEAR",
+  unstake: "Unstake LiNEAR",
+  withdraw_unstaked: "Claim unstaked NEAR from LiNEAR",
+  native_stake: "Stake with a validator",
+  native_unstake: "Unstake from the validator",
+  native_withdraw: "Withdraw unstaked NEAR from the validator",
   collateral_add: "Add collateral",
   borrow: "Borrow",
   repay: "Repay",

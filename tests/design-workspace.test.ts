@@ -176,7 +176,9 @@ test("RPC 429 retries across fallback before bounded backoff and never fabricate
   assert.equal(result.value, "exact");
   assert.equal(calls, 3);
   assert.notEqual(urls[0], urls[1]);
-  assert.deepEqual(sleeps, [250]);
+  // One jittered back-off (250 ms ± 25%) before the third attempt succeeds.
+  assert.equal(sleeps.length, 1);
+  assert.ok(sleeps[0] >= 187 && sleeps[0] <= 313, String(sleeps[0]));
   await assert.rejects(
     readRpc(
       "query",

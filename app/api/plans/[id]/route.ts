@@ -66,9 +66,9 @@ export async function POST(r: Request) {
     if (b.action === "review") reviewChoice(plan, b.choiceId);
     else if (b.action === "cancel") cancel(plan);
     else if (b.action === "approve") {
-      // Explicit owner approval of new debt for one step; the wallet still signs separately.
-      const a = plan.approvals.find((x) => x.stepId === b.stepId && x.kind === "new_debt");
-      if (!a) throw new Error("This step has no new-debt approval to grant.");
+      // Explicit owner approval of new debt or of a stake (locks NEAR) for one step; the wallet still signs separately.
+      const a = plan.approvals.find((x) => x.stepId === b.stepId && (x.kind === "new_debt" || x.kind === "stake"));
+      if (!a) throw new Error("This step has no new-debt or stake approval to grant.");
       grantApproval(plan, b.stepId);
     } else if (b.action === "handoff") grantApproval(plan, b.stepId);
     else if (b.action === "check") ledger = await reconcile(r, s, plan);

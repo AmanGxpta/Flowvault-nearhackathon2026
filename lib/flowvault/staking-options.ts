@@ -289,15 +289,17 @@ export async function unsignedStake(
     ...normalized,
     // Engines valuation: the NEAR amount is valued from Rhea's Pyth price (oracle upper bound). The
     // valuation gate only remains when that evidence is unavailable or stale.
-    executionSupported: kind === "linear",
-    preparationEndpoint: kind === "linear" ? "/api/staking/actions" : null,
+    // LiNEAR: /api/staking/actions (Positions). Native with a named pool: /api/staking/native (Engines P2),
+    // which re-evaluates the validator at prepare and at wallet handoff. rNEAR has no execution path.
+    executionSupported: kind === "linear" || (kind === "native" && !!pool),
+    preparationEndpoint: kind === "linear" ? "/api/staking/actions" : kind === "native" && pool ? "/api/staking/native" : null,
     policy: {
       allowed: null,
       evaluation:
         "Journal preparation and authorization required; preview grants no permission.",
       valuation: stakeValue,
       violations:
-        kind === "linear" && stakeValue.usdcRaw !== null
+        (kind === "linear" || (kind === "native" && !!pool)) && stakeValue.usdcRaw !== null
           ? []
           : [
               stakeValue.usdcRaw === null
@@ -310,14 +312,18 @@ export async function unsignedStake(
                 : {
                     code: "STAKING_EXECUTION_NOT_ENABLED",
                     message:
-                      "NEAR valuation is verified for policy caps; owner wallet staking execution is not enabled in this path yet.",
+                      kind === "native"
+                        ? "Choose a verified validator; native staking executes per pool through /api/staking/native."
+                        : "No execution path for " + kind + " yet; this is an unsigned quote only.",
                   },
             ],
     },
     note:
       kind === "linear"
         ? "LiNEAR journal execution is available through /api/staking/actions, /api/transactions authorize, then signStaking. This preview is never signable."
-        : "SDK unsigned quote only. Native/rNEAR execution remains gated.",
+        : kind === "native" && pool
+          ? "Native staking with " + pool + " is available through a stake plan or /api/staking/native, then /api/transactions authorize, then signNativeStaking. This preview is never signable."
+          : "SDK unsigned quote only. rNEAR has no execution path yet.",
   };
 }
 
