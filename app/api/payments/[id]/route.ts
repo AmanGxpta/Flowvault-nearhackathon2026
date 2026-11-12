@@ -23,6 +23,7 @@ import {
   invalidatePlan,
   projectObligations,
 } from "@/lib/flowvault/obligations";
+import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 function idOf(r: Request) {
   return new URL(r.url).pathname.split("/").filter(Boolean).at(-1)!;
 }
@@ -45,6 +46,7 @@ async function cleanupCancelled(
 export async function GET(r: Request) {
   try {
     const s = await session(r);
+    await withCapitalEvidence(s.workspace);
     return json({ payment: (await paymentGet(s.id, idOf(r))).plan }, s.cookie);
   } catch (e) {
     return failure(e);
@@ -54,6 +56,7 @@ export async function POST(r: Request) {
   try {
     mutation(r);
     const s = await session(r);
+    await withCapitalEvidence(s.workspace);
     const b = z
       .object({
         action: z.enum([

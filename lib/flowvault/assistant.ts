@@ -1,3 +1,5 @@
+import { capitalView } from "./valuation.ts";
+import type { CapitalReport } from "./valuation.ts";
 import { payoutSupported } from "./evm.ts";
 import { z } from "zod";
 import { units, decimal, positive } from "./money.ts";
@@ -210,6 +212,8 @@ export interface AssistantContext {
   market: MarketSnapshot;
   ledger: LedgerEntry[];
   creditCapacity: string | null;
+  /** Engines valuation evidence (prices, quotes); capitalView() figures come from it. */
+  evidence?: import("./valuation-evidence.ts").ValuationEvidence | null;
 }
 export function evaluateAssistant(
   raw: unknown,
@@ -228,7 +232,16 @@ export function evaluateAssistant(
   const dates = w.obligations
     .filter((o) => !["paid", "cancelled"].includes(o.status))
     .map((o) => o.dueDate);
-  const usable = usableBalances(p, dates, "0", c.creditCapacity, now);
+  let capital: CapitalReport | undefined;
+  try {
+    capital = capitalView(w, c.portfolio, c.evidence ?? undefined, { now });
+  } catch {
+    capital = undefined;
+  }
+  const usable = usableBalances(p, dates, "0", c.creditCapacity, now, {
+    prices: c.evidence?.prices ?? null,
+    capital,
+  });
   const ranking = calendarRanking(w.mandate, market, p, {}, now);
   const account = w.accountId ?? "fictional-example";
   const action = (

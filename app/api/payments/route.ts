@@ -8,9 +8,11 @@ import {
 } from "@/lib/flowvault/payment-store";
 import { createPaymentPlan } from "@/lib/flowvault/payment-service";
 import { obligationIdentity } from "@/lib/flowvault/payments";
+import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 export async function GET(r: Request) {
   try {
     const s = await session(r);
+    await withCapitalEvidence(s.workspace);
     return json(
       {
         source: s.workspace.mode,
@@ -27,6 +29,7 @@ export async function POST(r: Request) {
   try {
     mutation(r);
     const s = await session(r);
+    await withCapitalEvidence(s.workspace);
     const b = z
       .object({ key: z.string().uuid(), obligationId: z.string() })
       .parse(await r.json());

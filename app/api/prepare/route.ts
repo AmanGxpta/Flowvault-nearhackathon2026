@@ -5,10 +5,12 @@ import { session, mutation, json, failure } from "@/lib/flowvault/store";
 import { freshSupply, freshWithdraw } from "@/lib/flowvault/prepare";
 import { supplyHoldback } from "@/lib/flowvault/execution";
 import { createAttempt, preparationRetry } from "@/lib/flowvault/attempts";
+import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 export async function POST(request: Request) {
   try {
     mutation(request);
     const s = await session(request);
+    await withCapitalEvidence(s.workspace);
     const body = z
       .object({
         amount: z.string().max(40),

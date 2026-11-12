@@ -1,6 +1,9 @@
 import { ownerPositions } from "./accounts.ts";
 import { units, decimal } from "./money.ts";
 import type { Portfolio, PortfolioSection } from "./types.ts";
+import { valuePortfolio, usdcText } from "./valuation.ts";
+import type { CapitalReport } from "./valuation.ts";
+import type { PriceEvidence } from "./valuation-evidence.ts";
 export interface BalanceMetric {
   amount: string | null;
   knownSubtotal: string;
@@ -18,8 +21,18 @@ export function usableBalances(
   committed = "0",
   credit: string | null = null,
   now = Date.now(),
+  /** Engines evidence: with prices, NEAR/LST exposure is valued; capital adds spendable/holdback/surplus. */
+  evidence: { prices?: PriceEvidence | null; capital?: CapitalReport } = {},
 ) {
   p = { ...p, positions: ownerPositions(p.positions) };
+  // Net worth is the shared valuation pass (valuation.ts), never a local sum.
+  const value = valuePortfolio(
+    p.positions,
+    p.source,
+    p.source === "live" ? (evidence.prices ?? null) : null,
+    p.capturedAt,
+    now,
+  );
   const fresh =
     Number.isFinite(Date.parse(p.capturedAt)) &&
     Math.abs(now - Date.parse(p.capturedAt)) <= 180000;
@@ -38,27 +51,11 @@ export function usableBalances(
     usd
       .filter((x) => kind.includes(x.kind))
       .reduce((n, x) => n + units(x.amount), 0n);
-  const fictionalValued =
-    p.source === "demo"
-      ? p.positions
-          .filter((x) => x.asset !== "USDC" && x.valuation?.source === "demo")
-          .reduce(
-            (n, x) =>
-              n + (x.kind === "debt" ? -1n : 1n) * units(x.valuation!.amount),
-            0n,
-          )
-      : 0n;
-  const all =
-    sum(["wallet", "supplied", "collateral"]) - sum(["debt"]) + fictionalValued;
+  const all = value.assets - value.debt;
   const reserved = units(committed);
   const wallet = sum(["wallet"]);
   const cash = wallet > reserved ? wallet - reserved : 0n;
-  const unvalued = p.positions.some(
-    (x) =>
-      x.asset !== "USDC" &&
-      x.amount !== "0" &&
-      !(p.source === "demo" && x.valuation?.source === "demo"),
-  );
+  const unvalued = value.unknownValue;
   const metric = (
     n: bigint,
     unknown: string[] = [],
@@ -157,18 +154,26 @@ export function usableBalances(
       ),
     },
     committedCapital: metric(supplied + reserved, [], "committedCapital"),
-    unvaluedAssets: p.positions
-      .filter(
-        (x) =>
-          x.asset !== "USDC" &&
-          !(p.source === "demo" && x.valuation?.source === "demo"),
-      )
-      .map((x) => ({
-        id: x.id,
-        asset: x.asset,
-        amount: x.amount,
+    unvaluedAssets: value.valuations
+      .filter((v) => v.kind === "observed" && v.usdcRaw === null)
+      .map((v) => ({
+        id: v.positionId,
+        asset: v.asset,
+        amount: p.positions.find((x) => x.id === v.positionId)?.amount ?? "unknown",
         valuation: null,
+        reason: v.unavailableReason ?? null,
       })),
+    valuations: value.valuations,
+    capital: evidence.capital
+      ? {
+          spendableNow: usdcText(evidence.capital.spendableNowUsdcRaw),
+          holdback: usdcText(evidence.capital.holdbackUsdcRaw),
+          surplus: usdcText(evidence.capital.surplusUsdcRaw),
+          netWorth: usdcText(evidence.capital.netWorthUsdcRaw),
+          blocksAutomation: evidence.capital.blocksAutomation,
+          reasons: evidence.capital.reasons,
+        }
+      : null,
     committedInFlight: committed,
   };
 }

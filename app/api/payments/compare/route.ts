@@ -6,6 +6,7 @@ import { readLedger } from "@/lib/flowvault/policy-store";
 import { demoMarket } from "@/lib/flowvault/seed";
 import { liveMarket } from "@/lib/flowvault/near";
 import { compareObligation } from "@/lib/flowvault/payment-comparison";
+import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 export async function POST(r: Request) {
   try {
     mutation(r);
@@ -14,6 +15,7 @@ export async function POST(r: Request) {
       .strict()
       .parse(await r.json());
     const s = await session(r);
+    await withCapitalEvidence(s.workspace);
     const [{ portfolio }, market, ledger] = await Promise.all([
       workspacePortfolio(s.workspace),
       s.workspace.mode === "demo" ? demoMarket() : liveMarket(),

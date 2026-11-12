@@ -1,3 +1,4 @@
+import { readActionValuation } from "./valuation-evidence.ts";
 import { NEAR_READ_PROVIDERS } from "./rpc-endpoints.ts";
 import { units, decimal, positive } from "./money.ts";
 import type { Workspace } from "./types.ts";
@@ -263,6 +264,7 @@ export async function unsignedStake(
       ? await m.native.quoteStake({ pool, amount: positive(amount, 24) })
       : await m.liquid(kind).quoteStake({ amount: positive(amount, 24) });
   const normalized = normalizeStakeQuote(q, receiver, amount);
+  const stakeValue = await readActionValuation(positive(amount, 24), "NEAR");
   return {
     verification: {
       source:
@@ -282,14 +284,24 @@ export async function unsignedStake(
     preparesWalletAttempt: false,
     expiresAt: new Date(Date.now() + 180000).toISOString(),
     ...normalized,
+    // Engines valuation: the NEAR amount is valued from Rhea's Pyth price (oracle upper bound). The
+    // valuation gate only remains when that evidence is unavailable or stale.
     policy: {
       allowed: false,
+      valuation: stakeValue,
       violations: [
-        {
-          code: "NEAR_USDC_VALUATION_UNVERIFIED",
-          message:
-            "USDC-denominated daily/action/cost caps require a verified NEAR valuation before any wallet handoff.",
-        },
+        stakeValue.usdcRaw === null
+          ? {
+              code: "NEAR_USDC_VALUATION_UNVERIFIED",
+              message:
+                "USDC-denominated daily/action/cost caps require a verified NEAR valuation before any wallet handoff. " +
+                (stakeValue.unavailableReason ?? ""),
+            }
+          : {
+              code: "STAKING_EXECUTION_NOT_ENABLED",
+              message:
+                "NEAR valuation is verified for policy caps; owner wallet staking execution is not enabled in this path yet.",
+            },
       ],
     },
     note: "Verified SDK unsigned quote only. No registered wallet attempt, authority or staking signer helper; owner execution support remains gated.",

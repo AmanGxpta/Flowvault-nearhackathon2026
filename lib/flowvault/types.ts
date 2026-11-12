@@ -27,6 +27,8 @@ export interface Mandate {
   approved: string[];
   borrowing: boolean;
   version: number;
+  /** Engines: evidence-backed reservations attached per request by valuation.attachReservations(); never persisted. */
+  evidenceReservations?: import("./contracts").Reservation[];
 }
 export interface Market {
   id: string;

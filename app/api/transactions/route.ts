@@ -24,9 +24,11 @@ import {
 } from "@/lib/flowvault/execution";
 import { freshSupply, freshWithdraw } from "@/lib/flowvault/prepare";
 import { networkRpc } from "@/lib/flowvault/near";
+import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 export async function GET(request: Request) {
   try {
     const s = await session(request);
+    await withCapitalEvidence(s.workspace);
     return json(
       {
         source: s.workspace.mode,
@@ -43,6 +45,7 @@ export async function POST(request: Request) {
   try {
     mutation(request);
     const s = await session(request);
+    await withCapitalEvidence(s.workspace);
     const b = z
       .object({
         id: z.string().uuid(),

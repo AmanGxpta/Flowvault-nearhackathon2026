@@ -4,9 +4,13 @@ import { usableBalances } from "@/lib/flowvault/usable";
 import { portfolioCredit } from "@/lib/flowvault/credit-live";
 import { listActiveAttempts } from "@/lib/flowvault/attempts";
 import { units, decimal } from "@/lib/flowvault/money";
+import { readValuationEvidence } from "@/lib/flowvault/valuation-evidence";
+import { attachReservations, capitalView } from "@/lib/flowvault/valuation";
 export async function GET(r: Request) {
   try {
     const s = await session(r);
+    const evidence = await readValuationEvidence(s.workspace);
+    attachReservations(s.workspace, evidence);
     const q = new URL(r.url).searchParams;
     const mode = q.get("mode") ?? s.workspace.mode;
     if (!["live", "demo"].includes(mode))
@@ -43,9 +47,19 @@ export async function GET(r: Request) {
       : s.workspace.obligations
           .filter((o) => !["paid", "cancelled"].includes(o.status))
           .map((o) => o.dueDate);
+    let capital;
+    try {
+      capital =
+        p.accountId === s.workspace.accountId || s.workspace.mode === "demo"
+          ? capitalView(s.workspace, p, evidence, { committedRaw: reserved })
+          : undefined;
+    } catch {
+      capital = undefined;
+    }
     return json(
       {
         ...p,
+        capital: capital ?? null,
         staking,
         watchedErrors,
         credit,
@@ -54,6 +68,8 @@ export async function GET(r: Request) {
           [...new Set(dates)],
           decimal(reserved),
           credit.capacity,
+          Date.now(),
+          { prices: evidence.prices, capital },
         ),
         coverage: {
           near: p.accountId ? "requested" : "not-configured",

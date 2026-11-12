@@ -10,10 +10,12 @@ import { positive, units } from "@/lib/flowvault/money";
 import { compareCash } from "@/lib/flowvault/planner";
 import { demoMarket, demoPortfolio } from "@/lib/flowvault/seed";
 import type { CashQuote } from "@/lib/flowvault/types";
+import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 export async function POST(request: Request) {
   try {
     mutation(request);
     const s = await session(request);
+    await withCapitalEvidence(s.workspace);
     const body = z
       .object({
         amount: z.string().max(40),

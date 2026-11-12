@@ -9,6 +9,7 @@ import { demoMarket } from "@/lib/flowvault/seed";
 import { liveMarket } from "@/lib/flowvault/near";
 import { portfolioCredit } from "@/lib/flowvault/credit-live";
 import { readLedger } from "@/lib/flowvault/policy-store";
+import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 function setting(name: string) {
   const binding = (env as unknown as Record<string, unknown>)[name];
   return typeof binding === "string" ? binding : process.env[name];
@@ -24,6 +25,7 @@ export async function POST(r: Request) {
       .strict()
       .parse(await r.json());
     const s = await session(r);
+    const evidence = await withCapitalEvidence(s.workspace);
     const now = Date.now();
     const intent = await assistantIntent(
       b.question,
@@ -65,6 +67,7 @@ export async function POST(r: Request) {
         market,
         ledger: workspaceLedger(s.workspace, ledger),
         creditCapacity,
+        evidence,
       },
       now,
     );

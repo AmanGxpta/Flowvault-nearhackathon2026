@@ -6,9 +6,11 @@ import {
   obligationCash,
 } from "@/lib/flowvault/obligations";
 import { decimal } from "@/lib/flowvault/money";
+import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 export async function GET(request: Request) {
   try {
     const s = await session(request);
+    await withCapitalEvidence(s.workspace);
     let totals;
     try {
       totals = {

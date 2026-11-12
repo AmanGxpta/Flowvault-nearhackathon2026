@@ -2,6 +2,7 @@ import { defaultPolicy } from "./policy.ts";
 import { z } from "zod";
 import { units, decimal } from "./money.ts";
 import type { Mandate, Workspace, Obligation } from "./types.ts";
+import { dueInHorizon, reservationFor } from "./valuation.ts";
 export const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -40,23 +41,11 @@ export const obligationInput = z.object({
 });
 export function obligationCash(m: Mandate, now = Date.now()): bigint {
   if (!m.obligations) return units(m.cashAmount); // legacy callers retain the original guard
-  const end = Date.parse(
-    new Date(now + m.horizon * 86400000).toISOString().slice(0, 10) +
-      "T23:59:59.999Z",
+  // One calculation: every protected obligation's USDC need comes from valuation.reserveFor().
+  return dueInHorizon(m, m.obligations, now).reduce(
+    (sum, o) => sum + BigInt(reservationFor(m, o, now).reserveUsdcRaw),
+    0n,
   );
-  return m.obligations
-    .filter(
-      (o) =>
-        !["paid", "cancelled"].includes(o.status) &&
-        (o.legacyProtected || Date.parse(o.dueDate + "T23:59:59.999Z") <= end),
-    )
-    .reduce((sum, o) => {
-      if (o.token !== "USDC" && !(m.source === "demo" && o.token === "USDT"))
-        throw new Error(
-          "Obligation valuation unavailable: only native USDC obligations can be reserved automatically.",
-        );
-      return sum + units(o.amount);
-    }, 0n);
 }
 export function holdback(m: Mandate, now = Date.now()) {
   return units(m.reserve) + obligationCash(m, now);

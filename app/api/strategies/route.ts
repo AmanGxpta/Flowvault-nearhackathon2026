@@ -3,9 +3,11 @@ import { demoMarket } from "@/lib/flowvault/seed";
 import { liveMarket } from "@/lib/flowvault/near";
 import { workspacePortfolio } from "@/lib/flowvault/portfolio-service";
 import { calendarRanking } from "@/lib/flowvault/calendar";
+import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 export async function GET(r: Request) {
   try {
     const s = await session(r);
+    await withCapitalEvidence(s.workspace);
     const q = new URL(r.url).searchParams;
     const [market, { portfolio: p }] = await Promise.all([
       s.workspace.mode === "demo" ? demoMarket() : liveMarket(),

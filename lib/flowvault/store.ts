@@ -108,7 +108,12 @@ export async function save(id: string, workspace: Workspace, revision: number) {
     .prepare(
       "UPDATE workspaces SET payload=?, revision=revision+1 WHERE id=? AND revision=?",
     )
-    .bind(JSON.stringify(workspace), id, revision)
+    .bind(
+      // Evidence reservations are per-request valuation inputs, never stored state.
+      JSON.stringify(workspace, (k, v) => (k === "evidenceReservations" ? undefined : v)),
+      id,
+      revision,
+    )
     .run();
   if (result.meta.changes !== 1)
     throw new Error("Workspace changed in another tab. Refresh and try again.");
