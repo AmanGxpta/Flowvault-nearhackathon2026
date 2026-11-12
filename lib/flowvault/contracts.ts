@@ -113,7 +113,9 @@ export type StepKind =
   | "pay_quote"
   | "pay_deposit"
   | "verify_payout"
-  | "wait_until";
+  | "wait_until"
+  // Funding mesh (Stream A): one cross-wallet leg, signed by the source account's own wallet.
+  | "fund_transfer";
 
 export type StepState =
   | "pending" // dependencies not met
@@ -129,7 +131,8 @@ export type StepState =
 
 export interface FundingChoice {
   id: string;
-  kind: "idle_cash" | "withdraw" | "unstake" | "sell" | "borrow";
+  /** "multi_source" (Stream A): funded from one or more proven accounts; legs in ActionPlan funding extras. */
+  kind: "idle_cash" | "withdraw" | "unstake" | "sell" | "borrow" | "multi_source";
   eligible: boolean;
   reasons: string[];
   amountUsdcRaw: string;
@@ -154,7 +157,7 @@ export interface PlanStep {
   attemptId?: string;
   paymentPlanId?: string;
   expiresAt?: string;
-  expected: { amountRaw?: string; asset?: string; usdcRaw?: string; note?: string; /** Staking pool or venue for venue-specific steps (native_*). */ venue?: string };
+  expected: { amountRaw?: string; asset?: string; usdcRaw?: string; note?: string; /** Staking pool or venue for venue-specific steps (native_*). */ venue?: string; /** fund_transfer: the MultiSourceFunding leg it moves. */ legId?: string };
   actual?: { amountRaw?: string; asset?: string; usdcRaw?: string; evidence?: unknown };
   timeline: ExecutionStep[];
 }
@@ -230,7 +233,8 @@ export interface LedgerEntry {
   at: string;
   kind: LedgerKind;
   asset: string;
-  chain?: Chain;
+  /** "solana" (additive, Stream A): a funding leg that left a Solana account. */
+  chain?: Chain | "solana";
   amountRaw: string;
   decimals: number;
   usdcRaw: string | null;
@@ -413,4 +417,111 @@ export interface MandateAuditEntry {
   attemptIds?: string[];
   txHashes?: string[];
   ledgerEntryIds?: string[];
+}
+
+/* ───────────── Phase 4 — funding mesh (owner: Stream A) ─────────────
+ * Cross-wallet orchestration. Each proven account (account-registry.ts) has an ExecutionCapability: what it holds,
+ * what is free after other plans' reservations, how it signs, what gas it needs and which operations FlowVault can
+ * build for it. A multi-source plan funds one target (the plan's NEAR account) from several such accounts. Every
+ * leg is approved in the wallet that controls its source and settles on its own chain: there is NO cross-chain
+ * atomicity, so a plan can complete partially and must always say where the funds are. */
+export type ExecutionNetwork = "near" | "ethereum" | "base" | "arbitrum" | "solana";
+export type SigningMethod = "near_wallet" | "eip1193" | "wallet_standard";
+export type FundingOperation =
+  | "hold" // already in the account the plan executes from
+  | "rhea_withdraw" // Rhea supply → NEAR wallet (existing withdraw journal)
+  | "oneclick_deposit"; // transfer USDC to a 1Click deposit address; 1Click converts and delivers to the target
+export interface CapabilityAsset {
+  asset: string;
+  positionId: string;
+  decimals: number;
+  /** Observed at finality. */
+  quantityRaw: string;
+  /** Held by other active plans' funding legs (reservations keyed by account). */
+  reservedRaw: string;
+  /** quantity − reserved, never negative. */
+  availableRaw: string;
+}
+export interface ExecutionCapability {
+  /** Registry id, e.g. "evm:0xabc…" or "solana:9xQ…". One capability per account × network. */
+  accountId: string;
+  chain: "near" | "evm" | "solana";
+  network: ExecutionNetwork;
+  address: string;
+  label: string;
+  /** The NEAR account plans execute from. */
+  primary: boolean;
+  signing: SigningMethod;
+  /** A browser fact (a wallet can sign for it right now). The server never knows it and reports null. */
+  connected: boolean | null;
+  assets: CapabilityAsset[];
+  /** Native gas the operations need; payableInUsdc only where a verified USDC-gas path exists (Phase 4 item 3). */
+  gas: { asset: "NEAR" | "ETH" | "SOL"; decimals: number; balanceRaw: string | null; needRaw: string | null; sufficient: boolean | null; payableInUsdc: boolean };
+  operations: FundingOperation[];
+  /** Why an operation or the whole account is unavailable (never silently dropped). */
+  reasons: string[];
+  source: Source;
+  capturedAt: string;
+}
+/** A reservation is derived from active plans' unfinished legs; it is released when the leg ends or the plan does. */
+export interface AccountReservation {
+  accountId: string;
+  network: ExecutionNetwork;
+  asset: string;
+  amountRaw: string;
+  planId: string;
+  legId: string;
+  state: "held" | "in_flight";
+}
+export interface FundingLeg {
+  id: string;
+  accountId: string;
+  network: ExecutionNetwork;
+  address: string;
+  label: string;
+  asset: "USDC";
+  operation: FundingOperation;
+  /** Account registry id of the wallet that must approve this leg; null for "hold". */
+  signer: string | null;
+  signing: SigningMethod | null;
+  /** Leaves the source (base units of `asset`). */
+  amountRaw: string;
+  /** At least this arrives at the target after the leg's known costs (USDC raw). */
+  minNetRaw: string;
+  /** Route fee + slippage bound + gas valued in USDC; null = a cost is unknown (blocks the leg). */
+  costsUsdcRaw: string | null;
+  gas: { asset: "NEAR" | "ETH" | "SOL"; amountRaw: string | null; usdcRaw: string | null };
+  /** The plan step that moves it (none for hold). */
+  stepKind: StepKind | null;
+  /** Plain-language reason this source was chosen; kept through review and execution. */
+  rationale: string;
+  eligible: boolean;
+  reasons: string[];
+}
+export interface MultiSourceFunding {
+  target: { accountId: string; network: "near"; asset: "USDC"; amountRaw: string };
+  mode: "single" | "mixed";
+  legs: FundingLeg[];
+  /** Sum of legs' minNetRaw. ≥ target.amountRaw for an eligible plan. */
+  netToTargetRaw: string;
+  costsUsdcRaw: string | null;
+  /** Each funding set the engine considered, after all known costs (single sources and the mixed set). */
+  comparison: { choiceId: string; mode: "single" | "mixed"; legs: string[]; costsUsdcRaw: string | null; eligible: boolean; reasons: string[] }[];
+  /** Always false: legs on different chains cannot be made all-or-nothing. */
+  atomic: false;
+  /** Why these sources, in order; shown at review and during execution. */
+  explanation: string[];
+  capturedAt: string;
+}
+/** Where one leg's funds are right now, from journal + provider evidence (recovery view). */
+export interface FundsLocation {
+  legId: string;
+  where: "source" | "in_transit" | "target" | "refunded_to_source" | "unknown";
+  accountId: string;
+  network: ExecutionNetwork;
+  amountRaw: string;
+  detail: string;
+  /** What the owner can do next, if anything. */
+  next: string | null;
+  evidence: string[];
 }

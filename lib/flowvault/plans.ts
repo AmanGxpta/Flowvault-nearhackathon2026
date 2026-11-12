@@ -242,6 +242,7 @@ export function newPlan(i: NewPlanInput, at = Date.now()): ActionPlan & { recomm
 const SIGNED: StepKind[] = [
   "supply", "withdraw", "stake", "unstake", "withdraw_unstaked", "native_stake", "native_unstake", "native_withdraw", "collateral_add",
   "borrow", "repay", "collateral_release", "pay_deposit",
+  "fund_transfer", // Stream A: signed by the source account's own wallet (signer set by wireLegSteps)
 ];
 
 export interface StepSpec {
@@ -336,6 +337,7 @@ export const STEP_LABEL: Record<StepKind, string> = {
   pay_deposit: "Deposit to the 1Click address",
   verify_payout: "Verify the payout on the destination chain",
   wait_until: "Wait",
+  fund_transfer: "Move USDC to your NEAR account",
 };
 
 export type { Chain };

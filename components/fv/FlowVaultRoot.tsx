@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { LendingVenues } from "./LendingVenues";
 import { PlanDock } from "./PlanDock";
+import { signFundingLeg } from "@/lib/flowvault/funding-mesh-client"; // Stream A: funding legs
 import { DesignApp } from "./design-logic";
 import { api, clearLegacyEvm, emptySnapshot, getScope, loadSnapshot, setScope, takeLegacyEvm, type LiveSnapshot, type Scope } from "./live";
 import { useNearWallet, signUnwrap, signWnearRegister, signSupply, signWithdraw, signPayment, signLending, signStaking, signNativeStaking, walletClient } from "@/lib/flowvault/wallet";
@@ -284,6 +285,7 @@ export function FlowVaultRoot() {
       sign: async (preparation) => {
         const s = snapRef.current;
         if (getScope() !== "personal" || s.scope !== "personal") throw new Error("The example workspace can’t be signed. Nothing was sent.");
+        if (preparation.kind === "fund_transfer") return void (await signFundingLeg(preparation, sessionsRef.current, api).finally(() => refresh())); // Stream A: signed in the source account's own wallet
         if (!s.walletAccount || s.walletAccount !== preparation.accountId || s.workspace?.accountId !== preparation.accountId)
           throw new Error("Connect the wallet that owns this prepared account.");
         const { selector } = await walletClient();

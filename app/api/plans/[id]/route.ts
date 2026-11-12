@@ -6,6 +6,7 @@ import { applyExpiry, applyFence, cancel, planContext, rebase, settle } from "@/
 import { reviewChoice, type StoredPlan } from "@/lib/flowvault/plans-service";
 import { executeCheck, executePrepare, grantApproval } from "@/lib/flowvault/step-adapters";
 import { readAttempt } from "@/lib/flowvault/attempts";
+import { legPreparation } from "@/lib/flowvault/funding-mesh-live";
 
 function idOf(r: Request) {
   return decodeURIComponent(new URL(r.url).pathname.split("/").filter(Boolean).at(-1)!);
@@ -78,7 +79,8 @@ export async function POST(r: Request) {
       const after = await session(r);
       rebase(plan, planContext(after.workspace, after.revision));
       const step = plan.steps.find((x) => x.id === b.stepId);
-      if (step?.attemptId && step.state === "prepared") {
+      if (step?.attemptId?.startsWith("leg:") && step.state === "prepared") preparation = await legPreparation(s.id, step.attemptId, plan.accountId); // Stream A: funding leg
+      else if (step?.attemptId && step.state === "prepared") {
         const { attempt } = await readAttempt(s.id, step.attemptId);
         preparation = { ...attempt.preparation, kind: attempt.kind, attemptId: attempt.id };
       }

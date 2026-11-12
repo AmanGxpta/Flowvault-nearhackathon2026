@@ -9,6 +9,7 @@ import { api, type Scope } from "./live";
 import { reasonText } from "./live-adapt";
 import { dlabel, money } from "./format";
 import { missingEntries, planPolicySteps, stepEntries, withEntries, type PolicyEntry } from "@/lib/flowvault/plans-policy";
+import { FundingSources, fundingChoiceLabel } from "./FundingSources"; // Stream A
 
 type Plan = ActionPlan & {
   title?: string;
@@ -52,6 +53,7 @@ const STEP_LABEL: Record<string, string> = {
   native_withdraw: "Withdraw unstaked NEAR from the validator", collateral_add: "Add collateral", borrow: "Borrow", repay: "Repay",
   collateral_release: "Release collateral", pay_quote: "Get a live exact-output quote", pay_deposit: "Deposit to the 1Click address",
   verify_payout: "Verify the payout on the destination chain", wait_until: "Wait",
+  fund_transfer: "Move USDC to your NEAR account", // Stream A
 };
 const STATE_LABEL: Record<string, string> = {
   pending: "waiting for the step before", ready: "ready", prepared: "prepared · not signed", awaiting_wallet: "in your wallet",
@@ -407,13 +409,15 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
               <h3 style={H3}>{plan.selectedChoiceId ? "Your choice" : "Alternatives the engines established"}</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {(plan.selectedChoiceId ? plan.alternatives.filter((a) => a.id === plan.selectedChoiceId) : plan.alternatives).map((a) => (
-                  <Alt key={a.id} a={a} recommended={a.id === plan.recommendedChoiceId} canChoose={!plan.selectedChoiceId && (plan.state === "evaluated" || plan.state === "reviewed")} busy={busy} onChoose={() => act("review", { action: "review", choiceId: a.id })} />
+                  <Alt key={a.id} a={a} label={a.kind === "multi_source" ? fundingChoiceLabel(plan, a.id) : undefined} recommended={a.id === plan.recommendedChoiceId} canChoose={!plan.selectedChoiceId && (plan.state === "evaluated" || plan.state === "reviewed")} busy={busy} onChoose={() => act("review", { action: "review", choiceId: a.id })} />
                 ))}
               </div>
               {!plan.selectedChoiceId && plan.state === "evaluated" && eligible.length ? (
                 <p style={{ margin: "8px 0 0", fontSize: "12px", color: "var(--fvc-8A9285)" }}>Choosing an alternative only reviews it. Nothing is prepared until you prepare a step, and nothing moves until you approve it in your wallet.</p>
               ) : null}
             </section>
+
+            <FundingSources plan={plan} />
 
             {missing.length ? (
               <section aria-label="Policy entries needed" style={{ padding: "12px", borderRadius: "10px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFF6E8)", fontSize: "13px", color: "var(--fvc-4A5349)" }}>
@@ -536,8 +540,8 @@ const H3: React.CSSProperties = { margin: "0 0 8px", fontSize: "11px", letterSpa
 const DT: React.CSSProperties = { color: "var(--fvc-5B6458)" };
 const DD: React.CSSProperties = { margin: 0, textAlign: "right", fontWeight: 600, color: "var(--fvc-1E2A22)" };
 
-function Alt({ a, recommended, canChoose, busy, onChoose }: { a: FundingChoice; recommended: boolean; canChoose: boolean; busy: string | null; onChoose: () => void }) {
-  const label = a.id === "idle-cash" ? "Idle wallet USDC" : a.id === "withdraw-then-pay" ? "Withdraw from Rhea, then pay" : a.id === "borrow" || a.id === "rhea-borrow" ? "Borrow on Rhea" : a.id.startsWith("sell-") ? "Sell " + a.id.slice(5).toUpperCase() : a.id === "rhea-usdc" ? "Rhea Lending (supply USDC)" : a.id.replace(/-/g, " ");
+function Alt({ a, label: given, recommended, canChoose, busy, onChoose }: { a: FundingChoice; label?: string; recommended: boolean; canChoose: boolean; busy: string | null; onChoose: () => void }) {
+  const label = given ?? a.id === "idle-cash" ? "Idle wallet USDC" : a.id === "withdraw-then-pay" ? "Withdraw from Rhea, then pay" : a.id === "borrow" || a.id === "rhea-borrow" ? "Borrow on Rhea" : a.id.startsWith("sell-") ? "Sell " + a.id.slice(5).toUpperCase() : a.id === "rhea-usdc" ? "Rhea Lending (supply USDC)" : a.id.replace(/-/g, " ");
   return (
     <div style={{ border: "1px solid " + (a.eligible ? "var(--fvb-C9D9BF)" : "var(--fvb-E3E6DB)"), background: a.eligible ? "var(--fvb-F4F7EE)" : "var(--fvb-FFFFFF)", borderRadius: "10px", padding: "10px 12px", fontSize: "13px" }}>
       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>

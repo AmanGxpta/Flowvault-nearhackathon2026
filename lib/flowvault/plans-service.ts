@@ -30,9 +30,10 @@ import { capitalView } from "./valuation";
 import { evaluatePool } from "./staking-native-live";
 import { sizeStake, stakeAlternatives, exitSteps, stakingReviewSpecs, walletNear } from "./staking-plans";
 import type { StakingSizing } from "./staking-plans";
+import { meshAlternatives, reviewMesh, type MeshPlanExtras } from "./funding-mesh-plans"; // Stream A: multi-source funding
 
 /** Local, additive extras stored beside the contract fields (never a redefinition of them). */
-export interface PlanExtras {
+export interface PlanExtras extends MeshPlanExtras {
   recommendedChoiceId?: string;
   /** Total USDC the payment may draw (exact-output maximum input), used to size the deposit step. */
   fundingUsdcRaw?: string;
@@ -294,6 +295,9 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
   alternatives.push({ ...b, reasons: [...new Set([...approvalLater(b.reasons), ...common, ...(funding === null ? ["SOURCES_UNVERIFIED"] : []), ...adapterReasons(b.steps)])] });
   for (const a of alternatives) a.reasons = [...new Set(a.reasons)];
   for (const a of alternatives.slice(0, 3)) a.eligible = a.reasons.length === 0;
+  // Stream A: when idle NEAR USDC is short, other proven accounts can send the rest (each leg in its own wallet).
+  const mesh = funding !== null && src ? await meshAlternatives(s, { requiredRaw: funding, idleRaw: units(src.idleAvailable), settleSteps: idleSteps, common: [...common, ...adapterReasons(idleSteps)] }) : null;
+  if (mesh) alternatives.push(...mesh.choices);
   const protectedAssets = (w.policy ?? defaultPolicy(w.mandate.maxMoveCost)).protectedAssets ?? [];
   for (const asset of protectedAssets)
     alternatives.push({
@@ -318,6 +322,7 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
     },
   }) as StoredPlan;
   plan.fundingUsdcRaw = funding?.toString();
+  if (mesh && Object.keys(mesh.options).length) plan.fundingOptions = mesh.options;
   if (src2.credit) plan.credit = src2.credit;
   plan.title = `Pay ${o.label}: exactly ${grouped(o.amount)} ${o.token} on ${CHAIN[o.destination] ?? o.destination} by ${o.dueDate}`;
   plan.evidence = r.evidence;
@@ -327,6 +332,7 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
     { label: "Idle wallet USDC after other payments", value: src?.idleAvailable ?? null, engine: "paymentSources" },
     { label: "Rhea withdrawal needed", value: src?.withdrawalNeeded ?? null, engine: "paymentSources" },
     { label: "Reserve kept", value: w.mandate.reserve, engine: "mandate" },
+    ...(mesh?.figures ?? []),
   ];
   return plan;
 }
@@ -384,6 +390,9 @@ async function accessCash(
       amountUsdcRaw: usdc.toString(), costsUsdcRaw: null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null, availableAt: ready, steps: exit.kinds,
     });
   }
+  // Stream A: other proven accounts can send USDC to the NEAR account (legs only; nothing to settle after).
+  const cashMesh = await meshAlternatives(s, { requiredRaw: amount, idleRaw: 0n, settleSteps: [], common: [] });
+  alternatives.push(...cashMesh.choices);
   const cashCredit = await creditSource(w, amount, deadline ?? today);
   const b = cashCredit.choice;
   const bSteps: StepKind[] = ["borrow"];
@@ -410,6 +419,7 @@ async function accessCash(
     },
   }) as StoredPlan;
   if (Object.keys(staking).length) plan.staking = staking;
+  if (Object.keys(cashMesh.options).length) plan.fundingOptions = cashMesh.options;
   plan.title = title ?? `Free up ${grouped(decimal(amount))} USDC${deadline ? " by " + deadline : ""}`;
   if (cashCredit.credit) plan.credit = cashCredit.credit;
   plan.evidence = w.mode === "demo" ? "Fictional example figures" : "Live reads at " + portfolio.capturedAt;
@@ -742,6 +752,7 @@ export function reviewChoice(plan: StoredPlan, choiceId: string) {
     return { kind, expected: {} };
   });
   if (choice.kind === "borrow") applyCreditEffects(plan, choice);
+  if (choice.kind === "multi_source") return reviewMesh(plan, choiceId, () => review(plan, choiceId, specs)); // Stream A
   return review(plan, choiceId, specs);
 }
 
