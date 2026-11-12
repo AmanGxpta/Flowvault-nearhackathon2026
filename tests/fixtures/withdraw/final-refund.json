@@ -1,0 +1,20 @@
+{
+  "final_execution_status": "FINAL",
+  "transaction": {
+    "signer_id": "example.near",
+    "receiver_id": "contract.main.burrow.near",
+    "actions": []
+  },
+  "status": { "SuccessValue": "" },
+  "receipts_outcome": [
+    {
+      "outcome": {
+        "executor_id": "contract.main.burrow.near",
+        "status": { "SuccessValue": "ZmFsc2U=" },
+        "logs": [
+          "EVENT_JSON:{\"standard\":\"burrow\",\"version\":\"1.0.0\",\"event\":\"withdraw_failed\",\"data\":[{\"account_id\":\"example.near\",\"token_id\":\"17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"amount\":\"12345678000000000000\"}]}"
+        ]
+      }
+    }
+  ]
+}

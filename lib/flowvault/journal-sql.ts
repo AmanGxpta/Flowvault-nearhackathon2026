@@ -1,0 +1,5 @@
+/** Used by D1 and exercised against SQLite. Cancellation and wallet handoff must serialize. */
+export const PAY_HANDOFF_GUARD = ` AND EXISTS (SELECT 1 FROM payment_plans p WHERE p.id=? AND p.session_id=? AND json_extract(p.payload,'$.depositAttemptId')=? AND json_extract(p.payload,'$.state') IN ('quoted','deposit-prepared','awaiting-deposit'))`;
+export const PAY_CANCEL_GUARD = ` AND NOT EXISTS (SELECT 1 FROM wallet_attempts a WHERE a.session_id=payment_plans.session_id AND a.id=json_extract(payment_plans.payload,'$.depositAttemptId') AND json_extract(a.payload,'$.state')<>'prepared')`;
+export const WORKSPACE_HANDOFF_GUARD = ` AND EXISTS (SELECT 1 FROM workspaces w WHERE w.id=? AND w.revision=?)`;
+export const OUTGOING_HANDOFF_GUARD = ` AND NOT EXISTS (SELECT 1 FROM wallet_attempts a WHERE a.session_id=? AND a.id<>? AND json_extract(a.payload,'$.accountId')=? AND COALESCE(json_extract(a.payload,'$.kind'),'supply') IN ('pay','supply') AND json_extract(a.payload,'$.state') IN ('awaiting_wallet','submitted','unknown','partial'))`;

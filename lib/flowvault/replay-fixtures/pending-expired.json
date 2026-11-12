@@ -1,0 +1,78 @@
+{
+  "label": "SIMULATED \u2014 schema replay, no funds moved",
+  "source": "simulated",
+  "recordingNote": "Sanitized derivative of NearAnyStake recorded/derived 1Click response schema. Synthetic values; not a FlowVault funded execution.",
+  "response": {
+    "status": "PENDING_DEPOSIT",
+    "updatedAt": "2026-11-12T12:00:00.000Z",
+    "correlationId": "SIMULATED_CORRELATION_ID",
+    "swapDetails": {
+      "depositedAmount": null,
+      "depositedAmountUsd": null,
+      "depositedAmountFormatted": null,
+      "intentHashes": [],
+      "nearTxHashes": [],
+      "amountIn": null,
+      "amountInFormatted": null,
+      "amountInUsd": null,
+      "amountOut": null,
+      "amountOutFormatted": null,
+      "amountOutUsd": null,
+      "slippage": null,
+      "refundedAmount": "1000000",
+      "refundedAmountFormatted": "SIMULATED",
+      "refundedAmountUsd": "SIMULATED",
+      "refundReason": null,
+      "refundFee": "1000000",
+      "withdrawFee": "1000000",
+      "originChainTxHashes": [],
+      "destinationChainTxHashes": []
+    },
+    "quoteResponse": {
+      "timestamp": "2026-11-12T12:00:00.000Z",
+      "signature": "SIMULATED_SIGNATURE_NOT_VALID",
+      "quoteRequest": {
+        "dry": false,
+        "swapType": "EXACT_INPUT",
+        "depositMode": "SIMPLE",
+        "slippageTolerance": 0,
+        "originAsset": "SIMULATED_USDC_ASSET",
+        "depositType": "ORIGIN_CHAIN",
+        "destinationAsset": "SIMULATED_USDC_ASSET",
+        "amount": "1000000",
+        "refundTo": "SIMULATED_ADDRESS_NOT_USABLE",
+        "refundType": "ORIGIN_CHAIN",
+        "recipient": "SIMULATED_ADDRESS_NOT_USABLE",
+        "recipientType": "INTENTS",
+        "deadline": "2026-11-12T12:00:00.000Z",
+        "appFees": [
+          {
+            "limitOrderId": null,
+            "recipient": "SIMULATED_ADDRESS_NOT_USABLE",
+            "fee": 0
+          }
+        ],
+        "virtualChainRecipient": null,
+        "virtualChainRefundRecipient": null,
+        "referral": null,
+        "confidentiality": "SIMULATED"
+      },
+      "quote": {
+        "amountIn": "1000000",
+        "amountInFormatted": "SIMULATED",
+        "amountInUsd": "SIMULATED",
+        "minAmountIn": "1000000",
+        "amountOut": "1000000",
+        "amountOutFormatted": "SIMULATED",
+        "amountOutUsd": "SIMULATED",
+        "minAmountOut": "1000000",
+        "timeWhenInactive": "2026-11-12T12:00:00.000Z",
+        "depositAddress": "SIMULATED_ADDRESS_NOT_USABLE",
+        "deadline": "2026-11-12T12:00:00.000Z",
+        "timeEstimate": 0,
+        "refundFee": "1000000",
+        "withdrawFee": "1000000"
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "package": "@meteorwallet/sdk",
+  "version": "1.0.24",
+  "license": null,
+  "change": "Remove console.log(accessKey) only; preserve wallet behavior and license notices.",
+  "files": [
+    {
+      "path": "dist/index.js",
+      "originalSha256": "3489c69e527ebc51981ed416b07dff5a563099df9bd66ac22640841e81fe66bb",
+      "patchedSha256": "9d041f07234cc69e7ad15a43a6534bc41cbfc721c36c6d52b7266d2291634c2d"
+    },
+    {
+      "path": "dist/index.cjs",
+      "originalSha256": "4a7c0bbae820d12ccfa1dbf7186d5e2289c237e29476b193ea23fb4d7c72ee97",
+      "patchedSha256": "0287c09150ae8da67e954d3bfcdf09ef98e94b2a71fdf51bde27632a3353391a"
+    }
+  ]
+}

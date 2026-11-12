@@ -1,0 +1,13 @@
+{
+  "contract": "flowvault-policy",
+  "version": "0.1.0",
+  "status": "built, undeployed; no funded runtime verification",
+  "nearSdk": "5.30.1",
+  "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+  "target": "wasm32-unknown-unknown",
+  "builtUtcDate": "2026-11-12",
+  "wasmBytes": 270724,
+  "wasmSha256": "05e6fa998a2ddfabec4602f01d9c6cb6c4222fc0f0cd02f253be1bfb21e28c6a",
+  "sourceSha256": "491627b41391502d2fc955bc8b7322fda4db1f549508348bf611d89ab6cdfad2",
+  "cargoLockSha256": "38de6a3ac716a3481e48686c11c7628291954749a1b76f780c09f667421f0d6b"
+}

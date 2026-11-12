@@ -1,0 +1,2 @@
+import{z}from'zod';import{stressCapacity,creditMarketSchema}from'@/lib/flowvault/credit';import{json,failure,mutation}from'@/lib/flowvault/store';
+export async function POST(r:Request){try{mutation(r);const body=z.object({markets:z.array(creditMarketSchema)}).parse(await r.json());return json({...stressCapacity(body.markets),valuationEvidence:'client-supplied scenario; not independently verified live borrowing capacity'});}catch(e){return failure(e);}}
