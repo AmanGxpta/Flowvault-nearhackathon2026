@@ -1,6 +1,7 @@
 // Generated from docs/design/FlowVault.html by the design converter, then edited by hand.
 /* eslint-disable */
 import { Fragment } from "react";
+import { PolicyContractCard } from "../PolicyContract";
 import { tc } from "../theme";
 
 // Design section: POLICY
@@ -590,24 +591,7 @@ export function PolicyView({ v }: { v: any }) {
             gap: "16px",
           }}
         >
-          {v.authority ? (
-            <section aria-label="Who holds authority" style={{ borderRadius: "18px", padding: "20px", background: "var(--fvb-FFFFFF)", border: "1px solid var(--fvb-E3E6DB)" }}>
-              <h3 style={{ margin: "0 0 4px", fontSize: "16px", fontWeight: "600" }}>Who holds authority</h3>
-              <p style={{ margin: "0 0 12px", fontSize: "12.5px", color: "var(--fvc-6F786B)", lineHeight: "1.45" }}>{v.authorityNote}</p>
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "10px" }}>
-                {v.authority.map((r: any) => (
-                  <li key={r.k} style={{ display: "flex", gap: "10px", fontSize: "13px", lineHeight: "1.45" }}>
-                    <span aria-hidden style={{ flex: "0 0 auto", marginTop: "2px", width: "18px", height: "18px", borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "700", background: r.on ? "var(--fvb-E2EAD6)" : "var(--fvb-F4F5EF)", color: r.on ? "var(--fvc-3F6B3C)" : "var(--fvc-8A9285)" }}>{r.on ? "✓" : "–"}</span>
-                    <span>
-                      <span style={{ fontWeight: "600", color: "var(--fvc-1E2A22)" }}>{r.k}</span>
-                      <span className="fv-sr">{r.on ? " (active)" : " (not active)"}</span>
-                      <span style={{ display: "block", color: "var(--fvc-5B6458)" }}>{r.v}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
+          {v.scope ? <PolicyContractCard key={v.scope} scope={v.scope} policyVersion={v.policyVersion ?? null} live={!!v.policyLive} /> : null}
           <div
             style={{
               borderRadius: "18px",

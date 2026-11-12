@@ -16,6 +16,7 @@ type Plan = ActionPlan & {
   recommendedChoiceId?: string;
   figures?: { label: string; value: string | null; engine: string }[];
   collateral?: { asset: string; amountRaw: string }[];
+  credit?: { venue: string; debtBeforeUsdcRaw: string | null; newDebtUsdcRaw: string; interestUsdcRaw: string | null; stressedHealthAfter: string | null; borrowApr: string | null; minHealth: string | null };
 };
 type PolicyRead = { policy: { venues: string[]; methods: { receiver: string; method: string }[]; version?: number }; revision: number };
 const ENDED = ["completed", "cancelled", "expired", "superseded", "failed"];
@@ -90,6 +91,25 @@ const raw24 = (r: string | null | undefined) => {
   const whole = n / 10n ** 24n;
   const frac = ((n % 10n ** 24n) / 10n ** 20n).toString().padStart(4, "0").replace(/0+$/, "");
   return whole.toLocaleString() + (frac ? "." + frac : "");
+};
+/** A token quantity in base units (e.g. NEAR, 24 decimals) as a plain number with its unit, never dollars. */
+const qtyText = (r: string, decimals: number, unit: string) => {
+  try {
+    const n = BigInt(r);
+    const neg = n < 0n;
+    const a = (neg ? -n : n).toString().padStart(decimals + 1, "0");
+    const whole = a.slice(0, a.length - decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const frac = a.slice(a.length - decimals, a.length - decimals + 4).replace(/0+$/, "");
+    return (neg ? "−" : n > 0n ? "+" : "") + whole + (frac ? "." + frac : "") + " " + unit;
+  } catch {
+    return r;
+  }
+};
+/** Engine figures: dollars only when the figure is a USD/USDC amount; token quantities keep their unit. */
+const figureText = (label: string, value: string) => {
+  if (!/^-?\d+(\.\d+)?$/.test(value)) return value;
+  const token = !/USDC|USD|\$/.test(label) && label.match(/\b(LiNEAR|rNEAR|NEAR)\b/)?.[1];
+  return token ? value.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + " " + token : money(value);
 };
 const raw6 = (r: string | null | undefined) => {
   if (r == null) return null;
@@ -364,7 +384,7 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
                   {plan.figures.map((f) => (
                     <div key={f.label} style={{ display: "contents" }}>
                       <dt style={{ color: "var(--fvc-5B6458)" }}>{f.label}</dt>
-                      <dd style={{ margin: 0, textAlign: "right", fontWeight: 600, color: "var(--fvc-1E2A22)" }} title={"from " + f.engine}>{f.value === null ? "Unknown" : /^-?\d+(\.\d+)?$/.test(f.value) ? money(f.value) : f.value}</dd>
+                      <dd style={{ margin: 0, textAlign: "right", fontWeight: 600, color: "var(--fvc-1E2A22)" }} title={"from " + f.engine}>{f.value === null ? "Unknown" : figureText(f.label, f.value)}</dd>
                     </div>
                   ))}
                 </dl>
@@ -423,17 +443,40 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
                 <h3 style={H3}>Effects if every step completes</h3>
                 <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "1fr auto", rowGap: "6px", columnGap: "12px", fontSize: "13px" }}>
                   <dt style={DT}>Reserve after</dt><dd style={DD}>{raw6(plan.effects.reserveAfterUsdcRaw) ?? "Unknown"}</dd>
-                  <dt style={DT}>Debt after</dt><dd style={DD}>{raw6(plan.effects.debtAfterUsdcRaw) ?? "Unknown"}</dd>
+                  <dt style={DT}>Debt after</dt><dd style={DD}>{raw6(plan.effects.debtAfterUsdcRaw) ?? (plan.steps.some((x) => ["borrow", "repay"].includes(x.kind)) ? "Unknown" : "No change")}</dd>
                   <dt style={DT}>Costs (most)</dt><dd style={DD}>{raw6(plan.effects.costsUsdcRaw) ?? "Unknown until quoted"}</dd>
                   {plan.effects.exposure.map((x) => (
                     <div key={x.asset} style={{ display: "contents" }}>
                       <dt style={DT}>{x.asset}</dt>
-                      <dd style={DD}>{x.decimals === 6 ? raw6(x.deltaRaw) : x.deltaRaw}</dd>
+                      <dd style={DD}>{x.decimals === 6 ? raw6(x.deltaRaw) : qtyText(x.deltaRaw, x.decimals, x.asset.match(/LiNEAR|rNEAR|NEAR/)?.[0] ?? "")}</dd>
                     </div>
                   ))}
                 </dl>
               </section>
             ) : null}
+
+            {plan.credit && choice?.kind === "borrow" ? (() => {
+              const c = plan.credit;
+              const borrowStep = plan.steps.find((x) => x.kind === "borrow");
+              const created = borrowStep?.state === "confirmed" ? borrowStep.actual?.amountRaw ?? borrowStep.expected.amountRaw : null;
+              return (
+                <section aria-label="Credit source" style={{ padding: "12px", borderRadius: "10px", background: "var(--fvb-F7F8F3)", fontSize: "13px", color: "var(--fvc-4A5349)" }}>
+                  <h3 style={{ ...H3, marginTop: 0 }}>Credit source · stays with this payment</h3>
+                  <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "1fr auto", rowGap: "6px", columnGap: "12px" }}>
+                    <dt style={DT}>New debt on {c.venue}</dt><dd style={DD}>{raw6(c.newDebtUsdcRaw)}</dd>
+                    <dt style={DT}>Debt before → after</dt><dd style={DD}>{raw6(c.debtBeforeUsdcRaw) ?? "Unknown"} → {raw6(plan.effects.debtAfterUsdcRaw) ?? "Unknown"}</dd>
+                    <dt style={DT}>Stressed health after</dt><dd style={DD}>{c.stressedHealthAfter ?? "Unknown"}{c.minHealth ? " (minimum " + c.minHealth + ")" : ""}</dd>
+                    <dt style={DT}>Interest to the due date (est.)</dt><dd style={DD}>{raw6(c.interestUsdcRaw) ?? "Unknown"}{c.borrowApr ? " at " + (Number(c.borrowApr) * 100).toFixed(2) + "% variable" : ""}</dd>
+                    <dt style={DT}>Debt approval</dt><dd style={DD}>{plan.approvals.some((x) => x.kind === "new_debt" && x.grantedAt) ? "Granted in this plan" : "Needed before the borrow step"}</dd>
+                    {created ? (<><dt style={DT}>Liability created</dt><dd style={DD}>{raw6(created)} USDC</dd></>) : null}
+                  </dl>
+                  <p style={{ margin: "8px 0 0", fontSize: "12px" }}>The loan stays after the payment. It appears in Statement → Still owed, and monitoring watches its health.</p>
+                  {plan.state === "completed" || plan.state === "partial" ? (
+                    <button type="button" style={{ ...btn(false, !!busy), marginTop: "8px" }} disabled={!!busy} onClick={() => void startPlan({ objective: "repay" }).catch(() => undefined)}>Plan the repayment →</button>
+                  ) : null}
+                </section>
+              );
+            })() : null}
 
             {plan.steps.length ? (
               <section aria-label="Steps">

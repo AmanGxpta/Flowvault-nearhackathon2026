@@ -20,11 +20,12 @@ import { movingCost } from "./payout-valuation";
 import { SUPPLY_USDC as USDC, SUPPLY_RHEA as RHEA } from "./supply";
 import { units, decimal } from "./money";
 import { portfolioCredit } from "./credit-live";
-import { lendingPreview, borrowChoice } from "./lending-live";
+import { lendingPreview } from "./lending-live";
+import { borrowFundingChoice } from "./lending";
 import { planList } from "./plans-store";
-import { newPlan, planContext, review, type StepSpec } from "./plans";
+import { newPlan, planContext, review, applyCreditEffects, type StepSpec } from "./plans";
 import { adapterFor } from "./step-adapters";
-import { withCapitalEvidence, readValuationEvidence } from "./valuation-evidence";
+import { withCapitalEvidence, readValuationEvidence, type PriceEvidence } from "./valuation-evidence";
 import { capitalView } from "./valuation";
 import { evaluatePool } from "./staking-native-live";
 import { sizeStake, stakeAlternatives, exitSteps, stakingReviewSpecs, walletNear } from "./staking-plans";
@@ -44,6 +45,17 @@ export interface PlanExtras {
   collateral?: { asset: string; amountRaw: string }[];
   /** Engines: staking steps sized in raw NEAR / LiNEAR and bound to their venue, per alternative id. */
   staking?: StakingSizing;
+  /** Borrowing as a payment/cash source (lending engine): carried from evaluation through review, the borrow
+   * step and the resulting liability, so the debt never detaches from the payment it funded. */
+  credit?: {
+    venue: "Rhea";
+    debtBeforeUsdcRaw: string | null;
+    newDebtUsdcRaw: string;
+    interestUsdcRaw: string | null;
+    stressedHealthAfter: string | null;
+    borrowApr: string | null;
+    minHealth: string | null;
+  };
 }
 export type StoredPlan = ActionPlan & PlanExtras;
 
@@ -108,9 +120,8 @@ async function deploySurplus(s: SessionLike, base: BaseInput): Promise<StoredPla
   const next = w.obligations.filter((o) => !["paid", "cancelled"].includes(o.status)).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
   // Engines: a NEAR strategy stakes idle NEAR the owner already holds, sized in NEAR within verified surplus.
   const staking: StakingSizing = {};
-  const evidence = w.mode === "live" ? await readValuationEvidence(w) : null;
-  const capital = evidence ? capitalView(w, portfolio, evidence) : null;
-  const stakeSize = evidence ? sizeStake({ walletRaw: walletNear(portfolio), surplusUsdcRaw: capital?.surplusUsdcRaw ?? null, prices: evidence.prices }) : null;
+  const ev = await stakingEvidence(w, portfolio);
+  const stakeSize = sizeStake({ walletRaw: walletNear(portfolio), surplusUsdcRaw: ev.capital.surplusUsdcRaw ?? null, prices: ev.prices });
   const alternatives: FundingChoice[] = ranking.strategies.map((st) => {
     // Only Rhea USDC has a supply adapter; any other venue must never be routed to it.
     const steps: StepKind[] = st.id === "rhea-usdc" ? ["supply"] : st.id === "linear" ? ["stake"] : [];
@@ -278,11 +289,8 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
     },
   ];
   // Borrowing as a source comes from the lending engine; the new-debt approval is enforced at the borrow step.
-  const b = await within(borrowChoice(w, funding ?? 0n, o.dueDate, true), CREDIT_READ_MS, "Rhea credit read").catch((e) => ({
-    id: "borrow", kind: "borrow" as const, eligible: false, reasons: ["CREDIT_READ_FAILED: " + (e instanceof Error ? e.message : String(e))],
-    amountUsdcRaw: (funding ?? 0n).toString(), costsUsdcRaw: null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null, availableAt: null,
-    steps: ["borrow", "pay_quote", "pay_deposit", "verify_payout"] as StepKind[],
-  }));
+  const src2 = await creditSource(w, funding ?? 0n, o.dueDate);
+  const b = src2.choice;
   alternatives.push({ ...b, reasons: [...new Set([...approvalLater(b.reasons), ...common, ...(funding === null ? ["SOURCES_UNVERIFIED"] : []), ...adapterReasons(b.steps)])] });
   for (const a of alternatives) a.reasons = [...new Set(a.reasons)];
   for (const a of alternatives.slice(0, 3)) a.eligible = a.reasons.length === 0;
@@ -310,6 +318,7 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
     },
   }) as StoredPlan;
   plan.fundingUsdcRaw = funding?.toString();
+  if (src2.credit) plan.credit = src2.credit;
   plan.title = `Pay ${o.label}: exactly ${grouped(o.amount)} ${o.token} on ${CHAIN[o.destination] ?? o.destination} by ${o.dueDate}`;
   plan.evidence = r.evidence;
   plan.figures = [
@@ -350,7 +359,7 @@ async function accessCash(
   ];
   // Unstaking (Engines): each staking position gets the steps that actually exit it, sized in its own units and
   // bound to its venue. The NEAR it returns is not USDC; with no swap step it cannot fund a USDC need by itself.
-  const prices = w.mode === "live" ? (await readValuationEvidence(w)).prices : null;
+  const { prices } = await stakingEvidence(w, portfolio);
   const staking: StakingSizing = {};
   for (const p of owner.filter((x) => x.kind === "staking")) {
     const exit = exitSteps(p, prices);
@@ -375,10 +384,8 @@ async function accessCash(
       amountUsdcRaw: usdc.toString(), costsUsdcRaw: null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null, availableAt: ready, steps: exit.kinds,
     });
   }
-  const b = await within(borrowChoice(w, amount, deadline ?? today, true), CREDIT_READ_MS, "Rhea credit read").catch((e) => ({
-    id: "borrow", kind: "borrow" as const, eligible: false, reasons: ["CREDIT_READ_FAILED: " + (e instanceof Error ? e.message : String(e))],
-    amountUsdcRaw: amount.toString(), costsUsdcRaw: null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null, availableAt: null, steps: ["borrow"] as StepKind[],
-  }));
+  const cashCredit = await creditSource(w, amount, deadline ?? today);
+  const b = cashCredit.choice;
   const bSteps: StepKind[] = ["borrow"];
   alternatives.push({ ...b, steps: bSteps, reasons: [...new Set([...approvalLater(b.reasons), ...adapterReasons(bSteps)])] });
   for (const a of alternatives) {
@@ -404,6 +411,7 @@ async function accessCash(
   }) as StoredPlan;
   if (Object.keys(staking).length) plan.staking = staking;
   plan.title = title ?? `Free up ${grouped(decimal(amount))} USDC${deadline ? " by " + deadline : ""}`;
+  if (cashCredit.credit) plan.credit = cashCredit.credit;
   plan.evidence = w.mode === "demo" ? "Fictional example figures" : "Live reads at " + portfolio.capturedAt;
   plan.figures = figures?.length ? figures : [{ label: "Rhea USDC supply", value: decimal(supplied), engine: "workspacePortfolio" }];
   return plan;
@@ -421,6 +429,18 @@ function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   return Promise.race([p, new Promise<T>((_, reject) => { t = setTimeout(() => reject(new Error(what + " timed out after " + ms / 1000 + " s")), ms); })]).finally(() => clearTimeout(t));
 }
 const CREDIT_READ_MS = 20_000;
+
+/** One Rhea read gives both the borrow alternative and the credit facts the plan carries forward. */
+async function creditSource(w: Workspace, amount: bigint, dueDate: string | null) {
+  const { cap, failure } = await liveCapacity(w);
+  const choice = borrowFundingChoice(cap, amount, dueDate, true);
+  if (failure) choice.reasons.push("CREDIT_READ_FAILED: " + failure);
+  const debt = (cap as { healthDetail?: { debtUsdcRaw?: string } } | null)?.healthDetail?.debtUsdcRaw ?? null;
+  const credit: PlanExtras["credit"] = cap
+    ? { venue: "Rhea", debtBeforeUsdcRaw: debt, newDebtUsdcRaw: amount.toString(), interestUsdcRaw: choice.interestUsdcRaw, stressedHealthAfter: choice.healthAfter, borrowApr: cap.borrowApr ?? null, minHealth: cap.minHealth ?? null }
+    : undefined;
+  return { choice, credit };
+}
 
 async function liveCapacity(w: Workspace): Promise<{ cap: Cap | null; failure: string | null }> {
   if (w.mode !== "live" || !w.accountId) return { cap: null, failure: null };
@@ -600,6 +620,39 @@ function grouped(v: string) {
 }
 
 
+/** Prices and capital for staking sizing. Live: Engines' price evidence and capitalView. Example: FICTIONAL
+ * prices derived from the example portfolio's own fictional valuations (labelled demo; never mixed with live),
+ * so example stake/exit plans can be reviewed end to end. Example plans still can never be prepared. */
+export function examplePrices(portfolio: Portfolio, now = Date.now()): PriceEvidence | null {
+  const perToken = (id: string) => {
+    const x = portfolio.positions.find((p) => p.id === id);
+    if (!x?.valuation?.amount) return null;
+    const qty = units(x.amount, 6);
+    return qty > 0n ? (units(x.valuation.amount, 12) * 1_000000n) / qty : null;
+  };
+  const near = perToken("near-wallet");
+  if (portfolio.source !== "demo" || !near) return null;
+  const at = new Date(now).toISOString();
+  const price = (usdE12: bigint) => ({ usdE12: usdE12.toString(), confE12: "0", publishedAt: at, priceIdentifier: "fictional-example" });
+  const lst: Record<string, string> = {};
+  for (const [asset, id] of [["LiNEAR", "linear-shares"], ["rNEAR", "rnear-shares"]] as const) {
+    const v = perToken(id);
+    if (v) lst[asset] = ((v * 10n ** 24n) / near).toString();
+  }
+  return {
+    source: "demo", oracle: "fictional example", basis: "Fictional example prices from the example portfolio; not market data",
+    blockHeight: null, capturedAt: at, freshUntil: new Date(now + 3_600_000).toISOString(),
+    prices: { NEAR: price(near), USDC: price(1_000000000000n) }, lstNearPerToken: lst, unavailable: [],
+  } as PriceEvidence;
+}
+async function stakingEvidence(w: Workspace, portfolio: Portfolio) {
+  if (w.mode === "live") {
+    const evidence = await readValuationEvidence(w);
+    return { prices: evidence.prices, capital: capitalView(w, portfolio, evidence) };
+  }
+  return { prices: examplePrices(portfolio), capital: capitalView(w, portfolio) };
+}
+
 /* ───────────── entry points ───────────── */
 
 interface BaseInput {
@@ -688,6 +741,7 @@ export function reviewChoice(plan: StoredPlan, choiceId: string) {
       return { kind, expected: { amountRaw: plan.request.amountRaw, asset: plan.request.asset, note: "Exact output, verified on the destination chain" } };
     return { kind, expected: {} };
   });
+  if (choice.kind === "borrow") applyCreditEffects(plan, choice);
   return review(plan, choiceId, specs);
 }
 
@@ -697,16 +751,15 @@ export function reviewChoice(plan: StoredPlan, choiceId: string) {
 async function stakePlan(s: SessionLike, base: BaseInput, requestedRaw: bigint | null, venue: string | null): Promise<StoredPlan> {
   const w = s.workspace;
   const { portfolio, market, ledger } = await gather(s);
-  const evidence = w.mode === "live" ? await readValuationEvidence(w) : null;
-  const capital = evidence ? capitalView(w, portfolio, evidence) : null;
-  const sizing = sizeStake({ requestedRaw, walletRaw: walletNear(portfolio), surplusUsdcRaw: capital?.surplusUsdcRaw ?? null, prices: evidence?.prices ?? null });
+  const ev = await stakingEvidence(w, portfolio);
+  const sizing = sizeStake({ requestedRaw, walletRaw: walletNear(portfolio), surplusUsdcRaw: ev.capital.surplusUsdcRaw ?? null, prices: ev.prices });
   const pool = venue && venue !== "linear" ? venue : null;
   const validator = pool && w.mode === "live" ? await evaluatePool(pool, w.accountId ?? null).catch(() => null) : null;
   const linearExit = market.markets.find((m) => m.id === "linear")?.exitDays ?? null;
   const { alternatives, staking } = stakeAlternatives({
     w, policy: w.policy ?? defaultPolicy(w.mandate.maxMoveCost), ledger, sizing, validator, pool, linearExitDays: linearExit, adapterReasons,
   });
-  if (w.mode === "demo") for (const a of alternatives) { a.reasons = [...new Set([...a.reasons, "EXAMPLE_WORKSPACE"])]; a.eligible = false; }
+  // Example plans are reviewable with fictional prices; assertPreparable refuses to prepare any example plan.
   const preferred = alternatives.find((a) => a.id === (pool ? "native:" + pool : "linear") && a.eligible);
   const pick = preferred ?? alternatives.find((a) => a.eligible);
   const plan = newPlan({
@@ -717,7 +770,7 @@ async function stakePlan(s: SessionLike, base: BaseInput, requestedRaw: bigint |
     recommendedChoiceId: pick?.id,
     blockedReasons: sizing.amountRaw > 0n ? [] : sizing.reasons,
     effects: {
-      reserveAfterUsdcRaw: capital?.holdbackUsdcRaw ?? null,
+      reserveAfterUsdcRaw: ev.capital.holdbackUsdcRaw ?? null,
       debtAfterUsdcRaw: null,
       costsUsdcRaw: null,
       exposure: pick ? [
@@ -729,11 +782,11 @@ async function stakePlan(s: SessionLike, base: BaseInput, requestedRaw: bigint |
   plan.staking = staking;
   const near = decimal(sizing.amountRaw, 24).replace(/(\.\d{0,4})\d*$/, "$1");
   plan.title = sizing.amountRaw > 0n ? `Stake ${near} NEAR ${pick?.id.startsWith("native:") ? "with " + pool : "for LiNEAR"}` : "No idle NEAR can be staked";
-  plan.evidence = w.mode === "demo" ? "Fictional example figures" : "Live reads at " + portfolio.capturedAt + (evidence?.prices ? "; " + evidence.prices.basis : "");
+  plan.evidence = w.mode === "demo" ? "Fictional example figures and prices" : "Live reads at " + portfolio.capturedAt + (ev.prices ? "; " + ev.prices.basis : "");
   plan.figures = [
     { label: "NEAR to stake", value: near, engine: "staking-plans.sizeStake" },
     { label: "Value (oracle lower bound, USDC)", value: decimal(sizing.usdcRaw), engine: "valuation.usdcValue" },
-    { label: "Verified surplus (USDC)", value: capital?.surplusUsdcRaw == null ? null : decimal(BigInt(capital.surplusUsdcRaw)), engine: "capitalView" },
+    { label: "Verified surplus (USDC)", value: ev.capital.surplusUsdcRaw == null ? null : decimal(BigInt(ev.capital.surplusUsdcRaw)), engine: "capitalView" },
     ...(validator ? [{ label: "Validator", value: validator.eligible ? "verified · fee " + ((validator.feeBps ?? 0) / 100).toFixed(2) + "% · uptime " + ((validator.uptimeBps ?? 0) / 100).toFixed(2) + "%" : "not eligible", engine: "evaluateValidator" }] : []),
   ];
   return plan;
@@ -744,12 +797,12 @@ async function unstakePlan(s: SessionLike, base: BaseInput, positionId: string, 
   const { portfolio } = await gather(s);
   const p = portfolio.positions.find((x) => x.id === positionId && x.ownership !== "watched");
   if (!p || p.kind !== "staking") throw new Error("That staking position is not in your portfolio.");
-  const prices = w.mode === "live" ? (await readValuationEvidence(w)).prices : null;
+  const { prices } = await stakingEvidence(w, portfolio);
   const exit = exitSteps(p, prices, requestedRaw);
   if (!exit) throw new Error("This position has no exit FlowVault can execute.");
   const id = "exit:" + p.id;
   const value = BigInt(exit.steps.at(-1)!.usdcRaw || "0");
-  const reasons = [...new Set([...exit.reasons, ...adapterReasons(exit.kinds), ...(w.mode === "demo" ? ["EXAMPLE_WORKSPACE"] : [])])];
+  const reasons = [...new Set([...exit.reasons, ...adapterReasons(exit.kinds)])];
   const ready = exit.kinds.includes("wait_until") ? new Date(Date.now() + 72 * 3_600_000).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
   const choice: FundingChoice = {
     id, kind: "unstake", eligible: reasons.length === 0, reasons, amountUsdcRaw: value.toString(),

@@ -339,3 +339,19 @@ export const STEP_LABEL: Record<StepKind, string> = {
 };
 
 export type { Chain };
+
+/** Borrow-to-payment continuity: choosing a borrow source puts its liability into the reviewed effects.
+ * Debt after = observed debt + this borrow; an unknown prior debt keeps the result unknown (never 0). */
+export function applyCreditEffects(
+  plan: ActionPlan & { credit?: { debtBeforeUsdcRaw: string | null; newDebtUsdcRaw: string } },
+  choice: Pick<FundingChoice, "amountUsdcRaw">,
+) {
+  if (!plan.credit) return;
+  const add = BigInt(choice.amountUsdcRaw);
+  plan.credit.newDebtUsdcRaw = add.toString();
+  plan.effects = {
+    ...plan.effects,
+    debtAfterUsdcRaw: plan.credit.debtBeforeUsdcRaw === null ? null : (BigInt(plan.credit.debtBeforeUsdcRaw) + add).toString(),
+    exposure: [...plan.effects.exposure.filter((x) => x.asset !== "USDC debt · Rhea"), { asset: "USDC debt · Rhea", deltaRaw: add.toString(), decimals: 6 }],
+  };
+}

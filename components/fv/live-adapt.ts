@@ -224,6 +224,13 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
     s.screen === "strategies" ? { label: "Plan putting surplus to work →", onClick: () => void startPlan({ objective: "deploy_surplus" }).catch(() => undefined), note: "Compares every venue against your dates and policy" }
     : s.screen === "credit" ? { label: "Plan borrowing →", onClick: () => void startPlan({ objective: "borrow" }).catch(() => undefined) }
     : null;
+  // Borrow-to-payment continuity (e): credit as a source opens the next payment's plan, where borrowing is one
+  // alternative carrying its debt, approval and resulting liability through to the payout.
+  if (s.screen === "credit") {
+    const nextPay = (s.obs ?? []).filter((o: any) => o.status === "upcoming").sort((a: any, b: any) => String(a.due).localeCompare(String(b.due)))[0];
+    out.creditSourceLabel = nextPay ? "Use credit for " + nextPay.name + " →" : "Use credit for a payment →";
+    out.goPay = nextPay ? () => void startPlan({ objective: "pay_obligation", obligationId: nextPay.id }).catch(() => undefined) : () => self.go("pay");
+  }
   const cap = snap.portfolio?.capturedAt;
   const acct = snap.workspace?.accountId ?? "";
   const connected = !!snap.walletAccount && snap.walletAccount === acct;
@@ -360,7 +367,8 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
       const exitable = rows.filter((p: any) => /^(native-stake-|native-unstaking-|linear-shares$|linear-unstaking$)/.test(p.id));
       const claimable = exitable.find((p: any) => p.availableAt && /unstaking/.test(p.id));
       const target = claimable ?? [...exitable].sort((x: any, y: any) => (posValue(y) ?? 0) - (posValue(x) ?? 0))[0];
-      return target && snap.scope === "personal"
+      // Example exits are reviewable with fictional prices; an example plan can never be prepared or signed.
+      return target
         ? grp("Staking", "N", "#ECE8F4", "#6B5E99", rows, "Unstaking takes about 4 epochs · never counted as dated cash", (claimable ? "Plan claim · " : "Plan exit · ") + target.label + " →", () => void startPlan({ objective: "unstake", positionId: target.id }).catch(() => undefined))
         : grp("Staking", "N", "#ECE8F4", "#6B5E99", rows, "Unstaking takes epochs · never counted as dated cash", "Compare staking", () => self.go("strategies"));
     })(),
@@ -584,15 +592,9 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   // Proposals: none exist until the optional on-chain policy contract (§9) is deployed by the owner.
   out.proposals = [];
   out.hasAgent = false;
-  // Authority, scoped honestly: what is enforced where today (I3). The policy contract is built but not deployed.
-  out.authorityNote = "Five separate things, each with its own owner. Only the first, third and fifth are active in this build.";
-  out.authority = [
-    { k: "Local policy evaluation", on: true, v: "FlowVault checks every plan step against your saved policy (rev " + (snap.policy?.policy?.version ?? "—") + ") when it prepares the step, and again at wallet handoff." },
-    { k: "On-chain proposal acceptance", on: false, v: "Not active. The policy contract is built and tested but not deployed, so no on-chain contract accepts or rejects proposals today." },
-    { k: "Owner approval", on: true, v: "You review each plan, and approve every signed step in your own wallet. New debt also needs an explicit approval in the plan first." },
-    { k: "Fund authority", on: false, v: "FlowVault and its assistant hold none: no keys, no allowance, no delegated access. Only your wallet can move funds." },
-    { k: "Verified outcome", on: true, v: "A step counts as done only from finalized NEAR receipts or an independent destination-chain proof, never from a provider or model saying so." },
-  ];
+  // Authority: components/fv/PolicyContract.tsx reads /api/policy-contract for the on-chain row (f).
+  out.policyVersion = snap.policy?.policy?.version ?? null;
+  out.policyLive = !example;
   out.agentName = "No agent registered";
   out.agentSub = "The optional on-chain policy contract is built but not deployed. After you deploy it and add an agent, its propose-only key appears here.";
   out.proposalsNote = "No proposals yet. Agent proposals arrive only through the deployed policy contract; approving one would open the normal review, and you still sign in your wallet.";

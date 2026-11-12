@@ -268,7 +268,7 @@ export function CreditView({ v }: { v: any }) {
                 color: "var(--fvc-1E2A22)",
               }}
             >
-              Use as a source (preview) →
+              {v.creditSourceLabel ?? "Use as a source (preview) →"}
             </button>
           </div>
           <div

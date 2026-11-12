@@ -181,3 +181,19 @@ test("SQL: one active plan per target, and compare-and-swap saves", () => {
   insert("p2");
   assert.deepEqual(d.prepare("SELECT id FROM action_plans ORDER BY id").all().map((r) => r.id), ["p1", "p2"]);
 });
+
+test("borrow-to-payment continuity: the borrow source's liability is carried into the reviewed effects", async () => {
+  const { applyCreditEffects } = await import("../lib/flowvault/plans.ts");
+  const p = newPlan({ ...payPlan(), alternatives: [{ ...choice("borrow", true, ["borrow", "pay_quote", "pay_deposit", "verify_payout"]), kind: "borrow" }] }, T0) as ReturnType<typeof newPlan> & { credit?: { debtBeforeUsdcRaw: string | null; newDebtUsdcRaw: string } };
+  p.credit = { debtBeforeUsdcRaw: "50000000", newDebtUsdcRaw: "0" };
+  applyCreditEffects(p, p.alternatives[0]);
+  review(p, "borrow", specs(["borrow", "pay_quote", "pay_deposit", "verify_payout"]), T0);
+  assert.equal(p.effects.debtAfterUsdcRaw, "1051610000");
+  assert.equal(p.credit.newDebtUsdcRaw, "1001610000");
+  assert.ok(p.effects.exposure.some((x) => x.asset === "USDC debt · Rhea" && x.deltaRaw === "1001610000"));
+  assert.deepEqual(p.approvals.map((a) => a.kind), ["new_debt", "spend"], "the debt approval travels with the payment");
+  const q = newPlan({ ...payPlan(), alternatives: [{ ...choice("borrow", true, ["borrow"]), kind: "borrow" }] }, T0) as typeof p;
+  q.credit = { debtBeforeUsdcRaw: null, newDebtUsdcRaw: "0" };
+  applyCreditEffects(q, q.alternatives[0]);
+  assert.equal(q.effects.debtAfterUsdcRaw, null, "unknown prior debt stays unknown, never 0");
+});
