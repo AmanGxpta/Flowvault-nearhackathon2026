@@ -19,7 +19,7 @@ const TERMINAL: PlanState[] = ["completed", "failed", "superseded", "expired", "
 export const IN_FLIGHT: StepState[] = ["awaiting_wallet", "submitted", "unknown", "partial"];
 const NOT_HANDED: StepState[] = ["pending", "ready", "prepared"];
 /** Evidence-only steps keep running after a fence so money already in motion is still verified. */
-const OBSERVE_ONLY: StepKind[] = ["verify_payout"];
+const OBSERVE_ONLY: StepKind[] = ["verify_payout", "credit_settlement"];
 
 export type PlanContext = ActionPlan["context"];
 
@@ -337,6 +337,7 @@ export const STEP_LABEL: Record<StepKind, string> = {
   pay_deposit: "Deposit to the 1Click address",
   verify_payout: "Verify the payout on the destination chain",
   wait_until: "Wait",
+  credit_settlement: "Verify canonical NEAR USDC delivery",
   fund_transfer: "Move USDC to your NEAR account",
 };
 

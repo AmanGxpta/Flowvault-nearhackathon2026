@@ -113,6 +113,7 @@ export type StepKind =
   | "pay_quote"
   | "pay_deposit"
   | "verify_payout"
+  | "credit_settlement"
   | "wait_until"
   // Funding mesh (Stream A): one cross-wallet leg, signed by the source account's own wallet.
   | "fund_transfer";
@@ -130,6 +131,10 @@ export type StepState =
   | "skipped";
 
 export interface FundingChoice {
+  creditSettlement?: { leg: FundingLeg; debtBeforeUsdcRaw: string; borrowApr: string; minHealth: string };
+  venueId?: string;
+  accountId?: string;
+  chain?: Chain;
   id: string;
   /** "multi_source" (Stream A): funded from one or more proven accounts; legs in ActionPlan funding extras. */
   kind: "idle_cash" | "withdraw" | "unstake" | "sell" | "borrow" | "multi_source";

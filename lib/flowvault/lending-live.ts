@@ -168,3 +168,17 @@ export async function borrowChoice(
     return c;
   }
 }
+
+/** Venue-local payment candidates. None is aggregated into Rhea health. EVM alternatives carry a
+ * settlement blocker until the funding mesh has quoted/reconciled its dependent USDC delivery. */
+export async function venueBorrowChoices(w: import("./types.ts").Workspace, amount: bigint, date: string | null, approved = false) {
+  if(w.mode!=="live") return [];
+  const [{proven},{aaveVenue},{AAVE_MARKETS}] = await Promise.all([import("./account-registry.ts"),import("./aave.ts"),import("./aave-markets.ts")]);
+  const jobs = (w.accounts??[]).filter(a=>a.chain==="evm" && proven(a)).flatMap(a=>
+    (Object.keys(AAVE_MARKETS) as import("./aave-markets.ts").AaveChain[]).filter(chain=>w.policy?.venues.includes(AAVE_MARKETS[chain].pool)).map(async chain=>{
+      const venue=aaveVenue(chain);
+      try{return await (await import("./aave-funding.ts")).aavePaymentChoice(await venue.read(a.address),w,amount,date,approved);}
+      catch(e){return {id:venue.id+":"+a.address,kind:"borrow" as const,eligible:false,reasons:["CREDIT_READ_FAILED: "+(e as Error).message],amountUsdcRaw:amount.toString(),costsUsdcRaw:null,foregoneUsdcRaw:null,interestUsdcRaw:null,healthAfter:null,availableAt:null,steps:[]};}
+    }));
+  return Promise.all(jobs);
+}

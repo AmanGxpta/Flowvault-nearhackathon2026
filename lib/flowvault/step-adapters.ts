@@ -1,3 +1,4 @@
+import { creditSettlementAdapter } from "./adapters/credit-settlement-step";
 import {stakingStepAdapter} from "./adapters/staking-step";
 import { fundingLegAdapter } from "./adapters/funding-leg-step"; // Stream A: fund_transfer legs
 // Step-adapter registry and plan executor (owner: Interface). The executor ONLY orchestrates: every signed
@@ -57,6 +58,7 @@ const ROUTES: Record<string, () => Promise<{ POST?: Handler; GET?: Handler }>> =
   payments: () => import("@/app/api/payments/route"),
   payment: () => import("@/app/api/payments/[id]/route"),
   staking: () => import("@/app/api/staking/actions/route"), // Positions P1c
+  aave: () => import("@/app/api/lending/venues/route"),
   lending: () => import("@/app/api/lending/route"), // Engines E2
   native: () => import("@/app/api/staking/native/route"), // Engines P2
 };
@@ -275,7 +277,7 @@ export const waitAdapter: StepAdapter = {
 
 /* ───────────── executor ───────────── */
 
-const AUTO: StepKind[] = ["verify_payout", "wait_until"];
+const AUTO: StepKind[] = ["verify_payout", "wait_until", "credit_settlement"];
 
 function apply(step: PlanStep, patch: Partial<PlanStep>, message?: string) {
   const before = step.state;
@@ -317,7 +319,9 @@ export async function executeCheck(plan: ActionPlan, ctx: StepRunContext) {
       if (!adapter) continue;
       const r = (await adapter.check(step, plan)) as { patch: Partial<PlanStep>; ledger: LedgerEntry[]; message?: string };
       apply(step, r.patch, r.message);
-      ledger.push(...r.ledger);
+      // Credit settlement has an additional independent source/destination proof gate. A provider
+      // report may advance the transfer journal but cannot book this leg before that gate confirms.
+      if (!(step.kind === "fund_transfer" && plan.alternatives.find(a => a.id === plan.selectedChoiceId)?.creditSettlement)) ledger.push(...r.ledger);
     }
     for (const e of ledger) if (!plan.ledgerEntryIds.includes(e.id)) plan.ledgerEntryIds.push(e.id);
     settle(plan);
@@ -345,3 +349,5 @@ registerStepAdapter(rheaCreditAdapter); // Engines: collateral_add, borrow, repa
 registerStepAdapter(nativeStakingAdapter); // Engines P2: native_stake, native_unstake, native_withdraw
 registerStepAdapter(stakingStepAdapter); // Positions: LiNEAR stake, unstake, withdraw_unstaked
 registerStepAdapter(fundingLegAdapter); // Stream A: fund_transfer (cross-wallet funding legs)
+
+registerStepAdapter(creditSettlementAdapter);

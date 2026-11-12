@@ -1,3 +1,4 @@
+import { aaveStepAdapter } from "./adapters/aave-step";
 // Engines E2: StepAdapter for Rhea credit steps (collateral_add, borrow, repay, collateral_release).
 // prepare() creates the wallet_attempts journal record through /api/lending (policy, fencing, idempotency)
 // before any wallet handoff; check() reconciles only from the journal's finalized-receipt verification.
@@ -64,6 +65,7 @@ export function lendingLedger(plan: ActionPlan, step: PlanStep, a: WalletAttempt
 export const rheaCreditAdapter: StepAdapter = {
   kinds: ["collateral_add", "borrow", "repay", "collateral_release"],
   async prepare(step, plan) {
+    if (step.expected.venue?.startsWith("aave-v3:")) return aaveStepAdapter.prepare(step, plan);
     const ctx = stepContext(plan);
     const asset = step.expected.asset ?? (step.kind === "borrow" || step.kind === "repay" ? "USDC" : undefined);
     if (!asset || !step.expected.amountRaw) throw new Error("The credit step has no reviewed asset and amount.");
@@ -79,6 +81,7 @@ export const rheaCreditAdapter: StepAdapter = {
     return { attemptId: prep.attemptId, expiresAt: prep.expiresAt, state: "prepared" };
   },
   async check(step, plan) {
+    if (step.expected.venue?.startsWith("aave-v3:")) return aaveStepAdapter.check(step, plan);
     const ctx = stepContext(plan);
     if (!step.attemptId) return { patch: {}, ledger: [] };
     let { attempt } = await readAttempt(ctx.sessionId, step.attemptId);

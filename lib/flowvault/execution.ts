@@ -95,7 +95,8 @@ export function sameTransactions(a: WalletPreparation, b: WalletPreparation) {
     ("kind" in a ? a.kind : "supply") === ("kind" in b ? b.kind : "supply") &&
     a.accountId === b.accountId &&
     a.amount === b.amount &&
-    JSON.stringify(a.transactions) === JSON.stringify(b.transactions)
+    JSON.stringify(a.transactions) === JSON.stringify(b.transactions) &&
+    JSON.stringify("evm" in a ? a.evm?.transactions : null) === JSON.stringify("evm" in b ? b.evm?.transactions : null)
   );
 }
 function stable(value: any): string {

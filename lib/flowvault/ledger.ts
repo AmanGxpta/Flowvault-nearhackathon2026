@@ -1,3 +1,5 @@
+import { isAave } from "./aave.ts";
+import { aaveLedger } from "./aave-ledger.ts";
 // Engines E3: the ledger and the period statement. Pure functions over journal records only: confirmed
 // wallet attempts (finalized-receipt verification), payment plans (destination-chain proof), and the plan
 // ledger outbox (StepAdapter.check results). Nothing is inferred from UI state. Principal moves are
@@ -75,6 +77,7 @@ function base(a: WalletAttempt, source: Source) {
 /** Entries for one wallet attempt. Confirmed → confirmed entries; submitted → pending; unknown/partial →
  * unresolved (visible, never counted). Prepared/failed attempts moved nothing and produce no principal entry. */
 export function attemptLedger(a: WalletAttempt, prices: PriceEvidence | null, source: Source = "live"): LedgerEntry[] {
+  if (isAave(a.preparation)) return source === "live" ? aaveLedger(a) : [];
   const status: LedgerEntry["status"] | null =
     a.state === "confirmed" ? "confirmed" : a.state === "submitted" ? "pending" : a.state === "unknown" || a.state === "partial" ? "unresolved" : null;
   const out: LedgerEntry[] = [];
@@ -185,6 +188,7 @@ export function paymentLedger(p: PaymentPlan, deposit?: WalletAttempt, source: S
 }
 
 export interface LedgerInputs {
+  accountIds?: string[];
   source: Source;
   accountId: string | null;
   attempts: WalletAttempt[];
@@ -196,7 +200,7 @@ export interface LedgerInputs {
 /** One ledger: journal entries first; plan-outbox entries for the same effect only add plan/step links. */
 export function buildLedger(i: LedgerInputs): LedgerEntry[] {
   const byKey = new Map<string, LedgerEntry>();
-  const scoped = <T extends { accountId?: string }>(x: T) => !i.accountId || !x.accountId || x.accountId === i.accountId;
+  const scoped = <T extends { accountId?: string }>(x: T) => !i.accountId || !x.accountId || x.accountId === i.accountId || !!i.accountIds?.includes(x.accountId);
   for (const a of i.attempts.filter(scoped)) for (const e of attemptLedger(a, i.prices, i.source)) byKey.set(ledgerKey(e), e);
   for (const p of i.payments.filter(scoped))
     for (const e of paymentLedger(p, i.attempts.find((a) => a.id === p.depositAttemptId), i.source)) byKey.set(ledgerKey(e), e);
@@ -225,11 +229,11 @@ export interface LendingObservation {
 /** Journaled borrow principal minus repays. Accrued interest = observed debt − principal, only when the
  * first journaled borrow proves the debt was zero before it and no repay could have paid interest down. */
 export function accruedInterest(entries: LedgerEntry[], attempts: WalletAttempt[], obs: LendingObservation | null, now: string): LedgerEntry | null {
-  const borrows = entries.filter((e) => e.kind === "borrow" && e.status === "confirmed");
+  const borrows = entries.filter((e) => e.kind === "borrow" && e.status === "confirmed" && (!e.chain || e.chain === "near"));
   if (!borrows.length || !obs?.debtUsdcRaw) return null;
   const first = attempts.find((a) => a.id === borrows[0].attemptId);
   if ((first?.preparation as LendingPreparation | undefined)?.debtBeforeUsdcRaw !== "0") return null;
-  if (entries.some((e) => e.kind === "repay" && e.status === "confirmed")) return null;
+  if (entries.some((e) => e.kind === "repay" && e.status === "confirmed" && (!e.chain || e.chain === "near"))) return null;
   const principal = borrows.reduce((n, e) => n + BigInt(e.amountRaw), 0n);
   const accrued = BigInt(obs.debtUsdcRaw) - principal;
   if (accrued <= 0n) return null;

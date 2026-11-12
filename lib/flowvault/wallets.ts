@@ -223,3 +223,23 @@ export async function sendUsdcTransfer(s: WalletSession, tx: { chainId: string; 
   if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error(s.walletName + " didn’t return a transaction hash.");
   return hash;
 }
+
+/** Aave owner-signed calls use the same discovered EIP-1193 wallet as USDC funding. Each
+ * returned hash is saved by the caller before another wallet call; ambiguous calls never retry. */
+export async function sendAaveOperation(s: WalletSession, prep: import("./lending").LendingPreparation, onHash: (hash: string) => Promise<void>) {
+  start();
+  const { validateAaveWallet } = await import("./aave-wallet");
+  const exec = validateAaveWallet(prep);
+  if(s.chain !== "evm" || s.address.toLowerCase() !== prep.accountId.toLowerCase()) throw new Error("Connect the prepared EVM account.");
+  const d = evm.get(s.walletId); if(!d) throw new Error("Wallet unavailable; reconnect it.");
+  for (const tx of exec.transactions) {
+    const accounts: string[] = await d.provider.request({method:"eth_accounts"});
+    if(!accounts.some(a => a.toLowerCase() === prep.accountId.toLowerCase())) throw new Error("Wallet account changed.");
+    const current: string = await d.provider.request({method:"eth_chainId"});
+    if(current.toLowerCase() !== tx.chainId) await d.provider.request({method:"wallet_switchEthereumChain",params:[{chainId:tx.chainId}]});
+    if(BigInt(await d.provider.request({method:"eth_chainId"})) !== BigInt(tx.chainId)) throw new Error("Wallet chain changed.");
+    const hash: string = await d.provider.request({method:"eth_sendTransaction",params:[{from:tx.from,to:tx.to,value:tx.value,data:tx.data}]});
+    if(!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error("Wallet returned no transaction hash; inspect wallet history.");
+    await onHash(hash);
+  }
+}

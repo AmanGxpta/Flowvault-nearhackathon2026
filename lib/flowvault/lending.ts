@@ -369,6 +369,8 @@ const call = (methodName: string, args: Record<string, unknown>, gas: string, de
   params: { methodName, args, gas, deposit },
 });
 export interface LendingPreparation {
+  /** Phase 4: EVM calls use the same wallet_attempts journal; NEAR transactions stay empty. */
+  evm?: import("./aave.ts").AaveExecution;
   kind: LendingKind;
   accountId: string;
   asset: string;

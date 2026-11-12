@@ -1,3 +1,4 @@
+import { wireCreditSettlement } from "./aave-funding";
 // Builds action plans from ENGINE figures (owner: Interface). Every amount here is computed by an existing
 // engine (calendar ranking, payment sources, policy evaluation, exact-output quote). This file only maps
 // those results into the shared FundingChoice / ActionPlan contracts and never invents a figure.
@@ -20,7 +21,7 @@ import { movingCost } from "./payout-valuation";
 import { SUPPLY_USDC as USDC, SUPPLY_RHEA as RHEA } from "./supply";
 import { units, decimal } from "./money";
 import { portfolioCredit } from "./credit-live";
-import { lendingPreview } from "./lending-live";
+import { lendingPreview, venueBorrowChoices } from "./lending-live";
 import { borrowFundingChoice } from "./lending";
 import { planList } from "./plans-store";
 import { newPlan, planContext, review, applyCreditEffects, type StepSpec } from "./plans";
@@ -49,7 +50,7 @@ export interface PlanExtras extends MeshPlanExtras {
   /** Borrowing as a payment/cash source (lending engine): carried from evaluation through review, the borrow
    * step and the resulting liability, so the debt never detaches from the payment it funded. */
   credit?: {
-    venue: "Rhea";
+    venue: string;
     debtBeforeUsdcRaw: string | null;
     newDebtUsdcRaw: string;
     interestUsdcRaw: string | null;
@@ -295,6 +296,7 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
   alternatives.push({ ...b, reasons: [...new Set([...approvalLater(b.reasons), ...common, ...(funding === null ? ["SOURCES_UNVERIFIED"] : []), ...adapterReasons(b.steps)])] });
   for (const a of alternatives) a.reasons = [...new Set(a.reasons)];
   for (const a of alternatives.slice(0, 3)) a.eligible = a.reasons.length === 0;
+  alternatives.push(...(await venueBorrowChoices(w, funding ?? 0n, o.dueDate, true)).map(a => { const reasons=[...a.reasons,...common,...(funding===null?["SOURCES_UNVERIFIED"]:[])]; return {...a,reasons,eligible:reasons.length===0}; }));
   // Stream A: when idle NEAR USDC is short, other proven accounts can send the rest (each leg in its own wallet).
   const mesh = funding !== null && src ? await meshAlternatives(s, { requiredRaw: funding, idleRaw: units(src.idleAvailable), settleSteps: idleSteps, common: [...common, ...adapterReasons(idleSteps)] }) : null;
   if (mesh) alternatives.push(...mesh.choices);
@@ -729,6 +731,9 @@ export async function evaluatePlan(s: SessionLike, id: string, req: PlanRequest)
 export function reviewChoice(plan: StoredPlan, choiceId: string) {
   const choice = plan.alternatives.find((a) => a.id === choiceId);
   if (!choice) throw new Error("Alternative not found.");
+  if (choice.venueId?.startsWith("aave-v3:") && plan.request.venue === choice.venueId) {
+    return review(plan, choiceId, choice.steps.map(kind => ({kind,expected:{amountRaw:plan.request.amountRaw,asset:plan.request.asset,usdcRaw:choice.amountUsdcRaw,venue:choice.venueId,note:"Venue-local Aave operation; funds remain on " + choice.chain}})));
+  }
   // Staking steps are sized in raw NEAR / LiNEAR and bound to their venue by the staking engine.
   const sized = stakingReviewSpecs(plan, choiceId);
   if (sized) return review(plan, choiceId, sized);
@@ -751,9 +756,16 @@ export function reviewChoice(plan: StoredPlan, choiceId: string) {
       return { kind, expected: { amountRaw: plan.request.amountRaw, asset: plan.request.asset, note: "Exact output, verified on the destination chain" } };
     return { kind, expected: {} };
   });
-  if (choice.kind === "borrow") applyCreditEffects(plan, choice);
+  if (choice.creditSettlement) {
+    const c=choice.creditSettlement;
+    plan.credit={venue:choice.venueId!,debtBeforeUsdcRaw:c.debtBeforeUsdcRaw,newDebtUsdcRaw:choice.amountUsdcRaw,interestUsdcRaw:choice.interestUsdcRaw,stressedHealthAfter:choice.healthAfter,borrowApr:c.borrowApr,minHealth:c.minHealth};
+    plan.effects.exposure=plan.effects.exposure.filter(x=>x.asset!=="USDC debt · Rhea");
+    plan.effects.exposure.push({asset:"USDC debt · "+choice.venueId,deltaRaw:choice.amountUsdcRaw,decimals:6});
+  } else if (choice.kind === "borrow") applyCreditEffects(plan, choice);
   if (choice.kind === "multi_source") return reviewMesh(plan, choiceId, () => review(plan, choiceId, specs)); // Stream A
-  return review(plan, choiceId, specs);
+  const reviewed = review(plan, choiceId, specs);
+  if (choice.creditSettlement) wireCreditSettlement(reviewed, choice);
+  return reviewed;
 }
 
 

@@ -118,6 +118,11 @@ export function valuePosition(
       };
     return none("Fictional position has no example valuation.");
   }
+  if (p.venueValuation) {
+    const v=p.venueValuation;
+    if (!fresh(v.freshUntil, now) || !/^\d+$/.test(v.usdcRaw) || p.source!=="live") return none("Venue price evidence unavailable/stale.");
+    return {...base,usdcRaw:v.usdcRaw,basis:v.basis,freshUntil:v.freshUntil};
+  }
   if (p.asset === "USDC")
     return {
       ...base,

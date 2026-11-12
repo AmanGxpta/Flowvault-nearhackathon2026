@@ -1,3 +1,4 @@
+import { proven } from "./account-registry.ts";
 // Engines E3: gathers the ledger's journal inputs for a session (read-only). Every row comes from a
 // journal table written by verified flows: wallet_attempts, payment_plans and plan_ledger_outbox.
 import { attemptsDb } from "./attempts.ts";
@@ -66,7 +67,7 @@ export async function sessionLedger(sessionId: string, w: Workspace) {
   return {
     source: "live" as const,
     accountId,
-    entries: buildLedger({ source: "live", accountId, attempts, payments, outbox, prices }),
+    entries: buildLedger({ source: "live", accountId, accountIds: (w.accounts ?? []).filter(proven).map(a => a.address.toLowerCase()), attempts, payments, outbox, prices }),
     attempts,
     errors,
   };

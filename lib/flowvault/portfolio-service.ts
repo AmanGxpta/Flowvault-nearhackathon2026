@@ -1,3 +1,4 @@
+import { lendingVenuePortfolio } from "./lending-venue-portfolio.ts";
 import { readPortfolio, validAccount } from "./near.ts";
 import { readEvmUsdc } from "./evm.ts";
 import { readStaking } from "./staking-reads.ts";
@@ -51,6 +52,7 @@ export async function workspacePortfolio(
       watchedErrors: [] as string[],
     };
   }
+  const venueRead = started(() => lendingVenuePortfolio(w), "Lending venue reads");
   const account = scope.account ?? w.accountId;
   let p: Portfolio = {
     source: "live",
@@ -317,6 +319,8 @@ export async function workspacePortfolio(
     } catch (e) {
       recordSection("connected-accounts", "unavailable", [String(e)], [], ["netWorth"]);
     }
+  try { const venues=await settled(venueRead); p.positions.push(...venues.positions); p.sections!.push(...venues.sections); }
+  catch(e) { recordSection("lending-venues", "unavailable", [String(e)], [], ["netWorth", "borrowingHeadroom"]); }
   p.positions = p.positions.map((x) =>
     displayPosition(x, "live", p.capturedAt),
   );

@@ -1,3 +1,5 @@
+import { isAave } from "@/lib/flowvault/aave";
+import { aaveJournalAction } from "@/lib/flowvault/aave-journal";
 import {
   isStakingKind,
   freshStakingAttempt,
@@ -71,12 +73,14 @@ export async function POST(request: Request) {
         id: z.string().uuid(),
         action: z.enum(["authorize", "attach", "check", "uncertain"]),
         hashes: z
-          .array(z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{43,44}$/))
+          .array(z.string().regex(/^(?:[1-9A-HJ-NP-Za-km-z]{43,44}|0x[0-9a-fA-F]{64})$/))
           .max(2)
           .optional(),
       })
       .parse(await request.json());
     const { attempt, previous } = await readAttempt(s.id, b.id);
+    if (isAave(attempt.preparation)) return json({ attempt: await aaveJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
+    if (b.hashes?.some(h => h.startsWith("0x"))) throw new Error("NEAR attempts require NEAR transaction hashes.");
     let authorizationRevision: number | undefined;
     if (b.action === "authorize") {
       assertSignable(

@@ -7,7 +7,7 @@ import { signFundingLeg } from "@/lib/flowvault/funding-mesh-client"; // Stream 
 import { DesignApp } from "./design-logic";
 import { api, clearLegacyEvm, emptySnapshot, getScope, loadSnapshot, setScope, takeLegacyEvm, type LiveSnapshot, type Scope } from "./live";
 import { useNearWallet, signUnwrap, signWnearRegister, signSupply, signWithdraw, signPayment, signLending, signStaking, signNativeStaking, walletClient } from "@/lib/flowvault/wallet";
-import { useMultiWallets, connectWallet, disconnectWallet, sendUsdcTransfer, type DiscoveredWallet, type WalletSession } from "@/lib/flowvault/wallets";
+import { useMultiWallets, connectWallet, disconnectWallet, sendUsdcTransfer, sendAaveOperation, type DiscoveredWallet, type WalletSession } from "@/lib/flowvault/wallets";
 
 const noopSubscribe = () => () => {};
 
@@ -286,6 +286,24 @@ export function FlowVaultRoot() {
         const s = snapRef.current;
         if (getScope() !== "personal" || s.scope !== "personal") throw new Error("The example workspace can’t be signed. Nothing was sent.");
         if (preparation.kind === "fund_transfer") return void (await signFundingLeg(preparation, sessionsRef.current, api).finally(() => refresh())); // Stream A: signed in the source account's own wallet
+        if (preparation.evm?.venueId?.startsWith("aave-v3:")) {
+          const wallet = sessionsRef.current.find(w => w.chain === "evm" && w.address.toLowerCase() === preparation.accountId.toLowerCase());
+          if (!wallet) throw new Error("Connect the prepared EVM wallet.");
+          await api("/api/transactions", {id:preparation.attemptId,action:"authorize"});
+          const hashes:string[]=[];
+          try {
+            await sendAaveOperation(wallet, preparation, async hash => {
+              hashes.push(hash);
+              localStorage.setItem("fv-hashes-" + preparation.attemptId,JSON.stringify(hashes));
+              await api("/api/transactions",{id:preparation.attemptId,action:"attach",hashes});
+            });
+            localStorage.removeItem("fv-hashes-" + preparation.attemptId);
+          } catch(e) {
+            await api("/api/transactions",{id:preparation.attemptId,action:"uncertain"}).catch(()=>{});
+            throw e;
+          } finally {await refresh();}
+          return;
+        }
         if (!s.walletAccount || s.walletAccount !== preparation.accountId || s.workspace?.accountId !== preparation.accountId)
           throw new Error("Connect the wallet that owns this prepared account.");
         const { selector } = await walletClient();
@@ -370,8 +388,8 @@ export function FlowVaultRoot() {
   return (
     <>
       <DesignApp live={snap} actions={actions} />
-      <LendingVenues key={snap.scope + ":venues"} scope={snap.scope} />
-      <PlanDock key={snap.scope} scope={snap.scope} sign={actions.sign} canSign={snap.scope === "personal" && !!snap.walletAccount && snap.walletAccount === snap.workspace?.accountId} />
+      <LendingVenues key={snap.scope + ":venues"} scope={snap.scope} accounts={snap.workspace?.accounts ?? []} />
+      <PlanDock key={snap.scope} scope={snap.scope} sign={actions.sign} canSign={snap.scope === "personal" && ((!!snap.walletAccount && snap.walletAccount === snap.workspace?.accountId) || multi.sessions.some(s => s.chain === "evm"))} />
     </>
   );
 }

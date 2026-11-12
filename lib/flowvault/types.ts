@@ -51,6 +51,8 @@ export interface MarketSnapshot {
   warnings: string[];
 }
 export interface Position {
+  /** Venue oracle normalized into USDC by a finalized venue read; consumed only by valuation.ts. */
+  venueValuation?: { usdcRaw: string; basis: string; freshUntil: string };
   ownership?: "owner" | "watched";
   assetKey?: string;
   fictional?: boolean;
