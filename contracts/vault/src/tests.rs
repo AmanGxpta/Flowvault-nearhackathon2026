@@ -218,3 +218,173 @@ fn single_depositor_has_zero_fees_and_cannot_transfer_shares() {
     fails(|| v.ft_transfer(account("curator.near"), U128(1), None));
     assert_eq!(v.ft_metadata().decimals, 18);
 }
+
+fn callback_context(result: PromiseResult) {
+    let mut c = VMContextBuilder::new();
+    c.current_account_id(account("vault.near"))
+        .predecessor_account_id(account("vault.near"))
+        .signer_account_id(account("keeper.near"))
+        .account_balance(NearToken::from_near(100))
+        .block_timestamp(2_000_000_000);
+    #[allow(deprecated)]
+    near_sdk::test_utils::testing_env_with_promise_results(c.build(), result);
+}
+fn redemption(v: &mut Vault, shares: u128, min: u128) -> U64 {
+    context("owner.near", QUEUE_STORAGE, 1_200);
+    v.request_redeem(U128(shares), U128(min))
+}
+fn funded() -> Vault {
+    let mut v = vault();
+    report(&mut v, 1, 0);
+    let id = deposit(&mut v, "owner.near", 100_000_000);
+    settle_deposit(&mut v, id);
+    v
+}
+#[test]
+fn redemption_escrows_then_burns_into_fixed_claim_not_wallet_cash() {
+    let mut v = funded();
+    let id = redemption(&mut v, 10 * E18, 10_000_000);
+    assert_eq!(v.token.total_supply, 100 * E18);
+    assert_eq!(v.token.ft_balance_of(account("owner.near")).0, 90 * E18);
+    assert_eq!(v.queued_shares, 10 * E18);
+    context("keeper.near", 0, 1_201);
+    assert_eq!(v.process_redemptions(20), 1);
+    assert_eq!(v.token.total_supply, 90 * E18);
+    assert_eq!(v.liquid, 90_000_000);
+    assert_eq!(v.claimable, 10_000_000);
+    assert_eq!(v.get_request(id).unwrap().status, RequestStatus::Claimable);
+    assert_eq!(v.get_nav().nav_raw.unwrap().0, 90_000_000);
+    assert_eq!(
+        v.get_account(account("owner.near"))["claimable_raw"],
+        "10000000"
+    );
+}
+#[test]
+fn claim_failure_restores_same_claim_and_nonce_blocks_old_callback() {
+    let mut v = funded();
+    let id = redemption(&mut v, 10 * E18, 0);
+    context("keeper.near", 0, 1_201);
+    v.process_redemptions(1);
+    let _ = v.claim(id);
+    let first = v.busy.as_ref().unwrap().id;
+    assert_eq!(v.get_request(id).unwrap().status, RequestStatus::Claiming);
+    fails(|| {
+        let _ = v.claim(id);
+    });
+    callback_context(PromiseResult::Failed);
+    assert!(!v.on_claim(id, first));
+    assert_eq!(v.claimable, 10_000_000);
+    assert_eq!(v.token.total_supply, 90 * E18);
+    assert_eq!(v.get_request(id).unwrap().status, RequestStatus::Claimable);
+    context("keeper.near", 0, 2_000);
+    let _ = v.claim(id);
+    let second = v.busy.as_ref().unwrap().id;
+    assert_ne!(first, second);
+    callback_context(PromiseResult::Successful(vec![]));
+    fails(|| {
+        v.on_claim(id, first);
+    });
+    assert!(v.on_claim(id, second));
+    assert_eq!(v.claimable, 0);
+    assert_eq!(v.get_request(id).unwrap().status, RequestStatus::Completed);
+    assert_eq!(v.token.total_supply, 90 * E18);
+    fails(|| {
+        v.on_claim(id, second);
+    });
+}
+#[test]
+fn fifo_notice_minimum_and_insufficient_liquidity_never_skip_a_holder() {
+    let mut v = funded();
+    v.config.redemption_notice_ms = U64(1000);
+    let first = redemption(&mut v, 10 * E18, 11_000_000);
+    let second = redemption(&mut v, 5 * E18, 0);
+    context("keeper.near", 0, 1_201);
+    assert_eq!(v.process_redemptions(20), 0);
+    context("keeper.near", 0, 2_201);
+    assert_eq!(v.process_redemptions(20), 0);
+    assert_eq!(v.get_request(second).unwrap().status, RequestStatus::Queued);
+    context("owner.near", 1, 2_201);
+    v.amend_redemption(first, U128(0));
+    v.liquid = 1_000_000;
+    report(&mut v, 2, 99_000_000);
+    context("keeper.near", 0, 2_202);
+    assert_eq!(v.process_redemptions(20), 0);
+    assert_eq!(v.token.total_supply, 100 * E18);
+}
+#[test]
+fn cancel_deposit_returns_fixed_refund_and_cancel_redeem_returns_escrow() {
+    let mut v = vault();
+    report(&mut v, 1, 0);
+    let id = deposit(&mut v, "owner.near", 10_000_000);
+    context("owner.near", 1, 1_200);
+    v.cancel_deposit(U64(id));
+    assert_eq!(v.pending_deposits, 0);
+    assert_eq!(v.claimable, 10_000_000);
+    assert_eq!(v.get_nav().nav_raw.unwrap().0, 0);
+    assert_eq!(v.token.total_supply, 0);
+    context("keeper.near", 0, 1_201);
+    let _ = v.claim(U64(id));
+    let op = v.busy.as_ref().unwrap().id;
+    callback_context(PromiseResult::Successful(vec![]));
+    assert!(v.on_claim(U64(id), op));
+    assert_eq!(
+        v.get_request(U64(id)).unwrap().status,
+        RequestStatus::Cancelled
+    );
+    let deposit_id = deposit(&mut v, "owner.near", 10_000_000);
+    settle_deposit(&mut v, deposit_id);
+    let rid = redemption(&mut v, 5 * E18, 0);
+    context("owner.near", 1, 1_203);
+    v.cancel_redemption(rid);
+    assert_eq!(v.ft_balance_of(account("owner.near")).0, 10 * E18);
+    assert_eq!(v.queued_shares, 0);
+    assert_eq!(v.token.total_supply, 10 * E18);
+}
+#[test]
+fn pause_shutdown_keep_exits_open_and_cannot_be_reversed() {
+    let mut v = funded();
+    let id = redemption(&mut v, 10 * E18, 0);
+    context("owner.near", 1, 1_201);
+    v.set_status(Status::Paused);
+    context("keeper.near", 0, 1_202);
+    assert_eq!(v.process_redemptions(1), 1);
+    context("owner.near", 1, 1_203);
+    v.set_status(Status::Shutdown);
+    fails(|| v.set_status(Status::Running));
+    assert_eq!(v.get_request(id).unwrap().status, RequestStatus::Claimable);
+    context("keeper.near", 0, 1_204);
+    let _ = v.claim(id);
+}
+#[test]
+fn claim_callback_is_private_and_pending_requests_cannot_be_pruned() {
+    let mut v = funded();
+    let id = redemption(&mut v, 10 * E18, 0);
+    context("owner.near", 1, 1_201);
+    fails(|| v.prune_requests(vec![id]));
+    context("keeper.near", 0, 1_202);
+    v.process_redemptions(1);
+    let _ = v.claim(id);
+    let op = v.busy.as_ref().unwrap().id;
+    context("attacker.near", 0, 1_203);
+    fails(|| {
+        v.on_claim(id, op);
+    });
+    assert_eq!(v.get_request(id).unwrap().status, RequestStatus::Claiming);
+}
+#[test]
+fn escrowed_shares_still_count_toward_personal_deposit_cap() {
+    let mut v = funded();
+    v.config.per_depositor_cap_raw = U128(100_000_000);
+    let _ = redemption(&mut v, 10 * E18, 0);
+    credit(&mut v, "owner.near");
+    context(USDC, 0, 1_300);
+    assert!(matches!(
+        v.ft_on_transfer(
+            account("owner.near"),
+            U128(1_000_000),
+            "{\"action\":\"deposit\",\"min_shares\":\"1\"}".into()
+        ),
+        PromiseOrValue::Value(U128(1_000_000))
+    ));
+    assert_eq!(v.pending_deposits, 0);
+}

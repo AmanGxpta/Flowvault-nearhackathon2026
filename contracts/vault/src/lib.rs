@@ -1,6 +1,7 @@
 //! FlowVault custody/share vault. Undeployed. NAV is a trusted, stale-bounded curator attestation;
 //! it is NOT cryptographic evidence of external assets. Never route arbitrary delegate calldata.
 mod math;
+mod redemptions;
 use math::{
     E18, VIRTUAL_ASSETS, VIRTUAL_SHARES, add, assets_for, fee_shares, mul_div, pps, shares_for,
 };
@@ -475,11 +476,7 @@ impl Vault {
         );
         let shares = shares_for(r.amount_raw.0, nav, self.token.total_supply);
         assert!(shares > 0 && shares >= r.min_output_raw.0, "MIN_SHARES");
-        let held = assets_for(
-            self.token.ft_balance_of(r.owner_id.clone()).0,
-            nav,
-            self.token.total_supply,
-        );
+        let held = assets_for(self.held_shares(&r.owner_id), nav, self.token.total_supply);
         assert!(
             add(held, r.amount_raw.0) <= self.config.per_depositor_cap_raw.0,
             "DEPOSITOR_CAP"
@@ -655,11 +652,7 @@ impl FungibleTokenReceiver for Vault {
                     && r.owner_id == sender_id
             })
             .fold(0, |n, r| add(n, r.amount_raw.0));
-        let owned = assets_for(
-            self.token.ft_balance_of(sender_id.clone()).0,
-            nav,
-            self.token.total_supply,
-        );
+        let owned = assets_for(self.held_shares(&sender_id), nav, self.token.total_supply);
         if add(add(nav, self.pending_deposits), amount.0) > self.config.capacity_raw.0
             || add(add(owned, existing), amount.0) > self.config.per_depositor_cap_raw.0
         {
