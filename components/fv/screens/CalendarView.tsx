@@ -191,6 +191,11 @@ export function CalendarView({ v }: { v: any }) {
                           {o.btnLabel}
                         </button>
                       </div>
+                      {o.onRemove ? (
+                        <button type="button" onClick={o.onRemove} aria-label={"Remove " + o.name} title="Remove from calendar" style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--fvc-8A9285)", fontSize: "16px", padding: "0 2px" }}>
+                          ×
+                        </button>
+                      ) : null}
                       </div>
                     </div>
                   </Fragment>

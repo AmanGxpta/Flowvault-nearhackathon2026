@@ -213,6 +213,8 @@ export function detect(input: MonitorInput): { candidates: Candidate[]; evaluate
         const gap = first.needRaw - spendable - instantRaw;
         for (const p of owner) {
           if (p.kind !== "staking") continue;
+          // An empty position can't cover anything, so its exit timing is never a risk.
+          if (/^0+(\.0*)?$/.test(String(p.amount))) continue;
           const value = valueOf(c, p.id);
           const due = first.obligation.dueDate;
           const pendingExit = p.availableAt ? utcDay(Date.parse(p.availableAt)) : null;

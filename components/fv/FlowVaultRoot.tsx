@@ -16,9 +16,13 @@ export interface LiveActions {
   setEvm(v: { base?: string; arb?: string }): Promise<void>;
   /** Watched accounts are read-only and excluded from every engine figure (R10). Full replacement. */
   setWatched(list: { id: string; label: string; chain: "near" | "base" | "arb"; address: string }[]): Promise<void>;
+  /** Account registry (any chain, any number): add, set-role, rename, forget. Never signs or moves funds. */
+  accounts(body: Record<string, unknown>): Promise<any>;
   refresh(): Promise<void>;
   savePlan(changes: { reserve?: string; horizon?: number; leadDays?: number; borrowing?: boolean }): Promise<void>;
   addObligation(o: Record<string, unknown>): Promise<void>;
+  /** Remove a dated payment that isn't paying or paid (DELETE /api/obligations). */
+  removeObligation(id: string): Promise<void>;
   savePolicy(policy: unknown): Promise<void>;
   policyTest(body: unknown): Promise<any>;
   credit(body: unknown): Promise<any>;
@@ -116,6 +120,8 @@ export function FlowVaultRoot() {
       const latest = await api("/api/workspace", undefined, "GET", "personal");
       if (!(latest.workspace.mode === "live" && latest.workspace.accountId === id))
         await api("/api/workspace", { revision: latest.revision, mode: "live", accountId: id }, "PUT", "personal");
+      // The registry records that a wallet signed in as this account (client-reported, labelled as such).
+      await api("/api/accounts", { action: "wallet-session", chain: "near", address: id }, "POST", "personal").catch(() => {});
       await refresh();
     })().catch((e) => setSnap((s) => ({ ...s, error: (e as Error).message })));
   }, [wallet.accountId, snap.status, snap.workspace, snap.scope, refresh]);
@@ -156,6 +162,11 @@ export function FlowVaultRoot() {
         await api("/api/workspace", { revision: latest.revision, evmAddresses, watchedAccounts: latest.workspace.watchedAccounts ?? [] }, "PUT");
         await refresh();
       },
+      accounts: async (body) => {
+        const r = await api("/api/accounts", body, "POST");
+        await refresh();
+        return r;
+      },
       setWatched: async (list) => {
         const latest = await api("/api/workspace", undefined, "GET");
         await api("/api/workspace", { revision: latest.revision, evmAddresses: latest.workspace.evmAddresses ?? {}, watchedAccounts: list }, "PUT");
@@ -171,10 +182,20 @@ export function FlowVaultRoot() {
         await api("/api/workspace", { revision: latest.revision, mandate: { ...rest, ...changes } }, "PUT");
         await refresh();
       },
+      removeObligation: async (id) => {
+        const latest = await api("/api/workspace");
+        await api("/api/obligations", { revision: latest.revision, obligation: { id } }, "DELETE");
+        await refresh();
+        // The calendar changed: re-run monitoring now instead of waiting out its read throttle.
+        await api("/api/alerts", { action: "check" }).catch(() => {});
+        window.dispatchEvent(new Event("fv:plans-refresh"));
+      },
       addObligation: async (obligation) => {
         const latest = await api("/api/workspace");
         await api("/api/obligations", { revision: latest.revision, obligation });
         await refresh();
+        await api("/api/alerts", { action: "check" }).catch(() => {});
+        window.dispatchEvent(new Event("fv:plans-refresh"));
       },
       savePolicy: async (policy) => {
         const latest = await api("/api/policy");

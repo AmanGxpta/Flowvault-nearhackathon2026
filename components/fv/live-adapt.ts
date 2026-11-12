@@ -4,6 +4,8 @@
 import { api, type LiveSnapshot, type Usable } from "./live";
 import { missingEntries, withEntries } from "@/lib/flowvault/plans-policy";
 import { startPlan, openPlan } from "./PlanDock";
+import { accountState, chainName as regChain, detectChain, shortAddress, unreadAccounts } from "@/lib/flowvault/account-registry";
+import type { LinkedAccount } from "@/lib/flowvault/types";
 import { chainName, days, dlabel, f, hhmm, livePayoutSupported, LIVE_ROUTES_TEXT, money, num, short, usd, whenLabel, TODAY } from "./format";
 
 const RHEA = "contract.main.burrow.near";
@@ -213,6 +215,50 @@ const owned = (snap: LiveSnapshot) => (snap.portfolio?.positions ?? []).filter((
 const watchedPos = (snap: LiveSnapshot) => (snap.portfolio?.positions ?? []).filter((p: any) => p.ownership === "watched");
 
 /** View-model overrides for the live workspace. `v` is the design's computed view model. */
+/** A dated payment that isn't paying or paid can be removed from the calendar (the obligations API refuses the rest). */
+function withRemove(self: any, example: boolean, o: any) {
+  if (example || ["Receipt", "Check status"].includes(String(o.btnLabel))) return o;
+  const onRemove = () => {
+    self.remember();
+    self.setState({
+      modal: "confirm",
+      confirm: {
+        live: true,
+        eyebrow: "CALENDAR",
+        title: "Remove " + o.name + "?",
+        text: o.name + " (" + o.amountF + ", due " + o.dueLabel + ") leaves your calendar and stops counting toward your holdback. Plans made for it are cancelled. Nothing on-chain changes, and you can add it again.",
+        ok: "Removed " + o.name + " from your calendar.",
+        no: "Keep it",
+        yes: "Remove payment",
+        apply: () => self.props.actions.removeObligation(o.id),
+      },
+    });
+  };
+  return { ...o, onRemove };
+}
+
+/** Forget the main NEAR account (account registry), behind a confirmation. Nothing on-chain changes. */
+function askForgetMain(self: any, acct: string, connected: boolean) {
+  self.setState({ menu: null });
+  self.remember();
+  self.setState({
+    modal: "confirm",
+    confirm: {
+      live: true,
+      eyebrow: "ACCOUNTS",
+      title: "Forget " + acct + "?",
+      text: "FlowVault stops reading " + acct + " and the workspace goes back to having no main account. Unexecuted drafts are cancelled. Nothing on-chain changes, your other accounts stay, and you can connect or add it again any time.",
+      ok: "Forgot " + acct + ". Nothing on-chain changed.",
+      no: "Keep it",
+      yes: "Forget account",
+      apply: async () => {
+        if (connected) await self.props.actions.disconnect();
+        await self.props.actions.accounts({ action: "forget", id: "near:" + acct });
+      },
+    },
+  });
+}
+
 export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; example: boolean }) {
   const { self, s, example } = ctx;
   const out: any = {};
@@ -238,21 +284,32 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
 
   // Header, account and workspace labels (the example workspace keeps the design's example account).
   if (!example) {
-  out.acctLabel = connected ? acct : acct ? acct + " · watching" : "Connect wallet";
-  out.netLabel = connected ? "Mainnet · wallet connected" : acct ? "Mainnet · watching, read only" : "Not connected · read only";
+  // Account registry: the main account is yours whether or not a wallet is connected right now; "connected"
+  // is only whether a wallet can sign for it in this browser. Disconnecting never turns it into "watching".
+  const primary = ((snap.workspace as any)?.accounts ?? []).find((a: any) => a.primary);
+  const proven = primary?.proof && primary.proof.method !== "declared";
+  out.acctLabel = connected ? acct : acct ? acct + " · not connected" : "Connect wallet";
+  out.netLabel = connected ? "Mainnet · wallet connected" : acct ? "Mainnet · not connected, read only" : "Not connected · read only";
   out.netColor = connected ? "#4E7A4A" : "#8A9285";
-  out.wsRole = connected ? "Owner · can approve" : acct ? "Watching · read only" : "Read only · not connected";
-  out.acctMenuNote = connected ? "Signed in on NEAR mainnet · " + (snap.walletName || "wallet") : acct ? "Watching " + acct + " · nothing can be approved" : "No wallet connected";
+  out.wsRole = connected ? "Owner · can approve" : acct ? "Yours · read only until you connect" : "Read only · not connected";
+  out.acctMenuNote = connected
+    ? "Signed in on NEAR mainnet · " + (snap.walletName || "wallet")
+    : acct
+      ? (proven ? "Yours · no wallet connected" : "Added by you · no wallet has signed in as it yet") + " · nothing can be approved"
+      : "No wallet connected";
+  const forgetMain = { label: "Forget " + acct, color: "#9A3F32", onClick: () => askForgetMain(self, acct, connected) };
+
   const copy = { label: "Copy address", color: "#1E2A22", onClick: () => { try { navigator.clipboard.writeText(acct); } catch {} self.closeMenu(); self.toastMsg("Copied " + acct + "."); } };
   out.acctItems = connected
     ? [
         { label: "Switch wallet", color: "#1E2A22", onClick: () => { self.closeMenu(); self.liveCall(() => self.props.actions.connect()); } },
         copy,
-        { label: "Disconnect", color: "#9A3F32", onClick: () => { self.setState({ menu: null }); self.liveCall(() => self.props.actions.disconnect(), "Disconnected. Balances stay visible; nothing can be approved."); } },
+        { label: "Disconnect", color: "#9A3F32", onClick: () => { self.setState({ menu: null }); self.liveCall(() => self.props.actions.disconnect(), "Disconnected. " + acct + " stays in your accounts, read only. Use Forget to remove it."); } },
+        forgetMain,
       ]
     : [
         { label: "Connect wallet", color: "#3F6B3C", onClick: () => { self.setState({ menu: null }); self.liveCall(() => self.props.actions.connect()); } },
-        ...(acct ? [copy] : []),
+        ...(acct ? [copy, forgetMain] : []),
       ];
   out.walletApprove = () => self.toastMsg(readOnly ? "Connect the wallet that owns " + (acct || "this account") + " first. Nothing was signed." : "Use the dialog’s approve button. Nothing was signed.");
   }
@@ -385,7 +442,9 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
     ];
   out.positions = out.ovPositions;
   // Payments: the live pay flow is wired with Pay on a date (BACKEND_API §7); until then Pay opens that page.
-  out.upcoming = (v.upcoming ?? []).map((o: any) => (o.btnLabel === "Pay" || o.btnLabel === "Pay again" ? { ...o, onPay: () => self.setState({ screen: "pay", payPick: o.id }) } : o));
+  out.upcoming = (v.upcoming ?? []).map((o: any) =>
+    withRemove(self, example, o.btnLabel === "Pay" || o.btnLabel === "Pay again" ? { ...o, onPay: () => self.setState({ screen: "pay", payPick: o.id }) } : o),
+  );
   const n = (v.upcoming ?? []).length;
   out.obsCountLabel = String(v.obsCountLabel ?? "").replace(/^1 payments/, "1 payment").replace(/^\d+ payments/, (m: string) => (n === 1 ? "1 payment" : m));
   return out;
@@ -451,8 +510,6 @@ const RULES: [string, string][] = [
 ];
 const pct = (x: string | number) => (Math.round(Number(x) * 100) / 100).toString() + "%";
 const DEST: Record<string, string> = { NEAR: "near", Base: "base", Arbitrum: "arb", "BNB Chain": "bnb", Ethereum: "eth" };
-const isEvmAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
-const isNearAcct = (a: string) => /^([a-z0-9_-]+\.)*[a-z0-9_-]+\.(near|tg)$/.test(a) || /^[0-9a-f]{64}$/.test(a);
 /** Honest route support for a dated payment: the calendar holds any of these; only Base/Arbitrum USDC pays out live. */
 export const routeNote = (chain: string, token: string, example: boolean) =>
   livePayoutSupported(chain, token)
@@ -644,42 +701,69 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
     out.pfRows.push({ name: secName(sec.id) + (sec.status === "partial" ? " · partly read" : " · unavailable"), sub: (sec.reasons ?? []).map(readReason).join(" · ") || "read failed", chain: /base/.test(sec.id) ? "Base" : /arb/.test(sec.id) ? "Arbitrum" : "NEAR", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Not counted until it reads · affects " + (sec.affects ?? []).join(", "), tag: sec.status === "partial" ? "PARTIAL" : "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: sec.capturedAt ? "tried " + hhmm(sec.capturedAt) : "", opacity: 1 });
   const unset = sections.filter((x) => x.status === "not-configured").map((x) => secName(x.id));
   if (unset.length && !example)
-    out.pfRows.push({ name: unset.join(" and ") + " · not set up", sub: "Add your EVM address below to read it. Nothing is assumed meanwhile.", chain: "—", value: "—", valColor: "#8A9285", by: "Not read", byColor: "#8A9285", path: "Not a zero balance", tag: "NOT SET UP", tagBg: "#EEF0E8", tagColor: "#5B6458", src: "", opacity: 0.85 });
+    out.pfRows.push({ name: unset.join(" and ") + " · not set up", sub: "No EVM account of yours yet. Add one under Accounts, or mark a watched one as yours. Nothing is assumed meanwhile.", chain: "—", value: "—", valColor: "#8A9285", by: "Not read", byColor: "#8A9285", path: "Not a zero balance", tag: "NOT SET UP", tagBg: "#EEF0E8", tagColor: "#5B6458", src: "", opacity: 0.85 });
   if (readErr.length)
     out.pfRows.push({ name: "Some reads failed", sub: readErr.join(" · "), chain: "—", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Nothing is assumed while a read fails", tag: "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: "", opacity: 1 });
   out.pfHas = out.pfRows.length > 0;
   out.pfEmpty = !out.pfHas;
+  // Account registry (any chain, any number per chain). Rows show watched / yours / connected; "connected" is
+  // computed here from live wallet sessions and never stored.
   const W: any = snap.workspace ?? {};
-  const watched: any[] = W.watchedAccounts ?? [];
-  const evmOwn = [...new Set([W.evmAddresses?.base, W.evmAddresses?.arb].filter(Boolean) as string[])];
-  out.pfAccounts = [
-    ...(example
-      ? [{ name: "Fictional example account", sub: "NEAR · no wallet · nothing can be approved", tag: "EXAMPLE", tagBg: "#F6EBDD", tagColor: "#8A5F25" }]
-      : acct
-        ? [{ name: acct, sub: "NEAR · " + (connected ? (snap.walletName || "wallet") + " · can approve" : "read only until you connect its wallet"), tag: connected ? "OWNER" : "WATCHING", tagBg: connected ? "#E2EAD6" : "#EEF0E8", tagColor: connected ? "#3F6B3C" : "#5B6458" }]
-        : []),
-    ...evmOwn.map((a) => ({ name: short(a), sub: "Base, Arbitrum · declared yours · USDC counts · FlowVault never signs EVM", tag: "YOURS · READ ONLY", tagBg: "#E7ECF3", tagColor: "#3F5A7A", onRemove: () => self.liveCall(() => acts.setEvm({}), tag + "Removed " + short(a) + " from your accounts.") })),
-    ...watched.map((w: any) => ({ name: w.label || short(w.address), sub: chainName(w.chain) + " · " + short(w.address) + " · excluded from net worth", tag: "WATCHED", tagBg: "#EEF0E8", tagColor: "#5B6458", onRemove: () => self.liveCall(() => acts.setWatched(watched.filter((x: any) => x.id !== w.id)), tag + "Stopped watching " + (w.label || short(w.address)) + ".") })),
-  ];
+  const reg: LinkedAccount[] = W.accounts ?? [];
+  const live = new Set<string>(snap.walletAccount ? ["near:" + snap.walletAccount] : []);
+  const unread = new Set(unreadAccounts(W).map((a) => a.id));
+  const evmOwn = reg.filter((a) => a.chain === "evm" && a.role === "owned").map((a) => a.address);
+  const NET: Record<string, string> = { near: "NEAR", ethereum: "Ethereum", base: "Base", arbitrum: "Arbitrum", solana: "Solana" };
+  const READ_NOW: Record<string, string[]> = { near: ["near"], evm: ["base", "arbitrum"], solana: [] };
+  const acctCall = (body: any, ok?: string) => self.liveCall(() => acts.accounts(body), ok);
+  const proofText = (a: LinkedAccount) =>
+    !a.proof ? "" : a.proof.method === "declared" ? "you said it’s yours, not proven yet" : a.proof.method === "wallet-session" ? "a wallet signed in as it" : "ownership proven by signature";
+  out.pfAccounts = example
+    ? [{ name: "Fictional example account", sub: "NEAR · no wallet · nothing can be approved", tag: "EXAMPLE", tagBg: "#F6EBDD", tagColor: "#8A5F25" }]
+    : reg.map((a) => {
+        const st = accountState(a, live);
+        const nets = a.networks.map((n) => NET[n] ?? n).join(", ");
+        const readNets = a.networks.filter((n) => READ_NOW[a.chain].includes(n)).map((n) => NET[n] ?? n);
+        const notRead = unread.has(a.id) ? "balances not read yet" : readNets.length < a.networks.length ? "reads " + (readNets.join(", ") || "nothing yet") + " for now" : "";
+        const sub = [
+          regChain(a.chain) + (a.chain === "evm" ? " · " + nets : ""),
+          ![a.address, shortAddress(a.address)].includes(a.label.toLowerCase()) && ![a.address, shortAddress(a.address)].includes(a.label) ? shortAddress(a.address) : "",
+          st === "watched" ? "someone else’s · read only · not counted" : st === "connected" ? (snap.walletName || "wallet") + " connected · can approve" : "yours · counted · " + proofText(a) + (a.primary ? " · connect its wallet to approve" : ""),
+          notRead,
+        ].filter(Boolean).join(" · ");
+        const tagText = st === "connected" ? "CONNECTED" : st === "owned" ? (a.primary ? "MAIN · YOURS" : "YOURS") : "WATCHED";
+        const actions = [
+          ...(st === "watched" ? [{ label: "This is mine", onClick: () => acctCall({ action: "set-role", id: a.id, role: "owned" }) }] : []),
+          ...(st !== "watched" && !a.primary ? [{ label: "Watch only", onClick: () => acctCall({ action: "set-role", id: a.id, role: "watched" }) }] : []),
+          ...(a.primary && st === "owned" ? [{ label: "Connect wallet", onClick: () => self.liveCall(() => acts.connect()) }] : []),
+        ];
+        return {
+          name: a.label,
+          sub,
+          tag: tagText,
+          tagBg: st === "connected" ? "#E2EAD6" : st === "owned" ? "#E7ECF3" : "#EEF0E8",
+          tagColor: st === "connected" ? "#3F6B3C" : st === "owned" ? "#3F5A7A" : "#5B6458",
+          actions,
+          removeLabel: "Forget " + a.label,
+          onRemove: a.primary
+            ? () => askForgetMain(self, a.address, connected)
+            : () => acctCall({ action: "forget", id: a.id }, "Forgot " + a.label + ". Nothing on-chain changed."),
+        };
+      });
   out.watchMine = !!s.watchMine;
   out.onWatchMine = (e: any) => self.setState({ watchMine: e.target.checked });
-  out.watchMineLabel = "This EVM address is mine: its Base and Arbitrum USDC count toward net worth";
+  out.watchMineLabel = "This account is mine: count it toward net worth (you can prove it with a signature later)";
+  out.watchAddLabel = "+ Add an account";
+  out.watchPlaceholder = "name.near, 0x… or a Solana address";
+  out.watchFoot = "Watched accounts are someone else’s: read only and never counted. Yours count toward net worth. Only a connected wallet can approve anything, and FlowVault never signs for you.";
   out.watchFirst = () => {
     const a = String(s.watchDraft ?? "").trim();
-    const evm = isEvmAddr(a);
-    if (!evm && !isNearAcct(a)) return self.toastMsg("That isn’t a NEAR account or EVM address.");
+    const chain = detectChain(a);
+    if (!chain) return self.toastMsg("That isn’t a NEAR account, EVM address or Solana address.");
     self.setState({ watchDraft: "" });
-    if (!example && !acct && !evm) return self.liveCall(() => acts.watch(a), "Watching " + short(a) + ". Watching never lets anyone move its funds.");
-    if (s.watchMine) {
-      if (!evm) return self.toastMsg("Your NEAR account is the one you connect or watch first. Connect a different wallet to switch.");
-      return self.liveCall(() => acts.setEvm({ base: a, arb: a }), tag + "Added " + short(a) + " as yours. Its Base and Arbitrum USDC now count; FlowVault never signs for it.");
-    }
-    if (watched.length + (evm ? 2 : 1) > 12) return self.toastMsg("Up to 12 watched entries. Remove one first.");
-    const id = "w-" + a.slice(-6).toLowerCase() + "-" + Date.now().toString(36);
-    const next = evm
-      ? [...watched, { id: id + "-base", label: short(a) + " · Base", chain: "base", address: a }, { id: id + "-arb", label: short(a) + " · Arbitrum", chain: "arb", address: a }]
-      : [...watched, { id, label: a, chain: "near", address: a }];
-    self.liveCall(() => acts.setWatched(next), tag + "Watching " + short(a) + ". Watched accounts are read only and excluded from net worth.");
+    // No main account yet: a NEAR account typed here becomes the main one (read only until its wallet connects).
+    if (!example && !acct && chain === "near") return self.liveCall(() => acts.watch(a), "Reading " + shortAddress(a) + ". Nothing can be approved until you connect its wallet.");
+    acctCall({ action: "add", address: a, chain, role: s.watchMine ? "owned" : "watched" }, tag + (s.watchMine ? "Added " + shortAddress(a) + " as yours." : "Watching " + shortAddress(a) + ". Watching never lets anyone move its funds."));
   };
   // Staking from GET /api/portfolio (native pools) where the API returns them.
   const nat = pf?.staking?.native;
@@ -1307,8 +1391,12 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
       const c = s.confirm;
       self.setState({ modal: null, confirm: null });
       self.refocus();
-      self.liveCall(() => c.apply(), "Policy saved as a new revision.");
+      self.liveCall(() => c.apply(), c.ok ?? "Policy saved as a new revision.");
     };
+    // Live confirmations are policy entries or account changes, never the design's protected-asset prompt.
+    out.m = { eyebrow: s.confirm.eyebrow ?? "POLICY · NEW REVISION", title: s.confirm.title, hasSteps: false, steps: [] };
+    out.confirmNoLabel = s.confirm.no ?? "Not now";
+    out.confirmYesLabel = s.confirm.yes ?? "Save as a new revision";
   }
 
   // ---- Pay on a date screen
@@ -1553,7 +1641,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
     return { ...o, ...(ob2 && evalMode(ob2) ? { btnLabel: "Plan" } : {}), onPay: () => (ob2 && evalMode(ob2) ? toPayScreen(o.id) : openLivePay(o.id)) };
   };
   out.upcoming = (v.upcoming ?? []).map(toLivePay);
-  out.obGroups = (v.obGroups ?? []).map((g: any) => ({ ...g, items: g.items.map(toLivePay) }));
+  out.obGroups = (v.obGroups ?? []).map((g: any) => ({ ...g, items: g.items.map((o: any) => withRemove(self, example, toLivePay(o))) }));
 
   // ---- "Pay or move money": the outcome becomes a dated payment (any calendar chain/token, R8), then its sources are compared.
   if (s.modal === "intent") {

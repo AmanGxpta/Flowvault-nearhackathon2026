@@ -129,7 +129,7 @@ export function ModalShellView({ v }: { v: any }) {
                         cursor: "pointer",
                       }}
                     >
-                      Keep it protected
+                      {v.confirmNoLabel ?? "Keep it protected"}
                     </button>
                     <button
                       type="button"
@@ -144,7 +144,7 @@ export function ModalShellView({ v }: { v: any }) {
                         cursor: "pointer",
                       }}
                     >
-                      Remove protection
+                      {v.confirmYesLabel ?? "Remove protection"}
                     </button>
                   </div>
                 </div>

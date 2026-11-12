@@ -132,6 +132,32 @@ export interface Workspace {
   operations: Operation[];
   /** Interface (recurrence.ts): generated recurring instance id -> due date, so a deleted instance is never re-created. */
   recurrenceLog?: Record<string, string>;
+  /**
+   * Interface (account-registry.ts): every account this workspace knows, on any chain. The source of truth for
+   * accounts; `evmAddresses` and `watchedAccounts` are derived from it for readers that predate it. "Connected"
+   * is never stored: it is whether a wallet can sign for the account right now, known only in the browser.
+   */
+  accounts?: LinkedAccount[];
+}
+export type AccountChain = "near" | "evm" | "solana";
+export interface LinkedAccount {
+  /** `${chain}:${address in canonical form}` */
+  id: string;
+  chain: AccountChain;
+  address: string;
+  label: string;
+  /** watched = someone else's, read only, never counted. owned = yours, counted. */
+  role: "watched" | "owned";
+  /**
+   * How "owned" was established. declared = you said so; wallet-session = a wallet signed in as this account in
+   * your browser (not verified by the server); nep413 / siwe / siws = a signed message the server verified.
+   */
+  proof: { method: "declared" | "wallet-session" | "nep413" | "siwe" | "siws"; at: string } | null;
+  /** Networks read for this account: near | ethereum | base | arbitrum | solana. */
+  networks: string[];
+  /** The NEAR account plans run from (always equals Workspace.accountId). */
+  primary?: boolean;
+  addedAt: string;
 }
 export interface CashQuote {
   outputValueUsdc?: string;

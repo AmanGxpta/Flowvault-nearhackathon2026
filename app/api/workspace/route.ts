@@ -7,6 +7,7 @@ import { z } from "zod";
 import { session, save, mutation, json, failure } from "@/lib/flowvault/store";
 import { mandateSchema } from "@/lib/flowvault/validation";
 import { validAccount } from "@/lib/flowvault/near";
+import { adoptLegacy, ensureAccounts } from "@/lib/flowvault/account-registry";
 export async function GET(request: Request) {
   try {
     const s = await session(request);
@@ -53,6 +54,8 @@ export async function PUT(request: Request) {
       s.workspace.evmAddresses = body.evmAddresses ?? s.workspace.evmAddresses;
       s.workspace.watchedAccounts =
         body.watchedAccounts ?? s.workspace.watchedAccounts;
+      // Interface: older writers update the account registry these fields are derived from.
+      adoptLegacy(s.workspace);
       s.workspace.mandate.version++;
       s.workspace.operations = s.workspace.operations.map((o) =>
         o.state === "draft" ? { ...o, state: "superseded" } : o,
@@ -83,18 +86,14 @@ export async function PUT(request: Request) {
           o.state === "draft" ? { ...o, state: "superseded" } : o,
         );
       }
-      if (
-        body.mode === "live" &&
-        s.workspace.accountId &&
-        s.workspace.accountId !== body.accountId &&
-        !body.evmAddresses
-      )
-        s.workspace.evmAddresses = {};
+      // Interface (account registry): switching the main NEAR account keeps your other accounts. A previous
+      // main account you only typed in becomes watched (syncPrimary); one a wallet signed in as stays yours.
       s.workspace.mode = body.mode;
       s.workspace.accountId =
         body.mode === "live" ? (body.accountId ?? null) : null;
     }
     projectObligations(s.workspace);
+    ensureAccounts(s.workspace);
     const revision = await save(s.id, s.workspace, s.revision);
     return json(
       { workspace: s.workspace, revision, workspaceSlot: s.slot },

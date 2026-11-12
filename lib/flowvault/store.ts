@@ -1,6 +1,7 @@
 import { exampleCreditRows } from "./example-credit";
 import { keyedAttemptId } from "./preparation-key";
 import { migrateWorkspace } from "./obligations";
+import { ensureAccounts } from "./account-registry";
 import { advanceRecurrences } from "./recurrence";
 import { env } from "cloudflare:workers";
 import { seed, personalSeed, exampleDate } from "./seed";
@@ -100,12 +101,14 @@ export async function session(request: Request, retry = true): Promise<SessionIn
   let revision = row.revision;
   // Interface: recurring obligations get their next concrete instance on every read (idempotent ids).
   const recurred = advanceRecurrences(migrated.workspace).length > 0;
-  if (migrated.changed || refreshed || recurred) {
+  // Interface: the account registry is built once from the older fields and keeps them derived from it.
+  const accountsChanged = ensureAccounts(migrated.workspace);
+  if (migrated.changed || refreshed || recurred || accountsChanged) {
     try {
       revision = await save(id, migrated.workspace, revision);
     } catch (e) {
       // A concurrent read generated the same instances first; re-read its version once.
-      if (retry && recurred && !migrated.changed && !refreshed) return session(request, false);
+      if (retry && (recurred || accountsChanged) && !migrated.changed && !refreshed) return session(request, false);
       throw e;
     }
   }

@@ -74,7 +74,7 @@ test("unvalued holdback warns and blocks; no capital read leaves capital alerts 
 
 test("a pending exit landing after an uncovered payment threatens it; a covered payment is not threatened", () => {
   const obligations = [ob("rent", "2026-11-14", "3000")];
-  const unstaking = pos("unstaking", "staking", "NEAR", { availableAt: "2026-11-16T00:00:00Z", label: "Unstaking NEAR" });
+  const unstaking = pos("unstaking", "staking", "NEAR", { availableAt: "2026-11-16T00:00:00Z", label: "Unstaking NEAR", amount: "800" });
   const short = detect(input({ obligations, capital: capital(1000n * M, obligations, 0n, { unstaking: 2500n * M }), positions: [unstaking] }));
   const t = short.candidates.find((x) => x.kind === "exit_threatens_payment")!;
   assert.equal(t.severity, "urgent");
@@ -85,7 +85,7 @@ test("a pending exit landing after an uncovered payment threatens it; a covered 
 
 test("a staked position needed for a payment warns when its latest exit start enters the window", () => {
   const obligations = [ob("payroll", "2026-11-22", "6000")];
-  const staked = pos("staked", "staking", "NEAR", { label: "Staked NEAR" });
+  const staked = pos("staked", "staking", "NEAR", { label: "Staked NEAR", amount: "1900" });
   const r = detect(input({ obligations, capital: capital(1000n * M, obligations), positions: [staked], exitDays: { staked: 4 } }));
   const t = r.candidates.find((x) => x.kind === "exit_threatens_payment")!;
   assert.match(t.message, /4-day exit must begin by Nov 15/);
@@ -157,4 +157,11 @@ test("usd formats 6-decimal raw values for messages", () => {
   assert.equal(usd(1234_560000n), "1,234.56");
   assert.equal(usd("999"), "0.00");
   assert.equal(usd(-2_500000n), "-2.50");
+});
+
+test("an empty staking position never raises an exit-timing alert", () => {
+  const obligations = [ob("rent", "2026-11-13", "5000")];
+  const empty = pos("linear-shares", "staking", "LiNEAR", { label: "LiNEAR", amount: "0" });
+  const r = detect(input({ obligations, capital: capital(0n, obligations), positions: [empty] }));
+  assert.equal(r.candidates.some((x) => x.kind === "exit_threatens_payment"), false);
 });

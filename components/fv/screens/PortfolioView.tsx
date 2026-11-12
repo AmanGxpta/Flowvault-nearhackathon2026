@@ -156,10 +156,19 @@ export function PortfolioView({ v }: { v: any }) {
                           {a.tag}
                         </span>
                         {a.onRemove ? (
-                          <button type="button" onClick={a.onRemove} aria-label={"Stop watching " + a.name} style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--fvc-8A9285)", fontSize: "15px", padding: "0 2px" }}>×</button>
+                          <button type="button" onClick={a.onRemove} aria-label={a.removeLabel ?? "Stop watching " + a.name} title={a.removeLabel ?? "Stop watching"} style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--fvc-8A9285)", fontSize: "15px", padding: "0 2px" }}>×</button>
                         ) : null}
                       </div>
-                      <div style={{ marginTop: "4px", fontSize: "12px", color: "var(--fvc-8A9285)" }}>{a.sub}</div>
+                      <div style={{ marginTop: "4px", fontSize: "12px", color: "var(--fvc-8A9285)", lineHeight: "1.45", overflowWrap: "anywhere" }}>{a.sub}</div>
+                      {a.actions?.length ? (
+                        <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          {a.actions.map((x: any) => (
+                            <button key={x.label} type="button" onClick={x.onClick} style={{ padding: "5px 10px", borderRadius: "8px", border: "1px solid var(--fvb-DDE1D4)", background: "var(--fvb-FFFFFF)", color: "var(--fvc-2A4034)", fontSize: "12.5px", cursor: "pointer" }}>
+                              {x.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </Fragment>
                 ))}
@@ -176,11 +185,11 @@ export function PortfolioView({ v }: { v: any }) {
                     cursor: "pointer",
                   }}
                 >
-                  + Watch an address
+                  {v.watchAddLabel ?? "+ Watch an address"}
                 </button>
                 {v.watchOpen ? (
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <input value={v.watchDraft ?? ""} onChange={v.onWatchDraft} placeholder="name.near or 0x…" aria-label="Address to watch" style={{ flex: "1", minWidth: "140px", padding: "9px 12px", border: "1px solid var(--fvb-DDE1D4)", borderRadius: "10px", fontSize: "13.5px", fontFamily: "'DM Mono',monospace", outline: "none" }} />
+                    <input value={v.watchDraft ?? ""} onChange={v.onWatchDraft} placeholder={v.watchPlaceholder ?? "name.near or 0x…"} aria-label="Account address" style={{ flex: "1", minWidth: "140px", padding: "9px 12px", border: "1px solid var(--fvb-DDE1D4)", borderRadius: "10px", fontSize: "13.5px", fontFamily: "'DM Mono',monospace", outline: "none" }} />
                     <button type="button" onClick={v.watchFirst} style={{ padding: "9px 14px", borderRadius: "10px", border: "1px solid var(--fvb-DDE1D4)", background: "var(--fvb-FFFFFF)", cursor: "pointer", fontSize: "13.5px" }}>{v.watchMine ? "Add" : "Watch"}</button>
                     <label style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "12.5px", color: "var(--fvc-5B6458)", width: "100%", cursor: "pointer" }}>
                       <input type="checkbox" checked={!!v.watchMine} onChange={v.onWatchMine} style={{ accentColor: "var(--fvc-2A4034)" }} />
@@ -190,8 +199,8 @@ export function PortfolioView({ v }: { v: any }) {
                 ) : null}
               </div>
               <div style={{ marginTop: "16px", fontSize: "12px", color: "var(--fvc-8A9285)", lineHeight: "1.5" }}>
-                Watching never implies ownership. Watched accounts are excluded from net worth and can never approve or
-                move funds.
+                {v.watchFoot ??
+                  "Watching never implies ownership. Watched accounts are excluded from net worth and can never approve or move funds."}
               </div>
             </div>
             <div
