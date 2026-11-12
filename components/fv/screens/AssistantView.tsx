@@ -235,10 +235,10 @@ export function AssistantView({ v }: { v: any }) {
                                     fontSize: "12.5px",
                                   }}
                                 >
-                                  <span style={{ color: "var(--fvc-8A9285)", fontFamily: "'DM Mono',monospace" }}>
+                                  <span style={{ color: "var(--fvc-8A9285)", fontVariantNumeric: "tabular-nums" }}>
                                     {r.k}
                                   </span>
-                                  <span style={{ fontFamily: "'DM Mono',monospace", textAlign: "right" }}>{r.v}</span>
+                                  <span style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{r.v}</span>
                                 </div>
                               </Fragment>
                             ))}

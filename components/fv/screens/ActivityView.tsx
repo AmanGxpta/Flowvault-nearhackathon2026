@@ -226,7 +226,7 @@ export function ActivityView({ v }: { v: any }) {
                                 <Fragment key={i_ph_1}>
                                   <span
                                     style={{
-                                      fontFamily: "'DM Mono',monospace",
+                                      fontVariantNumeric: "tabular-nums",
                                       fontSize: "11.5px",
                                       padding: "4px 8px",
                                       borderRadius: "6px",
@@ -312,7 +312,7 @@ export function ActivityView({ v }: { v: any }) {
                                   style={{
                                     marginTop: "3px",
                                     fontSize: "12.5px",
-                                    fontFamily: "'DM Mono',monospace",
+                                    fontVariantNumeric: "tabular-nums",
                                     color: "var(--fvc-1E2A22)",
                                     wordBreak: "break-word",
                                   }}

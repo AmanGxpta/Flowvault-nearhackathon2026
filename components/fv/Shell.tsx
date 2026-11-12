@@ -174,7 +174,7 @@ export function Shell({ v }: { v: any }) {
                             fontSize: "11px",
                             fontWeight: "600",
                             color: "var(--fvc-A0A79A)",
-                            fontFamily: "'DM Mono',monospace",
+                            fontVariantNumeric: "tabular-nums",
                           }}
                           aria-hidden
                         >
@@ -328,8 +328,7 @@ export function Shell({ v }: { v: any }) {
                     background: "var(--fvb-6E9A5E)",
                   }}
                 ></span>
-                <span style={{ display: v.lblDisp, flex: "1", minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Hackathon build · Nov 14</span>
-                <span style={{ display: v.lblDisp, color: "var(--fvc-8A9285)" }}>v0.3</span>
+                <span style={{ display: v.lblDisp, flex: "1", minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.footNet || "NEAR mainnet"}</span>
                 <ThemeToggle size={28} />
               </div>
             </aside>

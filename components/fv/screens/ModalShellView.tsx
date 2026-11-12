@@ -268,7 +268,7 @@ export function ModalShellView({ v }: { v: any }) {
                             border: "1px solid var(--fvb-DDE1D4)",
                             borderRadius: "10px",
                             fontSize: "14px",
-                            fontFamily: "'DM Mono',monospace",
+                            fontVariantNumeric: "tabular-nums",
                             outline: "none",
                           }}
                         />
@@ -396,7 +396,7 @@ export function ModalShellView({ v }: { v: any }) {
                           }}
                         >
                           <span style={{ color: "var(--fvc-6F786B)" }}>{r.k}</span>
-                          <span style={{ fontFamily: "'DM Mono',monospace", fontSize: "13px", textAlign: "right" }}>
+                          <span style={{ fontVariantNumeric: "tabular-nums", fontSize: "13px", textAlign: "right" }}>
                             {r.v}
                           </span>
                         </div>
@@ -690,7 +690,7 @@ export function ModalShellView({ v }: { v: any }) {
                       style={{
                         fontSize: "13px",
                         fontWeight: "600",
-                        fontFamily: "'DM Mono',monospace",
+                        fontVariantNumeric: "tabular-nums",
                         color: tc(v.pv.expColor, "fg"),
                       }}
                     >
@@ -763,7 +763,7 @@ export function ModalShellView({ v }: { v: any }) {
                           >
                             <span style={{ color: "var(--fvc-6F786B)" }}>{r.k}</span>
                             <span
-                              style={{ fontFamily: "'DM Mono',monospace", fontSize: "13px", color: tc(r.color, "fg") }}
+                              style={{ fontVariantNumeric: "tabular-nums", fontSize: "13px", color: tc(r.color, "fg") }}
                             >
                               {r.v}
                             </span>
@@ -886,7 +886,7 @@ export function ModalShellView({ v }: { v: any }) {
                                 }}
                               >
                                 <span style={{ color: "var(--fvc-6F786B)" }}>{r.k}</span>
-                                <span style={{ fontFamily: "'DM Mono',monospace" }}>{r.v}</span>
+                                <span style={{ fontVariantNumeric: "tabular-nums" }}>{r.v}</span>
                               </div>
                             </Fragment>
                           ))}

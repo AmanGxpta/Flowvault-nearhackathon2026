@@ -526,7 +526,7 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
       ? { label: "Spendable now", m: { ...(u?.cashNow ?? {}), amount: capital.spendableNow } as Usable, sub: "USDC in the NEAR account you sign from" + (example || ((snap.workspace as any)?.accounts ?? []).some((a: any) => a.proof && !a.primary) ? " · other wallets count toward net worth" : "") }
       : { label: "Cash now", m: u?.cashNow, sub: example ? "USDC on NEAR, Base and Arbitrum" : "USDC in your wallet" + (snap.evm?.base || snap.evm?.arb ? ", Base and Arbitrum" : "") },
     { label: "Withdrawable by " + wdLabel, m: wd ?? u?.cashNow, sub: pick ? "cash plus positions verified to exit in time" : "cash available now" },
-    { label: "Borrowing headroom", m: u?.borrowingHeadroom, sub: "read-only preview · no borrowing in this build" },
+    { label: "Borrowing headroom", m: u?.borrowingHeadroom, sub: "preview · borrowing isn’t available yet" },
     { label: "Committed", m: u?.committedCapital, sub: "Rhea supply and payments in flight" },
   ];
   out.ovMetrics = bal.map((b, i) => ({ label: b.label, value: b.m ? money(b.m.amount) : snap.portfolioError ? "Unavailable" : "…", sub: metricSub(b.m, b.sub), dot: MD[i], border: i ? "1px solid #EEF0E8" : "none" }));
@@ -727,7 +727,7 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
     const locked = k === "staked";
     return {
       ...a,
-      sub: (row && !row.saved && P0.rev && k !== "staked" ? "no saved row · " : "") + sub,
+      sub: (row && !row.saved && P0.rev && k !== "staked" ? "default rules · " : "") + sub,
       prio: a.prio.map((b: any) => (locked ? { ...b, bg: row?.p === b.label ? "#fff" : "transparent", onClick: () => self.toastMsg("Staked NEAR follows the NEAR row; the engine has no separate staked-NEAR asset.") } : b)),
       uses: a.uses.map((u: any) => (locked ? { ...u, onClick: () => self.toastMsg("Staked NEAR follows the NEAR row; the engine has no separate staked-NEAR asset.") } : u)),
     };
@@ -815,7 +815,7 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
     const by = watched ? "Excluded" : prot ? "Protected" : fees ? "Fees only" : p.kind === "wallet" && isUsdc ? "✓ Usable" : p.kind === "supplied" ? (p.availableAt && !p.availabilityIsEstimate ? "From " + dlabel(String(p.availableAt).slice(0, 10)) : "Timing unverified") : p.kind === "debt" ? "Debt" : "Hold";
     return {
       name: p.label,
-      sub: (p.asset !== "USDC" ? (p.amount === "unknown" ? "quantity unknown" : num(Number(p.amount)) + " " + p.asset) : p.accountId ?? (example ? "fictional account" : acct)) + (p.venue ? " · " + p.venue : ""),
+      sub: (p.asset !== "USDC" ? (p.amount === "unknown" ? "quantity unknown" : num(Number(p.amount)) + " " + p.asset) : shortAddress(p.accountId ?? (example ? "fictional account" : acct))) + (p.venue ? " · " + p.venue : ""),
       chain: chainName(p.chain ?? "near"),
       value: val !== null ? usd(val) : "Unvalued",
       valColor: val !== null ? "#1E2A22" : "#8A5F25",
@@ -823,8 +823,8 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
       byColor: by === "✓ Usable" ? "#3F6B3C" : prot ? "#5B4F8A" : "#8A9285",
       path: watched ? "Read only · never counted" : p.kind === "wallet" ? (fees ? "Gas and fees" : "Available now") : p.kind === "supplied" ? "Withdrawable now · liquidity-dependent" : p.kind === "staking" ? "Unstake or swap · timing estimated" : "Manage on Rhea",
       tag: watched ? "WATCHED" : example ? "FICTIONAL" : val === null ? "UNVALUED" : stale ? "LAST GOOD" : "LIVE READ",
-      tagBg: watched ? "#EEF0E8" : example ? "#F6EBDD" : val === null ? "#F6E3DE" : stale ? "#F6EBDD" : "#E2EAD6",
-      tagColor: watched ? "#5B6458" : example ? "#8A5F25" : val === null ? "#9A3F32" : stale ? "#8A5F25" : "#3F6B3C",
+      tagBg: watched ? "#EEF0E8" : example ? "#F6EBDD" : val === null ? "#F6EBDD" : stale ? "#F6EBDD" : "#E2EAD6",
+      tagColor: watched ? "#5B6458" : example ? "#8A5F25" : val === null ? "#8A5F25" : stale ? "#8A5F25" : "#3F6B3C",
       src: srcOf(p) + (p.valuation?.basis && !isUsdc ? " · " + p.valuation.basis : ""),
       opacity: watched ? 0.75 : 1,
     };
@@ -910,7 +910,7 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   const SUB: Record<string, string> = example
     ? { "USDC · NEAR wallet": "fictional NEAR account", "USDC · Base and Arbitrum": "fictional EVM address · read only", NEAR: "liquid · gas and fees", "Staked NEAR": "follows the NEAR row", LiNEAR: "liquid staking", rNEAR: "liquid staking", "ETH · Arbitrum": "fictional · protected" }
     : { "USDC · NEAR wallet": acct || "no account", "USDC · Base and Arbitrum": evmA ? short(evmA) + " · read only" : "no EVM address added", NEAR: "liquid · gas and fees", "Staked NEAR": "follows the NEAR row", LiNEAR: "liquid staking", rNEAR: "liquid staking", "ETH · Arbitrum": evmA ? short(evmA) + " · no USD price source yet" : "no EVM address added" };
-  out.polAssets = out.polAssets.map((a: any) => ({ ...a, sub: (String(a.sub).startsWith("no saved row") ? "no saved row · " : "") + (SUB[a.name] ?? a.sub) }));
+  out.polAssets = out.polAssets.map((a: any) => ({ ...a, sub: (String(a.sub).startsWith("default rules") ? "default rules · " : "") + (SUB[a.name] ?? a.sub) }));
   out.pfStakeNote = "Unlock times are estimates from the current epoch, so staked or unbonding NEAR never counts toward a payment date." + (pf?.staking?.exitReserveNear ? " Exit reserve kept: " + pf.staking.exitReserveNear + " NEAR." : "");
   return out;
 }
@@ -1051,7 +1051,7 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
         name: x.name,
         kind: x.asset + " · " + (x.source === "demo" ? "fictional example rates" : "live read") + (x.principal ? " · on " + usd(Number(x.principal)) : ""),
         rows: [
-          { k: "Earnings to " + (d ? dlabel(d.dueDate) + " · " + (d.earningDays ?? d.days) + " earning days" : "your date"), v: d ? "+" + usd(Number(d.grossEarnings)) : "—", color: "#1E2A22" },
+          { k: "Earnings to " + (d ? dlabel(d.dueDate) + " · " + (d.earningDays ?? d.days) + (Number(d.earningDays ?? d.days) === 1 ? " earning day" : " earning days") : "your date"), v: d ? "+" + usd(Number(d.grossEarnings)) : "—", color: "#1E2A22" },
           { k: "Entry cost", v: cost(d?.entryCost ?? g.entryCost), color: "#8A5F25" },
           { k: "Exit cost", v: cost(d?.exitCost ?? g.exitCost), color: "#8A5F25" },
         ],
@@ -1312,14 +1312,14 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
       { k: "Stressed value at −" + c.dd + "%", v: ethVal !== null ? usd(ethVal * (1 - c.dd / 100)) : "unvalued", kc: "#5B6458", w: 400 },
       { k: "Policy ceiling (" + c.cap + "% cap)", v: er?.policyCeiling != null ? usd(Number(er.policyCeiling)) : ethR.pledge ? "…" : "$0.00 · not pledgeable", kc: "#1E2A22", w: 600 },
       { k: "Health cap (scenario LT ÷ " + hpv + ")", v: er?.healthCeiling != null ? usd(Number(er.healthCeilingDisplay ?? er.healthCeiling)) : "—", kc: "#1E2A22", w: 400 },
-      { k: "Existing debt", v: "−" + usd(c.debt), kc: "#5B6458", w: 400 },
+      { k: "Existing debt", v: Number(c.debt) ? "−" + usd(c.debt) : usd(0), kc: "#5B6458", w: 400 },
     ],
   };
   out.creditUses = [["hold", "Hold"], ["sell", "Sell"], ["pledge", "Borrow against"], ["fees", "Use for fees"]].map(([u, l]) => {
     const on = (A.eth?.uses ?? []).includes(u);
     return { label: (on ? "✓ " : "") + l, bg: on ? "#E2EAD6" : "#fff", color: on ? "#3F6B3C" : "#8A9285", border: on ? "#E2EAD6" : "#E3E6DB" };
   });
-  out.creditPrio = !A.eth?.saved ? (ethR.prot ? "protected · no asset row saved" : "no asset row saved") : ethR.prot ? A.eth.p + " · protected" : A.eth.p + " · from your policy";
+  out.creditPrio = !A.eth?.saved ? (ethR.prot ? "protected · default rules" : "default rules") : ethR.prot ? A.eth.p + " · protected" : A.eth.p + " · from your policy";
   out.creditEthLine = ethA.p ? num(Number(ethA.p.amount)) + " ETH · " + (ethVal !== null ? usd(ethVal) + (example ? " fictional valuation" : "") : "no USD price source yet") : "No ETH position read";
   out.creditPermNote = "Permissions and priority come from policy revision " + (s.pol.rev || "—") + ". " + (((snap.policy?.policy as any)?.creditRows ?? []).length ? "LiNEAR and rNEAR risk factors come from your saved credit rows; others are scenario assumptions" : "Liquidation thresholds are scenario assumptions") + (protocolLimit ? "; the Rhea borrow limit comes from " + (example ? "fictional " : "") + "protocol config" : "") + ". Nothing here can borrow.";
   out.creditHas = true;
@@ -1546,7 +1546,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
     out.pyHead = {
       amount: num(ob.amount) + " " + ob.asset,
       line: "to " + ob.name + " on " + ob.chain + " · due " + dlabel(ob.due) + " · in " + days(ob.due) + (days(ob.due) === 1 ? " day" : " days"),
-      addr: ob.recipient,
+      addr: ob.recipient && ob.recipient !== "not set" ? ob.recipient : "Recipient not set",
       send: q ? num(Number(q.maxInput)) + " USDC" + (fictional ? " · fictional" : "") : pe?.err ? "unavailable" : "checking…",
       fee: q ? usd(Number(q.minInput) - Number(q.amountOut)) + (fictional ? " · fictional route cost" : "") : "—",
       buf: q ? usd(Number(q.buffer)) + " · refundable if unused" : "—",
@@ -1563,7 +1563,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
     out.pyPlans = [
       card({ name: "Idle wallet USDC", sub: "above your reserve and other payments", ok: !!p0?.eligible, tag: !src ? "CHECKING" : pick === "wallet" ? "ENGINE PICK" : !polOk && p0?.eligible ? "POLICY BLOCKS" : "NOT ENOUGH", costF: p0 ? usd(Number(p0.available)) : "—", costSub: p0 ? "free after reserve " + money(e?.reserve) + " and other payments" : pe?.err || "Comparing sources…", rows: [["Needed", src ? usd(Number(src.funding)) : "—"], ["Approvals", "1 · deposit"]] }),
       card({ name: "Withdraw from Rhea, then pay", sub: "withdrawal verified before the payout quote", ok: !!p1?.eligible, tag: !src ? "CHECKING" : pick === "rhea" ? "ENGINE PICK" : p1?.eligible ? (wneed > 0 ? "NEEDED" : "NOT NEEDED") : "NOT ENOUGH", costF: p1 ? usd(Number(p1.withdrawal ?? 0)) : "—", costSub: p1 ? (wneed > 0 ? "withdrawn first, then paid" : "idle cash covers it") : "—", rows: [["Rhea supply", p1?.available != null ? usd(Number(p1.available)) : "unknown"], ["Approvals", "2 · withdraw, deposit"]] }),
-      card({ name: "Sell an approved asset for " + ob.asset, sub: sellable.length ? "sellable under your policy: " + sellable.join(", ") : "no asset is marked sellable in your policy", ok: false, tag: "NOT IN THIS BUILD", costSub: "The swap leg isn’t built; nothing can be sold here", rows: [["Protected", (s.pol.protectedAssets ?? []).join(", ") || "none"]], cta: "Not available" }),
+      card({ name: "Sell an approved asset for " + ob.asset, sub: sellable.length ? "sellable under your policy: " + sellable.join(", ") : "no asset is marked sellable in your policy", ok: false, tag: "COMING SOON", costSub: "Selling to pay isn’t available yet; nothing can be sold here", rows: [["Protected", (s.pol.protectedAssets ?? []).join(", ") || "none"]], cta: "Not available" }),
       card({ name: "Borrow USDC against collateral", sub: "credit execution not registered yet", ok: false, preview: true, tag: "NOT AVAILABLE YET", costSub: "Borrowing appears here once Rhea credit execution is registered", rows: [["Repayment plan", "required"], ["Approvals", "new-debt approval"]], cta: "Not available yet" }),
     ];
     const chk = (ok: boolean | null, text: string) => ({ glyph: ok === null ? "◷" : ok ? "✓" : "✕", color: ok === null ? "#8A5F25" : ok ? "#3F6B3C" : "#9A3F32", text, k: text });
@@ -1582,7 +1582,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
     out.pyHead = {
       amount: num(ob.amount) + " " + ob.asset,
       line: "to " + ob.name + " on " + ob.chain + " · due " + dlabel(ob.due) + " · in " + days(ob.due) + (days(ob.due) === 1 ? " day" : " days"),
-      addr: ob.recipient,
+      addr: ob.recipient && ob.recipient !== "not set" ? ob.recipient : "Recipient not set",
       send: qf?.inN != null ? num(qf.inN) + " USDC" : "after quote",
       fee: qf ? (qf.fee !== null ? usd(qf.fee) + (qf.fx ? " · USDT valued at 1Click prices" : "") : "needs a fresh FX price") : "after quote",
       buf: qf?.buffer != null ? usd(qf.buffer) + " · returned if unused" : "after quote",
@@ -1617,8 +1617,8 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
         rows: [["Rhea supply", p1 ? (p1.available === null ? "unknown" : usd(Number(p1.available))) : "—"], ["Approvals", "2 · withdraw, deposit"]],
         ...(gate ?? (src ? { cta: pick === "rhea" ? "Review this plan →" : "Not needed", disabled: pick !== "rhea", primary: pick === "rhea", onClick: () => openLivePay(ob.id) } : { cta: "Compare sources →", onClick: () => planPayment(ob.id) })),
       }),
-      card({ name: "Sell an approved asset for " + ob.asset, sub: sellable.length ? "sellable under your policy: " + sellable.join(", ") : "no asset is marked sellable in your policy", ok: false, tag: "NOT IN THIS BUILD", costSub: "The swap leg isn’t built; nothing can be sold here", rows: [["Protected", (s.pol.protectedAssets ?? []).join(", ") || "none"]], cta: "Not available", disabled: true, onClick: () => {} }),
-      card({ name: "Borrow USDC against collateral", sub: "read-only credit preview", ok: false, preview: true, tag: "PREVIEW · PHASE 2", costSub: "Borrowing ships in phase 2", rows: [["Repayment plan", "required"], ["Approvals", "new-debt approval"]], cta: "Preview only · phase 2", disabled: true, onClick: () => {} }),
+      card({ name: "Sell an approved asset for " + ob.asset, sub: sellable.length ? "sellable under your policy: " + sellable.join(", ") : "no asset is marked sellable in your policy", ok: false, tag: "COMING SOON", costSub: "Selling to pay isn’t available yet; nothing can be sold here", rows: [["Protected", (s.pol.protectedAssets ?? []).join(", ") || "none"]], cta: "Not available", disabled: true, onClick: () => {} }),
+      card({ name: "Borrow USDC against collateral", sub: "read-only credit preview", ok: false, preview: true, tag: "COMING SOON", costSub: "Borrowing isn’t available yet", rows: [["Repayment plan", "required"], ["Approvals", "new-debt approval"]], cta: "Coming soon", disabled: true, onClick: () => {} }),
     ];
     const chk = (ok: boolean | null, text: string) => ({ glyph: ok === null ? "◷" : ok ? "✓" : "✕", color: ok === null ? "#8A5F25" : ok ? "#3F6B3C" : "#9A3F32", text, k: text });
     out.pyChecks = [
@@ -1743,8 +1743,8 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
       pv.chosenCost = qf ? (qf.maxCost != null ? "up to " + usd(qf.maxCost) + " total cost" : qf.inN !== null && qf.outUsdc !== null ? "up to " + usd(qf.inN - qf.outUsdc) + " total cost" : "cost needs a fresh FX price") : "cost known after the quote";
       pv.alts = [
         ...(pick === "wallet" ? [{ name: names.rhea, note: "not needed · idle cash covers it", color: "#5B6458" }] : pick === "rhea" ? [{ name: names.wallet, note: "not enough idle cash above your reserve", color: "#8A5F25" }] : []),
-        { name: "Sell an approved asset", note: "not in this build", color: "#8A5F25" },
-        { name: "Borrow against collateral", note: "preview only · phase 2", color: "#8A5F25" },
+        { name: "Sell an approved asset", note: "coming soon", color: "#8A5F25" },
+        { name: "Borrow against collateral", note: "coming soon", color: "#8A5F25" },
       ];
     }
     out.pv = pv;
@@ -1780,7 +1780,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
         await acts.addObligation({ label, recipient, destination, token, amount: String(I.amount).trim(), dueDate: I.due, recurrence: I.repeats && I.repeats !== "none" ? I.repeats : "none" });
         const created = (self.props.live?.workspace?.obligations ?? []).filter((o: any) => o.label === label).pop();
         self.setState({ screen: "pay", payPick: created?.id ?? s.payPick });
-      }, (example ? "Example workspace: " : "") + label + " saved as a dated payment" + (I.save ? "" : " (one-off payments are saved in this build so they can be compared)") + ". " + routeNote(chain, token, example));
+      }, (example ? "Example workspace: " : "") + label + " saved as a dated payment" + (I.save ? "" : " (one-off payments are saved so they can be compared)") + ". " + routeNote(chain, token, example));
     };
   }
 
@@ -1841,8 +1841,8 @@ export function livePreviews(snap: LiveSnapshot, v: any, ctx: { self: any; s: an
   out.protNone = rhea <= 0 && !rnear.length;
   out.protExits = rhea > 0
     ? [
-        { k: "Withdraw all USDC from Rhea", sub: "back to your wallet · reserve unaffected · you approve", cost: "network fee only", tag: example ? "Live account only" : "Built · you approve", tagColor: "#3F6B3C" },
-        { k: "Withdraw half, keep watching", sub: num(rhea / 2) + " USDC back now", cost: "network fee only", tag: example ? "Live account only" : "Built · you approve", tagColor: "#3F6B3C" },
+        { k: "Withdraw all USDC from Rhea", sub: "back to your wallet · reserve unaffected · you approve", cost: "network fee only", tag: example ? "Live account only" : "You approve", tagColor: "#3F6B3C" },
+        { k: "Withdraw half, keep watching", sub: num(rhea / 2) + " USDC back now", cost: "network fee only", tag: example ? "Live account only" : "You approve", tagColor: "#3F6B3C" },
         ...(rnear.length ? [{ k: "Swap rNEAR to NEAR outside Rhea", sub: "removes pool exposure · needs a swap leg", cost: "not quoted", tag: "Preview", tagColor: "#8A5F25" }] : []),
         { k: "Stay and monitor", sub: "no cost now; risk depends on how the incident develops", cost: "$0.00", tag: "Option", tagColor: "#8A9285" },
       ]

@@ -23,7 +23,7 @@ export function ProtectionView({ v }: { v: any }) {
             color: "var(--fvc-8A5F25)",
           }}
         >
-          PREVIEW · PHASE 4
+          PREVIEW
         </span>
         <span
           style={{
@@ -225,7 +225,7 @@ export function ProtectionView({ v }: { v: any }) {
                   }}
                 >
                   <div style={{ fontWeight: "500" }}>{x.k}</div>
-                  <div style={{ textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: "13px" }}>
+                  <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontSize: "13px" }}>
                     {x.cost}
                   </div>
                   <div style={{ fontSize: "12.5px", color: "var(--fvc-6F786B)" }}>{x.sub}</div>

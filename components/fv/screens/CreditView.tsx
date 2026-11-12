@@ -11,7 +11,7 @@ export function CreditView({ v }: { v: any }) {
     <>
       <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
         <span style={{ fontSize: "12px", letterSpacing: ".22em", fontWeight: "600", color: "var(--fvc-6F786B)" }}>
-          DECIDE · CREDIT · PHASE 2 PREVIEW
+          DECIDE · CREDIT · PREVIEW
         </span>
         <span
           style={{
@@ -118,7 +118,7 @@ export function CreditView({ v }: { v: any }) {
                     <div>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px" }}>
                         <span style={{ color: "var(--fvc-4A5349)" }}>{sl.label}</span>
-                        <span style={{ fontWeight: "600", fontFamily: "'DM Mono',monospace" }}>{sl.display}</span>
+                        <span style={{ fontWeight: "600", fontVariantNumeric: "tabular-nums" }}>{sl.display}</span>
                       </div>
                       <input
                         type="range"
@@ -235,7 +235,7 @@ export function CreditView({ v }: { v: any }) {
                       }}
                     >
                       <span style={{ color: tc(r.kc, "fg") }}>{r.k}</span>
-                      <span style={{ fontFamily: "'DM Mono',monospace", fontWeight: r.w }}>{<Skel v={r.v} />}</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: r.w }}>{<Skel v={r.v} />}</span>
                     </div>
                   </Fragment>
                 ))}
@@ -366,7 +366,7 @@ export function CreditView({ v }: { v: any }) {
                     <option value="50">50%</option>
                     <option value="70">70%</option>
                   </select>
-                  <div style={{ textAlign: "right", fontFamily: "'DM Mono',monospace", fontWeight: "500" }}>
+                  <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: "500" }}>
                     {<Skel v={r.capF} />}
                   </div>
                   <div style={{ fontSize: "12.5px", color: tc(r.bindColor, "fg"), lineHeight: "1.4" }}>
@@ -393,7 +393,7 @@ export function CreditView({ v }: { v: any }) {
                       </>
                     ) : null}
                   </div>
-                  <div style={{ textAlign: "right", fontFamily: "'DM Mono',monospace", color: "var(--fvc-5B6458)" }}>
+                  <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--fvc-5B6458)" }}>
                     {r.running}
                   </div>
                 </div>

@@ -173,7 +173,7 @@ export function StrategiesView({ v }: { v: any }) {
                 fontSize: "12.5px",
                 color: "var(--fvc-6F786B)",
                 lineHeight: "1.6",
-                fontFamily: "'DM Mono',monospace",
+                fontVariantNumeric: "tabular-nums",
               }}
             >
               net to date = earnings over {v.cmpDays} {Number(v.cmpDays) === 1 ? "day" : "days"} − return-to-cash cost − withdrawal network cost
@@ -274,7 +274,7 @@ export function StrategiesView({ v }: { v: any }) {
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
                           <span style={{ color: "var(--fvc-5B6458)" }}>{r.k}</span>
                           <span
-                            style={{ fontFamily: "'DM Mono',monospace", fontSize: "13px", color: tc(r.color, "fg") }}
+                            style={{ fontVariantNumeric: "tabular-nums", fontSize: "13px", color: tc(r.color, "fg") }}
                           >
                             {<Skel v={r.v} />}
                           </span>
@@ -561,7 +561,7 @@ export function StrategiesView({ v }: { v: any }) {
                       <Fragment key={i_r_1}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
                           <span style={{ color: "var(--fvc-5B6458)" }}>{r.k}</span>
-                          <span style={{ fontFamily: "'DM Mono',monospace", fontSize: "13px" }}>{<Skel v={r.v} />}</span>
+                          <span style={{ fontVariantNumeric: "tabular-nums", fontSize: "13px" }}>{<Skel v={r.v} />}</span>
                         </div>
                       </Fragment>
                     ))}
@@ -579,7 +579,7 @@ export function StrategiesView({ v }: { v: any }) {
                         value={s.pool ?? ""}
                         onChange={s.onPool}
                         aria-label="Verified validator for native staking"
-                        style={{ padding: "8px 10px", border: "1px solid var(--fvb-DDE1D4)", borderRadius: "9px", fontSize: "13px", background: "var(--fvb-FFFFFF)", fontFamily: "'DM Mono',monospace" }}
+                        style={{ padding: "8px 10px", border: "1px solid var(--fvb-DDE1D4)", borderRadius: "9px", fontSize: "13px", background: "var(--fvb-FFFFFF)", fontVariantNumeric: "tabular-nums" }}
                       >
                         <option value="">{s.poolPlaceholder}</option>
                         {s.poolOptions.map((o: any) => (

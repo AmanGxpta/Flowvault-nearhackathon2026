@@ -178,7 +178,7 @@ export function PayOnADateView({ v }: { v: any }) {
                   marginTop: "6px",
                   fontSize: "12.5px",
                   color: "var(--fvc-93A68B)",
-                  fontFamily: "'DM Mono',monospace",
+                  fontFamily: /\s/.test(String(v.pyHead.addr)) || v.pyHead.addr === "not set" ? undefined : "'DM Mono',monospace",
                   wordBreak: "break-all",
                 }}
               >
@@ -270,7 +270,7 @@ export function PayOnADateView({ v }: { v: any }) {
                       <Fragment key={i_r_1}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
                           <span style={{ color: "var(--fvc-5B6458)" }}>{r.k}</span>
-                          <span style={{ fontFamily: "'DM Mono',monospace", fontSize: "12.5px", textAlign: "right" }}>
+                          <span style={{ fontVariantNumeric: "tabular-nums", fontSize: "12.5px", textAlign: "right" }}>
                             {r.v}
                           </span>
                         </div>
@@ -339,10 +339,10 @@ export function PayOnADateView({ v }: { v: any }) {
                 lineHeight: "1.6",
               }}
             >
-              <div style={{ fontSize: "15.5px", fontWeight: "500", color: "var(--fvc-1E2A22)" }}>Not in this build</div>
+              <div style={{ fontSize: "15.5px", fontWeight: "500", color: "var(--fvc-1E2A22)" }}>Coming soon</div>
               <div style={{ marginTop: "8px" }}>
-                Mixed-source plans (part wallet, part Rhea), paying gas from any asset, and borrowing as a source arrive
-                in phase 2. Today each plan uses one source, and the engine says so.
+                Plans that mix sources (part wallet, part Rhea), paying network fees from any asset, and borrowing to pay.
+                Today each plan uses one source.
               </div>
               <button
                 type="button"

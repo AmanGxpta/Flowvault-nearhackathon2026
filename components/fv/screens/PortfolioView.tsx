@@ -138,7 +138,7 @@ export function PortfolioView({ v }: { v: any }) {
                     <div style={{ padding: "12px", border: "1px solid var(--fvb-EEF0E8)", borderRadius: "12px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                         <span
-                          style={{ fontSize: "14px", fontWeight: "500", flex: "1", fontFamily: "'DM Mono',monospace" }}
+                          style={{ fontSize: "14px", fontWeight: "500", flex: "1", fontVariantNumeric: "tabular-nums" }}
                         >
                           {a.name}
                         </span>
@@ -241,7 +241,7 @@ export function PortfolioView({ v }: { v: any }) {
                   >
                     <div style={{ minWidth: "0" }}>
                       <div style={{ fontWeight: "500" }}>{r.name}</div>
-                      <div style={{ fontSize: "12px", color: "var(--fvc-8A9285)" }}>{r.sub}</div>
+                      <div style={{ fontSize: "12px", color: "var(--fvc-8A9285)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.sub}</div>
                     </div>
                     <div style={{ color: "var(--fvc-5B6458)", fontSize: "13px" }}>{r.chain}</div>
                     <div style={{ textAlign: "right", fontWeight: "500", color: tc(r.valColor, "fg") }}>{r.value}</div>

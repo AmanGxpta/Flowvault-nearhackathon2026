@@ -23,7 +23,7 @@ export function OpportunitiesView({ v }: { v: any }) {
             color: "var(--fvc-8A5F25)",
           }}
         >
-          PREVIEW · PHASE 3
+          PREVIEW
         </span>
         <span
           style={{
@@ -410,7 +410,7 @@ export function OpportunitiesView({ v }: { v: any }) {
                 cursor: "not-allowed",
               }}
             >
-              Start manual pilot · phase 3
+              Manual pilots coming soon
             </button>
           </div>
         </div>

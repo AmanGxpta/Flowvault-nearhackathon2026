@@ -111,7 +111,7 @@ export function PolicyContractCard({ scope, policyVersion, live }: { scope: Scop
     !s
       ? { k: "On-chain proposal acceptance", tag: state?.err ? "UNKNOWN" : "CHECKING", tone: "off", v: state?.err ? "The contract status couldn’t be read: " + state.err : "Reading the policy contract…" }
       : s.status === "not_deployed"
-        ? { k: "On-chain proposal acceptance", tag: "NOT DEPLOYED", tone: "off", v: s.note }
+        ? { k: "On-chain proposal acceptance", tag: "NOT DEPLOYED", tone: "off", v: "Not deployed yet, so nothing on-chain records or limits actions. FlowVault’s checks and your wallet signature are the gates." }
         : s.status === "unreachable"
           ? { k: "On-chain proposal acceptance", tag: "UNREACHABLE", tone: "warn", v: s.note }
           : {
@@ -156,7 +156,7 @@ export function PolicyContractCard({ scope, policyVersion, live }: { scope: Scop
       <h3 style={{ margin: "0 0 4px", fontSize: "16px", fontWeight: 600 }}>Who holds authority</h3>
       <p style={{ margin: "0 0 12px", fontSize: "12.5px", color: "var(--fvc-6F786B)", lineHeight: 1.45 }}>
         Five separate things, each from its own source.{" "}
-        {s?.status === "configured" ? "The on-chain row reads the contract’s finalized state." : "Only local evaluation, your approval and verified outcomes are active in this build."}
+        {s?.status === "configured" ? "The on-chain row reads the contract’s finalized state." : "Today FlowVault’s checks, your approval and verified outcomes are active."}
       </p>
       <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
         {rows.map((r) => (
@@ -170,11 +170,6 @@ export function PolicyContractCard({ scope, policyVersion, live }: { scope: Scop
           </li>
         ))}
       </ul>
-      {s?.status === "not_deployed" ? (
-        <p style={{ margin: "14px 0 0", paddingTop: "12px", borderTop: "1px solid var(--fvb-EEF0E8)", fontSize: "12.5px", color: "var(--fvc-5B6458)", lineHeight: 1.5 }}>
-          Deploying the contract is your action, not FlowVault’s: see <code>contracts/policy/README.md</code> (the owner-run script deploys to testnet only). Then set <code>FLOWVAULT_POLICY_CONTRACT</code>. This app reads mainnet contracts only, so a testnet deployment shows here as unreachable.
-        </p>
-      ) : null}
       {canPublish ? (
         <div style={{ marginTop: "14px", paddingTop: "12px", borderTop: "1px solid var(--fvb-EEF0E8)", fontSize: "12.5px", color: "var(--fvc-5B6458)", display: "flex", flexDirection: "column", gap: "10px" }}>
           <div>

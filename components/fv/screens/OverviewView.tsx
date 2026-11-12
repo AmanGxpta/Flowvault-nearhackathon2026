@@ -792,9 +792,9 @@ export function OverviewView({ v }: { v: any }) {
                     <div>
                       <div style={{ fontSize: "15px", fontWeight: "500" }}>{o.name}</div>
                       <div
-                        style={{ fontSize: "12.5px", color: "var(--fvc-8A9285)", fontFamily: "'DM Mono',monospace" }}
+                        style={{ fontSize: "12.5px", color: "var(--fvc-8A9285)", fontFamily: o.recipientShort === "not set" ? undefined : "'DM Mono',monospace" }}
                       >
-                        {o.recipientShort}
+                        {o.recipientShort === "not set" ? "Recipient not set" : o.recipientShort}
                       </div>
                     </div>
                     <div style={{ fontSize: "13.5px", color: "var(--fvc-5B6458)" }}>

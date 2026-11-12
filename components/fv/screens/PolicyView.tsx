@@ -450,7 +450,7 @@ export function PolicyView({ v }: { v: any }) {
                 }}
               >
                 <div style={{ flex: "1", minWidth: "220px" }}>
-                  <div style={{ fontSize: "14px", fontWeight: "500", fontFamily: "'DM Mono',monospace" }}>
+                  <div style={{ fontSize: "14px", fontWeight: "500", fontVariantNumeric: "tabular-nums" }}>
                     {v.agentName}
                   </div>
                   <div style={{ marginTop: "3px", fontSize: "12.5px", color: "var(--fvc-6F786B)", lineHeight: "1.5" }}>
@@ -793,11 +793,11 @@ export function PolicyView({ v }: { v: any }) {
             <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "9px", fontSize: "13px" }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: "var(--fvc-5B6458)" }}>When an action is prepared</span>
-                <span style={{ color: "var(--fvc-3F6B3C)", fontWeight: "500" }}>✓ Built</span>
+                <span style={{ color: "var(--fvc-3F6B3C)", fontWeight: "500" }}>✓ On</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: "var(--fvc-5B6458)" }}>Again at wallet handoff</span>
-                <span style={{ color: "var(--fvc-3F6B3C)", fontWeight: "500" }}>✓ Built</span>
+                <span style={{ color: "var(--fvc-3F6B3C)", fontWeight: "500" }}>✓ On</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: "var(--fvc-5B6458)" }}>On-chain mandate for agents</span>
@@ -813,7 +813,7 @@ export function PolicyView({ v }: { v: any }) {
                     cursor: "pointer",
                   }}
                 >
-                  Roadmap ↗
+                  Not yet
                 </button>
               </div>
             </div>
@@ -839,7 +839,7 @@ export function PolicyView({ v }: { v: any }) {
                       borderTop: "1px solid var(--fvb-F1F2EB)",
                     }}
                   >
-                    <span style={{ fontFamily: "'DM Mono',monospace", fontSize: "12.5px", color: "var(--fvc-4A5349)" }}>
+                    <span style={{ fontVariantNumeric: "tabular-nums", fontSize: "12.5px", color: "var(--fvc-4A5349)" }}>
                       rev {r.rev}
                     </span>
                     <div>

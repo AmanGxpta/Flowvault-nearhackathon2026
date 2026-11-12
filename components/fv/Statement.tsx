@@ -108,12 +108,12 @@ function Rows({ entries, empty }: { entries: LedgerEntry[]; empty: string }) {
                 <div style={{ fontSize: "12px", color: "var(--fvc-8A9285)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.basis}>{e.basis}</div>
               </div>
               <div role="cell"><span style={{ padding: "3px 7px", borderRadius: "6px", fontSize: "10.5px", fontWeight: 700, background: st[1], color: st[2] }}>{st[0]}</span></div>
-              <div role="cell" style={{ textAlign: "right", fontFamily: "'DM Mono',monospace" }}>{qty(e.amountRaw, e.decimals)} {e.asset}</div>
-              <div role="cell" style={{ textAlign: "right", fontFamily: "'DM Mono',monospace" }}>{e.usdcRaw === null ? "unpriced" : usd(e.usdcRaw)}</div>
-              <div role="cell" style={{ textAlign: "right", fontFamily: "'DM Mono',monospace", color: e.netWorthEffectUsdcRaw && BigInt(e.netWorthEffectUsdcRaw) < 0n ? "var(--fvc-9A3F32)" : e.netWorthEffectUsdcRaw && BigInt(e.netWorthEffectUsdcRaw) > 0n ? "var(--fvc-3F6B3C)" : "var(--fvc-6F786B)" }}>
+              <div role="cell" style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{qty(e.amountRaw, e.decimals)} {e.asset}</div>
+              <div role="cell" style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{e.usdcRaw === null ? "unpriced" : usd(e.usdcRaw)}</div>
+              <div role="cell" style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: e.netWorthEffectUsdcRaw && BigInt(e.netWorthEffectUsdcRaw) < 0n ? "var(--fvc-9A3F32)" : e.netWorthEffectUsdcRaw && BigInt(e.netWorthEffectUsdcRaw) > 0n ? "var(--fvc-3F6B3C)" : "var(--fvc-6F786B)" }}>
                 {e.netWorthEffectUsdcRaw === null ? "unpriced" : BigInt(e.netWorthEffectUsdcRaw) === 0n ? "internal" : usd(e.netWorthEffectUsdcRaw, true)}
               </div>
-              <div role="cell" style={{ textAlign: "right", fontFamily: "'DM Mono',monospace" }}>{e.liabilityEffectUsdcRaw && BigInt(e.liabilityEffectUsdcRaw) !== 0n ? usd(e.liabilityEffectUsdcRaw, true) : "—"}</div>
+              <div role="cell" style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{e.liabilityEffectUsdcRaw && BigInt(e.liabilityEffectUsdcRaw) !== 0n ? usd(e.liabilityEffectUsdcRaw, true) : "—"}</div>
               <div role="cell" style={{ textAlign: "right" }}>
                 {e.planId ? (
                   <button type="button" onClick={() => openPlan({ planId: e.planId })} style={{ border: "none", background: "none", padding: 0, fontSize: "13px", color: "var(--fvc-3F6B3C)", cursor: "pointer" }} aria-label={"Open the plan for " + (KIND[e.kind] ?? e.kind)}>

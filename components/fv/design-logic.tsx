@@ -215,7 +215,7 @@ export class DesignApp extends Component<any, any> {
     if (o.kind !== 'supply') rows.push(S('Payout event verified', 'Exactly ' + a + ' native USDC to ' + ACC + '', t >= 4 ? '18:32' : '', t >= 4 ? 'G7wE…p3Ku ↗' : '', d(4)));
     return rows;
   }
-  go(screen: any) { this.setState({ screen }); }
+  go(screen: any) { const moved = screen !== this.state.screen; this.setState({ screen }); if (moved) { try { window.scrollTo({ top: 0 }); } catch (e) {} } }
   openPay(id: any, x: any = {}) { this.remember(); const s = this.state; const ob = this.findOb(id); if (!ob) return; this.setState({ modal: 'pay', asst: { ...s.asst, open: false }, pay: { obId: id, step: 'confirm', t: 0, expires: 298, outcome: x.outcome || 'success', leg: null, plan: x.plan || null, need: x.need ?? this.needFor(ob, s.wallet, s.reserve), final: null } }); }
   openOp(kind: any, amount: any) { this.remember(); this.setState({ modal: 'op', asst: { ...this.state.asst, open: false }, op: { kind, amount: String(amount), step: 'review', t: 0, ack: false } }); }
 
@@ -272,7 +272,7 @@ export class DesignApp extends Component<any, any> {
     const metrics = [
       { label: 'Cash', value: usd(s.wallet + s.evm), sub: 'NEAR wallet ' + usd(s.wallet) + ' · Base, Arbitrum ' + usd(s.evm), dot: '#D8B98F', border: 'none' },
       { label: 'In Rhea Lending', value: usd(s.rhea), sub: '10.30% variable · collateral off', dot: '#4E7A4A', border: '1px solid #EEF0E8' },
-      { label: 'Holdback', value: usd(holdback), sub: 'reserve ' + usd(s.reserve) + ' + ' + inH.length + ' payments', dot: '#9DB48C', border: '1px solid #EEF0E8' },
+      { label: 'Holdback', value: usd(holdback), sub: 'reserve ' + usd(s.reserve) + ' + ' + inH.length + (inH.length === 1 ? ' payment' : ' payments'), dot: '#9DB48C', border: '1px solid #EEF0E8' },
       { label: 'Surplus', value: usd(surplus), sub: walletSurplus > 0 ? usd(walletSurplus) + ' idle in wallet' : 'all surplus is working', dot: '#4E7A4A', border: '1px solid #EEF0E8' },
     ];
     const pct = (x: any) => total > 0 ? Math.min(100, x / Math.max(total, holdback) * 100) + '%' : '0%';
@@ -444,7 +444,7 @@ export class DesignApp extends Component<any, any> {
       { k: 'Stressed value at −' + c.dd + '%', v: usd(stressed), kc: '#5B6458', w: 400 },
       { k: 'Policy ceiling (' + c.cap + '% cap)', v: usd(policy), kc: policy <= health ? '#1E2A22' : '#5B6458', w: policy <= health ? 600 : 400 },
       { k: 'Health cap (80% LT ÷ ' + (c.hp / 10).toFixed(1) + ')', v: usd(health), kc: health < policy ? '#1E2A22' : '#5B6458', w: health < policy ? 600 : 400 },
-      { k: 'Existing debt', v: '−' + usd(c.debt), kc: '#5B6458', w: 400 }] };
+      { k: 'Existing debt', v: c.debt ? '−' + usd(c.debt) : usd(0), kc: '#5B6458', w: 400 }] };
     const sliders = [
       { label: 'Drawdown scenario', display: '−' + c.dd + '%', min: 10, max: 95, step: 5, value: c.dd, onChange: setC('dd'), hint: 'How far the price could fall before you’d need to act.' },
       { label: 'Your LTV cap', display: c.cap + '%', min: 10, max: 80, step: 5, value: c.cap, onChange: setC('cap'), hint: 'Protocol allows up to 80% liquidation threshold.' },
@@ -521,7 +521,7 @@ export class DesignApp extends Component<any, any> {
       { label: 'Net worth', value: usd(nw), sub: 'owned positions · watched excluded · 1 unvalued', bg: '#2B4233', color: '#EAF0E2', border: '#2B4233' },
       { label: 'Cash now', value: usd(cashNow), sub: 'USDC on NEAR, Base and Arbitrum', ...W },
       { label: 'Withdrawable by ' + pfDl, value: usd(wdBy), sub: pfD >= 2 ? 'includes staking that unbonds in time' : 'staked NEAR still unbonding', ...W },
-      { label: 'Borrowing headroom', value: '$0.00', sub: P.borrow ? 'borrowing ships in phase 2' : 'new borrowing is off in policy', ...W },
+      { label: 'Borrowing headroom', value: '$0.00', sub: P.borrow ? 'borrowing isn’t available yet' : 'new borrowing is off in policy', ...W },
       { label: 'Committed', value: usd(committed), sub: 'Rhea, staking, unbonding' + (pendingAmt > 0 ? ', ' + usd(pendingAmt) + ' pending' : ''), ...W },
     ];
     const pfRows = HD.map((x: any) => {
@@ -593,8 +593,8 @@ export class DesignApp extends Component<any, any> {
       const plans = [
         { key: 'wallet', name: 'Idle wallet USDC', sub: 'above your reserve and earlier payments', pol: !!polWhy, ok: !polWhy && free >= q.deposit, why: polWhy || 'Only ' + usd(Math.max(0, free)) + ' free after reserve and earlier payments', cost: q.fee, time: q.time, rows: [['Fees', usd(q.fee)], ['Foregone yield', '$0.00'], ['Approvals', '1 · deposit']] },
         { key: 'rhea', name: 'Withdraw from Rhea, then pay', sub: 'withdrawal verified before the payout quote', pol: !!polWhy || !P.venues.rhea, ok: !polWhy && P.venues.rhea && s.rhea >= q.deposit, why: polWhy || (P.venues.rhea ? 'Rhea holds only ' + usd(s.rhea) : 'Rhea is not allowlisted'), cost: q.fee + 0.01 + fy, time: '~3 min', need: q.deposit, rows: [['Fees', usd(q.fee + 0.01)], ['Foregone yield · ' + s.horizon + 'd', usd(fy)], ['Approvals', '2 · withdraw, deposit']] },
-        (() => { const ok = sellable('linear'); const qty = q.deposit / (NP * 1.08); const fyL = q.deposit * 0.086 * s.horizon / 365; return { key: 'linear', name: 'Sell LiNEAR for ' + AS(ob), sub: 'approved asset · sells NEAR exposure', pol: !ok, preview: ok, previewCta: 'Preview · swap leg not built', ok: false, why: !ok ? 'LiNEAR may not be sold under policy rev ' + P.rev : qty > 60 ? 'Needs ' + num(qty) + ' LiNEAR; you hold 60.00' : 'Preview only · the swap leg isn’t built yet', cost: q.fee + q.deposit * 0.003 + fyL, rows: ok ? [['LiNEAR sold', num(qty) + ' of 60.00'], ['Price impact ~0.3%', usd(q.deposit * 0.003)], ['Foregone yield · ' + s.horizon + 'd at 8.6%', usd(fyL)], ['Fees', usd(q.fee)]] : [['Would sell', num(qty) + ' LiNEAR'], ['Approvals', '2']] }; })(),
-        (() => { const loan = q.deposit; const has = stTotal > 0; const bInt = loan * 0.065 * s.horizon / 365; const hN = stLT / Math.max(1, loan + c.debt); const hS = stSLT / Math.max(1, loan + c.debt); return { key: 'borrow', name: 'Borrow USDC against collateral', sub: has ? 'selected collateral on the Credit page' : 'no collateral allowed', pol: !has, preview: has, previewCta: 'Preview only · phase 2', ok: false, why: !has ? 'No asset is allowed as collateral in your policy' : stTotal < loan ? 'Capacity ' + usd(stTotal) + ' is below the ' + usd(loan) + ' needed' : 'Preview only · borrowing ships in phase 2' + (P.borrow ? '' : ' · new borrowing is off in policy'), cost: bInt + q.fee, rows: has ? [['Capacity under stress', usd(stTotal)], ['Health after loan', hN.toFixed(2) + ' · stressed ' + hS.toFixed(2)], ['Interest · 6.5% example', usd(bInt)], ['Repay by ' + dlabel(iso(s.horizon)), usd(loan + bInt) + ' from surplus']] : [['Collateral allowed', 'none'], ['Repayment plan', 'required']] }; })(),
+        (() => { const ok = sellable('linear'); const qty = q.deposit / (NP * 1.08); const fyL = q.deposit * 0.086 * s.horizon / 365; return { key: 'linear', name: 'Sell LiNEAR for ' + AS(ob), sub: 'approved asset · sells NEAR exposure', pol: !ok, preview: ok, previewCta: 'Preview · swap leg not built', ok: false, why: !ok ? 'LiNEAR may not be sold under policy rev ' + P.rev : qty > 60 ? 'Needs ' + num(qty) + ' LiNEAR; you hold 60.00' : 'Coming soon · selling to pay isn’t available yet', cost: q.fee + q.deposit * 0.003 + fyL, rows: ok ? [['LiNEAR sold', num(qty) + ' of 60.00'], ['Price impact ~0.3%', usd(q.deposit * 0.003)], ['Foregone yield · ' + s.horizon + 'd at 8.6%', usd(fyL)], ['Fees', usd(q.fee)]] : [['Would sell', num(qty) + ' LiNEAR'], ['Approvals', '2']] }; })(),
+        (() => { const loan = q.deposit; const has = stTotal > 0; const bInt = loan * 0.065 * s.horizon / 365; const hN = stLT / Math.max(1, loan + c.debt); const hS = stSLT / Math.max(1, loan + c.debt); return { key: 'borrow', name: 'Borrow USDC against collateral', sub: has ? 'selected collateral on the Credit page' : 'no collateral allowed', pol: !has, preview: has, previewCta: 'Coming soon', ok: false, why: !has ? 'No asset is allowed as collateral in your policy' : stTotal < loan ? 'Capacity ' + usd(stTotal) + ' is below the ' + usd(loan) + ' needed' : 'Coming soon · borrowing isn’t available yet' + (P.borrow ? '' : ' · new borrowing is off in policy'), cost: bInt + q.fee, rows: has ? [['Capacity under stress', usd(stTotal)], ['Health after loan', hN.toFixed(2) + ' · stressed ' + hS.toFixed(2)], ['Interest · 6.5% example', usd(bInt)], ['Repay by ' + dlabel(iso(s.horizon)), usd(loan + bInt) + ' from surplus']] : [['Collateral allowed', 'none'], ['Repayment plan', 'required']] }; })(),
       ];
       const elig = plans.filter((p: any) => p.ok).sort((a: any, b: any) => a.cost - b.cost);
       return { q, earlier, free, plans, elig, best: elig[0], capOk, dayOk };
@@ -606,7 +606,7 @@ export class DesignApp extends Component<any, any> {
     const py = pyOb ? planFor(pyOb) : null;
     const pyTabs = payables.slice(0, 5).map((o: any) => tab(pyOb && o.id === pyOb.id, o.name + ' · ' + dlabel(o.due), () => self.setState({ payPick: o.id })));
     const pyPlans = py ? [...py.elig, ...py.plans.filter((p: any) => !p.ok)].map((p: any) => { const r = py.elig.indexOf(p); const top = r === 0;
-      return { name: p.name, sub: p.sub, tag: p.ok ? (top ? 'ENGINE PICK' : 'ALLOWED #' + (r + 1)) : p.preview ? (p.key === 'borrow' ? 'PREVIEW · PHASE 2' : 'PREVIEW') : 'NOT ALLOWED', tagBg: p.ok ? (top ? '#C9E86B' : '#EEF0E8') : '#F6EBDD', tagColor: p.ok ? '#1E2A22' : '#8A5F25',
+      return { name: p.name, sub: p.sub, tag: p.ok ? (top ? 'ENGINE PICK' : 'ALLOWED #' + (r + 1)) : p.preview ? (p.key === 'borrow' ? 'COMING SOON' : 'PREVIEW') : 'NOT ALLOWED', tagBg: p.ok ? (top ? '#C9E86B' : '#EEF0E8') : '#F6EBDD', tagColor: p.ok ? '#1E2A22' : '#8A5F25',
         costF: p.key === 'borrow' && !p.preview ? '—' : usd(p.cost), costColor: p.ok ? '#1E2A22' : '#8A9285', costSub: p.ok ? 'total cost · ' + p.time : p.why, subColor: p.ok ? '#8A9285' : '#8A5F25',
         rows: p.rows.map(([k, v]: any) => ({ k, v })), border: top ? '#9DB48C' : '#E3E6DB', opacity: p.ok || p.preview ? 1 : 0.82, disabled: p.preview || (!p.ok && !p.pol),
         cta: p.ok ? 'Review this plan →' : p.preview ? p.previewCta : p.pol ? 'Allow in Policy ↗' : 'Not available', btnBg: p.ok ? (top ? '#2A4034' : '#fff') : p.pol ? '#fff' : '#F4F5EF', btnColor: p.ok ? (top ? '#fff' : '#1E2A22') : p.pol ? '#3F6B3C' : '#8A9285', btnBorder: p.ok && top ? 'none' : '1px solid #E3E6DB',
@@ -711,7 +711,7 @@ export class DesignApp extends Component<any, any> {
           hasProposal: true, rows: kv([['kind', 'supply'], ['amount', '6,000.00'], ['token', 'USDC'], ['chain', 'NEAR'], ['venue', 'rhea']]), ...verd(c1 && c2 ? 'ACCEPTED BY ENGINE' : 'REJECTED BY ENGINE', c1 && c2 ? 'ok' : 'bad'),
           checks: [chk(c1, 'Per-action cap ' + usd(P.perAction)), chk(c2, 'Holdback ' + usd(holdback) + ' stays in wallet'), chk(P.used + a <= P.daily, 'Daily cap ' + usd(P.daily))],
           sent: 'the proposed supply, wallet balance, holdback total, policy limits.', hasAction: true, actionLabel: 'Open policy →', onAction: () => self.setState({ screen: 'policy', asst: { ...s.asst, open: false } }) }; }
-      return { text: 'Example responses only: typed questions aren’t sent to a model in this build. Try one of these:', hasProposal: false, hasChips: true, chips: QS_LIST.map(([q, sh, t]: any) => ({ short: sh, onClick: () => self.ask(q, t) })), sent: 'nothing', hasAction: false };
+      return { text: 'Example responses only: typed questions aren’t sent to a model yet. Try one of these:', hasProposal: false, hasChips: true, chips: QS_LIST.map(([q, sh, t]: any) => ({ short: sh, onClick: () => self.ask(q, t) })), sent: 'nothing', hasAction: false };
     };
     const asstMsgs = s.asst.msgs.map((m: any) => m.role === 'user' ? { isUser: true, isAi: false, text: m.text, hasProposal: false, hasAction: false, hasChips: false, chips: [] } : { isUser: false, isAi: true, hasChips: false, chips: [], ...aiFor(m.type) });
     const asstSuggest = QS_LIST.map(([q, sh, t]: any) => ({ q, onClick: () => self.ask(q, t) }));
@@ -778,14 +778,23 @@ export class DesignApp extends Component<any, any> {
 
     let NG: any;
     const out: any = {
-      navGroups: NG = [
+      // Your own workspace shows only working pages; sample and preview pages (Opportunities, Protection,
+      // Replays, the roadmap) appear in Demo Mode. No internal phase badges.
+      navGroups: NG = (s.ws === 'demo' ? [
         { n: '1', title: 'OBSERVE', items: [navItem('overview', 'Overview', '▦'), navItem('portfolio', 'Portfolio', '◎')] },
         { n: '2', title: 'CONFIGURE', items: [navItem('calendar', 'Calendar', '▤', soonCount ? soonCount + ' due' : ''), navItem('policy', 'Policy', '◇', polClean ? '' : 'unsaved')] },
-        { n: '3', title: 'DECIDE', items: [navItem('strategies', 'Strategies', '◈'), navItem('credit', 'Credit', '◐', 'sim'), navItem('opps', 'Opportunities', '✧', 'P3')] },
-        { n: '4', title: 'EXECUTE', items: [navItem('pay', 'Pay on a date', '↗'), navItem('protection', 'Protection', '⛉', 'P4')] },
+        { n: '3', title: 'DECIDE', items: [navItem('strategies', 'Strategies', '◈'), navItem('credit', 'Credit', '◐', 'preview'), navItem('opps', 'Opportunities', '✧', 'sample')] },
+        { n: '4', title: 'EXECUTE', items: [navItem('pay', 'Pay on a date', '↗'), navItem('protection', 'Protection', '⛉', 'sample')] },
         { n: '5', title: 'ACCOUNT', items: [navItem('activity', 'Activity', '◷'), navItem('replays', 'Replays', '↻')] },
-        { n: '·', title: 'LATER', items: [navItem('roadmap', 'Roadmap', '→'), navStatic('Exchanges and perps', '⇄', 'P4'), navStatic('Cards', '▭', 'P5'), navStatic('Speculative sleeve', '◌', 'P7')] },
-      ],
+        { n: '·', title: 'LATER', items: [navItem('roadmap', 'Roadmap', '→'), navStatic('Exchanges and perps', '⇄', 'soon'), navStatic('Cards', '▭', 'soon'), navStatic('Speculative sleeve', '◌', 'soon')] },
+      ] : [
+        { n: '1', title: 'OBSERVE', items: [navItem('overview', 'Overview', '▦'), navItem('portfolio', 'Portfolio', '◎')] },
+        { n: '2', title: 'CONFIGURE', items: [navItem('calendar', 'Calendar', '▤', soonCount ? soonCount + ' due' : ''), navItem('policy', 'Policy', '◇', polClean ? '' : 'unsaved')] },
+        { n: '3', title: 'DECIDE', items: [navItem('strategies', 'Strategies', '◈'), navItem('credit', 'Credit', '◐', 'preview')] },
+        { n: '4', title: 'EXECUTE', items: [navItem('pay', 'Pay on a date', '↗')] },
+        { n: '5', title: 'ACCOUNT', items: [navItem('activity', 'Activity', '◷')] },
+      ]),
+      footNet: s.ws === 'demo' ? 'Demo Mode · example data' : 'NEAR mainnet',
       ovMetrics, ovPositions, headline: this.props.headline || 'Your whole portfolio, one plan.', barSrc: judge ? 'Example figures · example workspace' : 'Observed USDC · wallets + Rhea · block 224067523',
       goPortfolio: () => self.go('portfolio'), goPay: () => self.go('pay'), tryRisky: () => self.setState({ screen: 'policy', test: { kind: 'supply', amount: '6000', asset: 'usdc', venue: 'rhea' } }),
       stressRows: stRows, stTotalF: usd(stTotal), stHp: hpv.toFixed(1), why, dismissWhy,
@@ -829,7 +838,7 @@ export class DesignApp extends Component<any, any> {
       pfDateTabs, pfDlUpper: pfDl.toUpperCase(), pfStake, pfStakeNote,
       polRev: P.rev, polNextRev: P.rev + 1, polD: D, polClean, polSave, polAssets, polVenues, revisions: s.revisions,
       onPerAction: setLim('perAction'), onDaily: setLim('daily'), onMaxMove: setLim('maxMove'),
-      polUsedLabel: usd(P.used) + ' of ' + usd(D.daily), polUsedPct: Math.min(100, P.used / Math.max(1, D.daily) * 100) + '%', polHoldLabel: 'Reserve ' + usd(s.reserve) + ' · ' + inH.length + ' payments held back',
+      polUsedLabel: usd(P.used) + ' of ' + usd(D.daily), polUsedPct: Math.min(100, P.used / Math.max(1, D.daily) * 100) + '%', polHoldLabel: 'Reserve ' + usd(s.reserve) + ' · ' + inH.length + (inH.length === 1 ? ' payment' : ' payments') + ' held back',
       polBorrowLabel: D.borrow ? 'Allowed to propose · tap to turn off' : 'Off · tap to allow proposals',
       toggleBorrow: () => setDraft((d: any) => { d.borrow = !d.borrow; return d; }),
       savePolicy: () => { if (polClean) return; const rev = P.rev + 1; const np: any = { ...clone(D), rev }; self.setState({ pol: np, polDraft: clone(np), revisions: [{ rev, when: 'Nov 12 · just now', what: diffs.join(' · ') }, ...s.revisions] }); self.toastMsg('Policy saved as revision ' + rev + '. Actions prepared under rev ' + P.rev + ' must be re-checked.'); },
@@ -846,7 +855,7 @@ export class DesignApp extends Component<any, any> {
       ob1Bg: (s.reserveSet ?? s.reserve > 0) ? '#F4F7EE' : '#fff', ob1DotBg: (s.reserveSet ?? s.reserve > 0) ? '#4E7A4A' : '#EEF0E8', ob1DotColor: (s.reserveSet ?? s.reserve > 0) ? '#fff' : '#5B6458', ob1Glyph: (s.reserveSet ?? s.reserve > 0) ? '✓' : '1',
       reserveDraft: s.reserveDraft, onReserveDraft: (e: any) => self.setState({ reserveDraft: e.target.value }),
       saveReserve: () => { const v = parseFloat(s.reserveDraft) || 0; if (s.ws === 'live') return self.liveCall(() => self.props.actions.savePlan({ reserve: String(s.reserveDraft).trim() }), 'Reserve floor set to ' + usd(v) + '.'); self.setState({ reserve: v, planDraft: { ...s.planDraft, reserve: String(v) }, version: s.version + 1 }); self.toastMsg('Reserve floor set to ' + usd(v) + '.'); },
-      rec, metrics, bar, strip, upcoming, positions, obsCountLabel: inH.length + ' payments · ' + usd(obsSum) + ' held back',
+      rec, metrics, bar, strip, upcoming, positions, obsCountLabel: inH.length + (inH.length === 1 ? ' payment' : ' payments') + ' · ' + usd(obsSum) + ' held back',
       obGroups, noObs: s.obs.length === 0,
       planDraft: pd, onPlanReserve: setPd('reserve'), onPlanHorizon: setPd('horizon'), onPlanLead: setPd('lead'),
       holdbackDraftF: usd(holdbackDraft), holdbackCountDraft: hbDraftObs.length, planClean, savePlanBg: planClean ? '#B9C0B2' : '#2A4034',

@@ -69,7 +69,7 @@ export function ReplaysView({ v }: { v: any }) {
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontFamily: "'DM Mono',monospace", fontSize: "12px", color: "var(--fvc-8A9285)" }}>
+                <span style={{ fontVariantNumeric: "tabular-nums", fontSize: "12px", color: "var(--fvc-8A9285)" }}>
                   {r.n}
                 </span>
                 <span style={{ flex: "1" }}></span>
@@ -102,7 +102,7 @@ export function ReplaysView({ v }: { v: any }) {
                 {r.desc}
               </div>
               <div style={{ marginTop: "12px", fontSize: "12px", color: "var(--fvc-8A9285)" }}>
-                Recorded: <span style={{ fontFamily: "'DM Mono',monospace", color: "var(--fvc-4A5349)" }}>{r.src}</span>
+                Recorded: <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--fvc-4A5349)" }}>{r.src}</span>
               </div>
               <div style={{ flex: "1", minHeight: "14px" }}></div>
               <button
