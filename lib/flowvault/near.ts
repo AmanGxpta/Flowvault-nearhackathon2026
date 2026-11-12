@@ -2,6 +2,7 @@ import { payoutAsset, matchPayoutToken } from "./evm.ts";
 import { payoutValuation } from "./payout-valuation.ts";
 import { readRpc } from "./rpc-transport.ts";
 import { snapshot } from "./snapshot-cache.ts";
+import { READ_BUDGET } from "./deadline.ts";
 import { QuoteUpstreamError } from "./quote-errors.ts";
 import type { QuoteErrorContext } from "./quote-errors.ts";
 import { decimal, innerToNative } from "./money.ts";
@@ -299,7 +300,10 @@ async function fetchOneClick(
   context: QuoteErrorContext,
 ) {
   try {
-    return await fetch(url, options);
+    return await fetch(url, {
+      ...options,
+      signal: options.signal ?? AbortSignal.timeout(READ_BUDGET.http),
+    });
   } catch (e) {
     throw new QuoteUpstreamError(
       e instanceof Error ? e.message : String(e),

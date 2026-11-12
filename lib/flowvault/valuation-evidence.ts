@@ -98,8 +98,10 @@ async function fetchPriceEvidence(now = Date.now()): Promise<PriceEvidence> {
   const unavailable: string[] = [];
   const prices: PriceEvidence["prices"] = {};
   let oldest = Infinity;
-  await Promise.all(
-    (Object.keys(PRICE_TOKENS) as PricedAsset[]).map(async (asset) => {
+  const lstNearPerToken: PriceEvidence["lstNearPerToken"] = {};
+  // R22: oracle prices and LST ft_price reads run together.
+  await Promise.all([
+    ...(Object.keys(PRICE_TOKENS) as PricedAsset[]).map(async (asset) => {
       try {
         const info = infos.data?.[PRICE_TOKENS[asset]];
         const id = info?.price_identifier;
@@ -122,10 +124,7 @@ async function fetchPriceEvidence(now = Date.now()): Promise<PriceEvidence> {
         unavailable.push(asset + ": " + (e as Error).message);
       }
     }),
-  );
-  const lstNearPerToken: PriceEvidence["lstNearPerToken"] = {};
-  await Promise.all(
-    (Object.keys(LST_CONTRACTS) as (keyof typeof LST_CONTRACTS)[]).map(
+    ...(Object.keys(LST_CONTRACTS) as (keyof typeof LST_CONTRACTS)[]).map(
       async (lst) => {
         try {
           const contract = LST_CONTRACTS[lst];
@@ -140,7 +139,7 @@ async function fetchPriceEvidence(now = Date.now()): Promise<PriceEvidence> {
         }
       },
     ),
-  );
+  ]);
   return {
     source: "live",
     oracle,

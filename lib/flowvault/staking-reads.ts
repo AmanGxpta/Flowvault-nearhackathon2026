@@ -3,6 +3,7 @@ import { NativeStakingProtocolNear } from "@anywalletkit/protocol-staking-native
 import { LiquidStakingProtocolNear } from "@anywalletkit/protocol-staking-liquid-near";
 import { decimal } from "./money.ts";
 import { validAccount } from "./near.ts";
+import { READ_BUDGET, withDeadline } from "./deadline.ts";
 const providers = NEAR_READ_PROVIDERS;
 export function serializeRead(value: unknown): any {
   return JSON.parse(
@@ -29,8 +30,10 @@ export async function readStaking(accountId: string, pools: string[] = []) {
     timeoutMs: 8000,
   });
   const capturedAt = new Date().toISOString();
+  // R22: each SDK section is bounded so one slow discovery can't hold the others or the caller.
+  const bound = <T,>(work: Promise<T>, label: string) => withDeadline(work, READ_BUDGET.section, label);
   const result = await Promise.allSettled([
-    (async () => {
+    bound((async () => {
       const positions = await native.listPositions({ pools });
       const epoch = await native.getEpoch();
       return {
@@ -52,8 +55,8 @@ export async function readStaking(accountId: string, pools: string[] = []) {
         })),
         epoch: serializeRead(epoch),
       };
-    })(),
-    ...(["linear", "rnear"] as const).map(async (pool) => {
+    })(), "Native staking read"),
+    ...(["linear", "rnear"] as const).map((pool) => bound((async () => {
       const m = new LiquidStakingProtocolNear(account, {
         pool,
         provider: providers,
@@ -74,7 +77,7 @@ export async function readStaking(accountId: string, pools: string[] = []) {
             ? (details.unlockEpoch - epoch.height).toString()
             : "0",
       };
-    }),
+    })(), pool + " staking read")),
   ]);
   return {
     source: "live" as const,

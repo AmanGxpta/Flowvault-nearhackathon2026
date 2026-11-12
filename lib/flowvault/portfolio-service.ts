@@ -5,6 +5,20 @@ import { demoPortfolio } from "./seed.ts";
 import { displayPosition } from "./accounts.ts";
 import { decimal } from "./money.ts";
 import type { Workspace, Portfolio, Position } from "./types";
+import { READ_BUDGET, withDeadline } from "./deadline.ts";
+/** R22: start a bounded read now and settle it later, so independent sections run in parallel. */
+function started<T>(work: () => Promise<T>, label: string) {
+  const run = (async () => work())();
+  return withDeadline(run, READ_BUDGET.section, label).then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+}
+async function settled<T>(p: ReturnType<typeof started<T>>): Promise<T> {
+  const r = await p;
+  if (!r.ok) throw r.error;
+  return r.value;
+}
 export async function workspacePortfolio(
   w: Workspace,
   scope: {
@@ -42,11 +56,35 @@ export async function workspacePortfolio(
     positions: [],
     errors: [],
   };
+  if (account && !validAccount(account))
+    throw new Error("Enter a valid public NEAR account.");
+  // R22: every independent section starts now; each is awaited (bounded) where it is merged.
+  const nearRead = account ? started(() => adapters.readPortfolio(account), "NEAR portfolio read") : null;
+  const evmRead = Object.fromEntries(
+    (["base", "arb"] as const).map((chain) => {
+      const address = scope[chain] ?? w.evmAddresses?.[chain];
+      return [chain, address ? started(() => adapters.readEvmUsdc(chain, address), chain + " USDC read") : null];
+    }),
+  );
+  const stakingRead =
+    account && scope.staking !== false
+      ? started(() => adapters.readStaking(account, scope.pools ?? []), "Staking read")
+      : null;
+  const watchReads =
+    scope.watch !== false
+      ? (w.watchedAccounts ?? []).map((watch) =>
+          started(
+            async () =>
+              watch.chain === "near"
+                ? (await readPortfolio(watch.address)).positions
+                : [await readEvmUsdc(watch.chain, watch.address)],
+            "Watched account read",
+          ),
+        )
+      : [];
   if (account) {
-    if (!validAccount(account))
-      throw new Error("Enter a valid public NEAR account.");
     try {
-      p = await adapters.readPortfolio(account);
+      p = await settled(nearRead!);
     } catch (e) {
       p.sections = [
         {
@@ -103,7 +141,7 @@ export async function workspacePortfolio(
       const address = scope[chain] ?? w.evmAddresses?.[chain];
       if (address)
         try {
-          const row = await adapters.readEvmUsdc(chain, address);
+          const row = await settled(evmRead[chain]!);
           p.positions.push(row);
           recordSection(
             chain + "-usdc",
@@ -134,7 +172,7 @@ export async function workspacePortfolio(
   let staking: any = null;
   if (account && scope.staking !== false) {
     try {
-      staking = await adapters.readStaking(account, scope.pools ?? []);
+      staking = await settled(stakingRead!);
       recordSection(
         "native-staking",
         staking.native.status === "unknown" ? "unavailable" : "observed",
@@ -235,12 +273,9 @@ export async function workspacePortfolio(
   const watchedErrors: string[] = [];
   if (scope.watch !== false)
     await Promise.all(
-      (w.watchedAccounts ?? []).map(async (watch) => {
+      (w.watchedAccounts ?? []).map(async (watch, i) => {
         try {
-          const rows =
-            watch.chain === "near"
-              ? (await readPortfolio(watch.address)).positions
-              : [await readEvmUsdc(watch.chain, watch.address)];
+          const rows = await settled(watchReads[i]);
           p.positions.push(
             ...rows.map((x) => ({
               ...x,
