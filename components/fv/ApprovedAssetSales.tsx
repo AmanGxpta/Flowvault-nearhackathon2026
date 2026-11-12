@@ -1,5 +1,5 @@
 "use client";
-import {explainVenueReason} from "@/lib/flowvault/lending-venue-messages";
+import {explainSaleError} from "@/lib/flowvault/sale-messages";
 import {useState} from "react";
 import type {LinkedAccount} from "@/lib/flowvault/types";
 import type {VenueAsset} from "@/lib/flowvault/contracts";
@@ -23,8 +23,8 @@ export function ApprovedAssetSales({scope,accounts}:{scope:Scope;accounts:Linked
     await api("/api/policy",{revision:r.revision,policy:{...policy,assetRows:[...(policy.assetRows??[]).filter((x:any)=>!(x.asset===asset.symbol&&x.chain===chain)),row],venues:[...new Set([...policy.venues,...venues])],methods:[...policy.methods,...methods.filter(m=>!policy.methods.some((x:any)=>x.receiver===m.receiver&&x.method===m.method))]}},"PUT",scope);
     setMessage("Sale permission saved as a new policy revision. Protected assets stay protected. Refresh your plan before execution.");
     window.dispatchEvent(new Event("fv:plans-refresh"));
-  }catch(e){setMessage(explainVenueReason((e as Error).message));}finally{setBusy(false);}}
-  async function plan(){setBusy(true);setMessage("");try{const r=await api("/api/sales",{action:"plan",key:crypto.randomUUID(),netUsdcRaw:units(net).toString()},"POST",scope);openPlan({plan:r.plan});}catch(e){setMessage(explainVenueReason((e as Error).message));}finally{setBusy(false);}}
+  }catch(e){setMessage(explainSaleError((e as Error).message));}finally{setBusy(false);}}
+  async function plan(){setBusy(true);setMessage("");try{const r=await api("/api/sales",{action:"plan",key:crypto.randomUUID(),netUsdcRaw:units(net).toString()},"POST",scope);openPlan({plan:r.plan});}catch(e){setMessage(explainSaleError((e as Error).message));}finally{setBusy(false);}}
   return <section aria-label="Approved asset sale funding" style={{marginTop:20,padding:16,border:"1px solid var(--fvb-E3E6DB)",borderRadius:12,background:"var(--fvb-FFFFFF)",color:"var(--fvc-1E2A22)"}}>
     <h3>Approved asset sales</h3>
     <p>Sell only explicitly approved assets for a net USDC amount. Unsupported or illiquid routes remain unavailable. Acquisition history missing: realized PnL is not computed.</p>
