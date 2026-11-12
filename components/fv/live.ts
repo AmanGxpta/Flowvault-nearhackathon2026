@@ -105,6 +105,8 @@ export interface LiveSnapshot {
   /** The connected NEAR wallet's account still needs its NEP-413 proof (declined or pending). */
   nearProof?: { account: string; state: "signing" | "declined"; error?: string } | null;
   readingAt: string;
+  /** The NEAR account this browser is signed in to on the server (its calendar and plans), or null. */
+  signedIn?: string | null;
 }
 
 export const emptySnapshot = (scope: Scope = currentScope): LiveSnapshot => ({
@@ -164,7 +166,7 @@ export async function loadSnapshot(
   const workspace: Workspace = ws.workspace;
   const saved = (workspace as any).evmAddresses ?? {};
   const evm = { base: saved.base ?? "", arb: saved.arb ?? "" };
-  const base: Partial<LiveSnapshot> = { scope, workspace, revision: ws.revision, evm, readingAt: new Date().toISOString() };
+  const base: Partial<LiveSnapshot> = { scope, workspace, revision: ws.revision, evm, readingAt: new Date().toISOString(), signedIn: ws.signedIn ?? null };
   onPartial?.(base);
   const example = scope === "example";
   // No main NEAR account and no other wallet proven yet: nothing to read. A proven Ethereum or Solana wallet

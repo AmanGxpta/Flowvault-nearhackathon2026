@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   try {
     const s = await session(request);
     return json(
-      { workspace: s.workspace, revision: s.revision, workspaceSlot: s.slot },
+      { workspace: s.workspace, revision: s.revision, workspaceSlot: s.slot, signedIn: s.account },
       s.cookie,
     );
   } catch (e) {

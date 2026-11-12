@@ -53,6 +53,9 @@ async function edit(
       })
       .parse(await request.json());
     const s = await session(request);
+    // Payments belong to a NEAR account: add, change or remove them only while signed in to it.
+    if (s.slot === "personal" && !s.account)
+      throw new Error("Connect your NEAR wallet first. Payments are saved with your NEAR account.");
     if (body.revision !== s.revision)
       throw new Error("Workspace changed. Refresh and try again.");
     const workspace = editObligation(s.workspace, operation, body.obligation);

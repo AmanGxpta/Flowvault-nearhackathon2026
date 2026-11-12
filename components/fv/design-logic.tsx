@@ -355,7 +355,7 @@ export class DesignApp extends Component<any, any> {
 
     if (s.modal === 'confirm' && s.confirm) m = { eyebrow: 'POLICY · PROTECTED ASSET', title: s.confirm.title, hasSteps: false, steps: [] };
     if (s.modal === 'intent') m = { eyebrow: 'PAY OR MOVE MONEY', title: 'State the outcome', hasSteps: false, steps: [] };
-    if (s.modal === 'add') m = { eyebrow: 'NEW DATED PAYMENT', title: 'Add a payment to your plan', hasSteps: false, steps: [] };
+    if (s.modal === 'add') m = s.editObId ? { eyebrow: 'DATED PAYMENT', title: 'Edit payment', hasSteps: false, steps: [] } : { eyebrow: 'NEW DATED PAYMENT', title: 'Add a payment to your plan', hasSteps: false, steps: [] };
 
     if (s.modal === 'op' && s.op) {
       const o = s.op; const sup = o.kind === 'supply'; const a = parseFloat(o.amount) || 0;
@@ -866,10 +866,10 @@ export class DesignApp extends Component<any, any> {
       pfBalances, pfAccounts, pfRows, credit, sliders, creditUses, creditPrio,
       goCalendar: () => self.go('calendar'), goStrategies: () => self.go('strategies'),
       goActivityClose: () => self.endModal({ screen: 'activity' }),
-      openAdd: () => { self.remember(); self.setState({ modal: 'add', form: { name: '', amount: '', chain: 'Arbitrum', token: 'USDC', recurrence: 'none', recipient: '', due: iso(13), note: '', confirmed: false } }); },
+      openAdd: () => { self.remember(); self.setState({ modal: 'add', editObId: null, form: { name: '', amount: '', chain: 'Arbitrum', token: 'USDC', recurrence: 'none', recipient: '', due: iso(13), note: '', confirmed: false } }); },
       closeModal: () => self.endModal(), stop: (e: any) => e.stopPropagation(),
       modalOpen: !!s.modal, m, wallet,
-      isAdd: s.modal === 'add', form: f, onForm: { name: setF('name'), amount: setF('amount'), chain: setF('chain'), due: setF('due'), recipient: setF('recipient'), note: setF('note'), confirmed: setF('confirmed'), token: setF('token'), recurrence: setF('recurrence') },
+      isAdd: s.modal === 'add', editingOb: !!s.editObId, form: f, onForm: { name: setF('name'), amount: setF('amount'), chain: setF('chain'), due: setF('due'), recipient: setF('recipient'), note: setF('note'), confirmed: setF('confirmed'), token: setF('token'), recurrence: setF('recurrence') },
       addrPlaceholder: evm ? '0x…' : 'name.near', addrValid: !!addrValid, addrMsg, addrMsgColor: !r ? '#8A9285' : addrValid ? '#3F6B3C' : '#9A3F32', addrBorder: !r ? '#DDE1D4' : addrValid ? '#9DB48C' : '#E0B4A8',
       addrChunks: chunks, addrEnds: r.length > 10 ? r.slice(0, 6) + ' … ' + r.slice(-4) : r, impact, formInvalid, saveObBg: formInvalid ? '#B9C0B2' : '#2A4034',
       saveOb: () => { if (formInvalid) return; const ob: any = { id: 'u' + Date.now(), name: f.name.trim(), amount: fAmt, chain: f.chain, recipient: r, due: f.due, note: f.note, status: 'upcoming' }; self.setState({ obs: [...s.obs, ob], modal: null, version: s.version + 1 }); self.toastMsg(ob.name + ' added. Plan is now v' + (s.version + 1) + '; earlier drafts were superseded.'); },

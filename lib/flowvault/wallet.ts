@@ -68,6 +68,8 @@ export async function connectNearWallet(id: string) {
 }
 export function useNearWallet() {
   const [options, setOptions] = useState<NearWalletOption[]>([]);
+  /** True once the selector has restored any saved session (so "no account" really means signed out). */
+  const [ready, setReady] = useState(false);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [walletName, setWalletName] = useState("");
   const [error, setError] = useState("");
@@ -90,6 +92,7 @@ export function useNearWallet() {
           setWalletName(state.selectedWalletId ?? "");
         };
         update(selector.store.getState());
+        setReady(true);
         const subscription = selector.store.observable.subscribe(update);
         unsubscribe = () => subscription.unsubscribe();
       })
@@ -106,6 +109,7 @@ export function useNearWallet() {
     walletName,
     error,
     options,
+    ready,
     connectWith: async (id: string) => {
       setSubscriptionVersion((v) => v + 1);
       await connectNearWallet(id);

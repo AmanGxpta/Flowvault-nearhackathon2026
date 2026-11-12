@@ -255,7 +255,20 @@ function withRemove(self: any, example: boolean, o: any) {
       },
     });
   };
-  return { ...o, onRemove };
+  // Edit opens the same form as Add, filled in (recipient, chain, amount, date); saving replaces this payment.
+  const raw: any = (self.props.live?.workspace?.obligations ?? []).find((x: any) => x.id === o.id);
+  const chain = raw ? Object.entries(DEST).find(([, d]) => d === raw.destination)?.[0] : undefined;
+  const onEdit = raw && chain
+    ? () => {
+        self.remember();
+        self.setState({
+          modal: "add",
+          editObId: raw.id,
+          form: { name: raw.label, amount: String(raw.amount), chain, token: raw.token === "USDT" ? "USDT" : "USDC", recurrence: raw.recurrence ?? "none", recipient: raw.recipient ?? "", due: raw.dueDate, note: raw.note ?? "", confirmed: false },
+        });
+      }
+    : undefined;
+  return { ...o, onRemove, onEdit };
 }
 
 /** Forget the main NEAR account (account registry), behind a confirmation. Nothing on-chain changes. */
@@ -289,7 +302,10 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   out.scope = snap.scope;
   out.planCta =
     s.screen === "strategies" ? { label: "Plan putting surplus to work →", onClick: () => void startPlan({ objective: "deploy_surplus" }).catch(() => undefined), note: "Compares every venue against your dates and policy" }
-    : s.screen === "credit" ? { label: "Plan borrowing →", onClick: () => void startPlan({ objective: "borrow" }).catch(() => undefined) }
+    : s.screen === "credit"
+      ? snap.workspace?.mandate?.borrowing
+        ? { label: "Plan borrowing →", onClick: () => void startPlan({ objective: "borrow" }).catch(() => undefined) }
+        : { label: "Allow borrowing in Policy →", onClick: () => self.go("policy"), note: "New borrowing is off" }
     : null;
   // Borrow-to-payment continuity (e): credit as a source opens the next payment's plan, where borrowing is one
   // alternative carrying its debt, approval and resulting liability through to the payout.
@@ -444,6 +460,19 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
     proof?.state === "declined"
       ? [{ glyph: "✎", label: "Prove " + proof.account + " is yours", sub: "Sign one free message in your NEAR wallet" + (proof.error ? " · last try: " + proof.error : ""), color: "#3F6B3C", onClick: () => { close(); self.liveCall(() => acts0.proveNear()); } }]
       : [];
+  // Payments belong to your NEAR account: while this browser isn't signed in to one, adding a payment (or
+  // "Pay or move money") opens Connect instead, and the calendar says why it's empty.
+  if (!snap.signedIn) {
+    const needNear = () => {
+      openConnect();
+      self.toastMsg("Connect your NEAR wallet first. Payments are saved with your NEAR account.");
+    };
+    out.openAdd = needNear;
+    out.openIntent = needNear;
+    out.calEmptyTitle = "Connect your NEAR wallet to see your payments.";
+    out.calEmptyText = "Your dated payments are saved with your NEAR account, so they appear only while it’s connected.";
+    out.calEmptyCta = "Connect wallet →";
+  }
   // First-run "Connect wallet": a connected NEAR wallet whose proof was declined is asked to sign again.
   out.connectFirst = () => (snap.walletAccount && snap.nearProof?.state === "declined" ? self.liveCall(() => acts0.proveNear()) : openConnect());
   out.walletApprove = () => self.toastMsg(readOnly ? "Connect the wallet that owns " + (acct || "this account") + " first. Nothing was signed." : "Use the dialog’s approve button. Nothing was signed.");
@@ -682,10 +711,11 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
     const destination = DEST[fm.chain];
     if (!destination) return self.toastMsg("Choose a destination chain.");
     const token = fm.token === "USDT" ? "USDT" : "USDC";
-    self.setState({ modal: null });
+    const editId = s.editObId;
+    self.setState({ modal: null, editObId: null });
     self.liveCall(
       () =>
-        acts.addObligation({
+        (editId ? (o: Record<string, unknown>) => acts.updateObligation({ ...o, id: editId }) : acts.addObligation)({
           label: fm.name.trim(),
           recipient: fm.recipient.trim(),
           destination,
@@ -695,7 +725,7 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
           ...(fm.note?.trim() ? { note: fm.note.trim() } : {}),
           recurrence: fm.recurrence || "none",
         }),
-      tag + fm.name.trim() + " added. " + routeNote(fm.chain, token, example),
+      tag + fm.name.trim() + (editId ? " updated. " : " added. ") + routeNote(fm.chain, token, example),
     );
   };
   if (s.modal === "add") {
@@ -705,7 +735,7 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
     if (amt > 0)
       out.impact = {
         text:
-          (hold !== null ? "Holdback rises to " + usd(hold + amt) + " if it’s due within " + s.horizon + " days. " : "") +
+          (hold !== null && !s.editObId ? "Holdback rises to " + usd(hold + amt) + " if it’s due within " + s.horizon + " days. " : "") +
           (token === "USDT" && !example ? "Live USDT isn’t valued in USDC yet, so automatic holdback stays blocked until FX is verified. " : "") +
           routeNote(s.form.chain, token, example),
         bg: livePayoutSupported(s.form.chain, token) ? "#E2EAD6" : "#FBF6EE",
@@ -1520,7 +1550,11 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
   const payables = s.obs.filter((o: any) => o.status === "upcoming" || o.status === "paying");
   const ob = payables.find((o: any) => o.id === s.payPick) ?? payables[0] ?? null;
   // One persistent plan for this payment: alternatives, review, wallet handoff and verification (I3).
-  if (s.screen === "pay") out.planCta = ob ? { label: "Plan this payment →", onClick: () => void startPlan({ objective: "pay_obligation", obligationId: ob.id }).catch(() => undefined), note: example ? "Example plan · reviewable, never signable" : "Saved as a plan you can leave and resume" } : null;
+  // No recipient yet: every source needs one, so the first step is adding it (Edit payment), not planning.
+  const rawPay: any = ob ? (snap.workspace?.obligations ?? []).find((x: any) => x.id === ob.id) : null;
+  const needsRecipient = !example && !!rawPay && !String(rawPay.recipient ?? "").trim();
+  if (s.screen === "pay" && needsRecipient) out.planCta = { label: "Add the recipient →", onClick: () => withRemove(self, example, ob).onEdit?.(), note: "Every source needs the address it pays" };
+  else if (s.screen === "pay") out.planCta = ob ? { label: "Plan this payment →", onClick: () => void startPlan({ objective: "pay_obligation", obligationId: ob.id }).catch(() => undefined), note: example ? "Example plan · reviewable, never signable" : "Saved as a plan you can leave and resume" } : null;
   // A route is payable live when the backend's comparison says so (BNB/Ethereum USDT arrive this way), or it is a known Base/Arbitrum USDC route.
   const liveRoute = (o: any) => livePayoutSupported(o.chain, o.asset) || (s.payEval?.res?.comparison?.obligationId === o.id && s.payEval.res.comparison.executionSupported === true && s.payEval.res.comparison.source === "live");
   const evalMode = (o: any) => example || !liveRoute(o);

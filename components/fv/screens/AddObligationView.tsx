@@ -259,7 +259,7 @@ export function AddObligationView({ v }: { v: any }) {
               cursor: "pointer",
             }}
           >
-            Add to plan as v{v.nextVersion}
+            {v.editingOb ? "Save changes" : "Add to plan as v" + v.nextVersion}
           </button>
         </div>
       </div>

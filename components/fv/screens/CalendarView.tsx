@@ -191,9 +191,58 @@ export function CalendarView({ v }: { v: any }) {
                           {o.btnLabel}
                         </button>
                       </div>
+                      {o.onEdit ? (
+                        <button
+                          type="button"
+                          onClick={o.onEdit}
+                          aria-label={"Edit " + o.name}
+                          title="Edit this payment"
+                          className="fvh5"
+                          style={{
+                            width: "36px",
+                            height: "36px",
+                            flexShrink: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: "10px",
+                            border: "1px solid var(--fvb-E3E6DB)",
+                            background: "transparent",
+                            cursor: "pointer",
+                            color: "var(--fvc-4A5349)",
+                            padding: 0,
+                          }}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                            <path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" />
+                          </svg>
+                        </button>
+                      ) : null}
                       {o.onRemove ? (
-                        <button type="button" onClick={o.onRemove} aria-label={"Remove " + o.name} title="Remove from calendar" style={{ border: "none", background: "transparent", cursor: "pointer", color: "var(--fvc-8A9285)", fontSize: "16px", padding: "0 2px" }}>
-                          ×
+                        <button
+                          type="button"
+                          onClick={o.onRemove}
+                          aria-label={"Remove " + o.name}
+                          title="Remove this payment"
+                          className="fvh5"
+                          style={{
+                            width: "36px",
+                            height: "36px",
+                            flexShrink: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: "10px",
+                            border: "1px solid var(--fvb-E3E6DB)",
+                            background: "transparent",
+                            cursor: "pointer",
+                            color: "var(--fvc-9A3F32)",
+                            padding: 0,
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                            <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+                          </svg>
                         </button>
                       ) : null}
                       </div>
@@ -215,10 +264,10 @@ export function CalendarView({ v }: { v: any }) {
                 }}
               >
                 <div style={{ fontSize: "26px", fontWeight: "500", letterSpacing: "-0.02em" }}>
-                  No dated payments yet.
+                  {v.calEmptyTitle || "No dated payments yet."}
                 </div>
                 <div style={{ marginTop: "8px", color: "var(--fvc-6F786B)", fontSize: "15px" }}>
-                  Add the first one and FlowVault keeps it out of any strategy until it’s paid.
+                  {v.calEmptyText || "Add the first one and FlowVault keeps it out of any strategy until it’s paid."}
                 </div>
                 <button
                   type="button"
@@ -234,7 +283,7 @@ export function CalendarView({ v }: { v: any }) {
                     cursor: "pointer",
                   }}
                 >
-                  Add a payment →
+                  {v.calEmptyCta || "Add a payment →"}
                 </button>
               </div>
             </>
@@ -419,7 +468,7 @@ export function CalendarView({ v }: { v: any }) {
                 <span style={{ fontWeight: "600" }}>{v.holdbackDraftF}</span>
               </div>
               <div style={{ color: "var(--fvc-8A9285)", fontSize: "12px" }}>
-                Reserve + {v.holdbackCountDraft} unpaid payments due in {v.planDraft.horizon} days
+                Reserve + {v.holdbackCountDraft} unpaid {Number(v.holdbackCountDraft) === 1 ? "payment" : "payments"} due in {v.planDraft.horizon} days
               </div>
             </div>
             <button

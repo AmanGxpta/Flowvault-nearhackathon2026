@@ -24,6 +24,8 @@ export interface LiveActions {
   refresh(): Promise<void>;
   savePlan(changes: { reserve?: string; horizon?: number; leadDays?: number; borrowing?: boolean }): Promise<void>;
   addObligation(o: Record<string, unknown>): Promise<void>;
+  /** Change a dated payment that isn't paying or paid (PUT /api/obligations; needs NEAR sign-in). */
+  updateObligation(o: Record<string, unknown>): Promise<void>;
   /** Remove a dated payment that isn't paying or paid (DELETE /api/obligations). */
   removeObligation(id: string): Promise<void>;
   savePolicy(policy: unknown): Promise<void>;
@@ -64,6 +66,7 @@ export function FlowVaultRoot() {
   const walletRef = useRef(wallet);
   const [raw, setSnap] = useState<LiveSnapshot>(() => emptySnapshot());
   const multi = useMultiWallets();
+  const sessionsRef = useRef(multi.sessions);
   const [nearProof, setNearProof] = useState<LiveSnapshot["nearProof"]>(null);
   const snap = useMemo(
     () => ({ ...raw, walletAccount: wallet.accountId, walletName: wallet.walletName, walletError: wallet.error, walletSessions: multi.sessions, walletsFound: multi.wallets, nearWallets: wallet.options, nearProof }),
@@ -73,6 +76,7 @@ export function FlowVaultRoot() {
   useEffect(() => {
     walletRef.current = wallet;
     snapRef.current = snap;
+    sessionsRef.current = multi.sessions;
     // Read-only snapshot for debugging in the browser console (no secrets: public reads only).
     (window as unknown as { __flowvault?: LiveSnapshot }).__flowvault = snap;
   });
@@ -137,12 +141,27 @@ export function FlowVaultRoot() {
     }
     const w: any = snap.workspace;
     if (snap.scope !== "personal" || snap.status === "loading" || !w) return;
-    const acct = (w.accounts ?? []).find((a: any) => a.id === "near:" + id);
-    if (acct?.proof && ["nep413", "siwe", "siws"].includes(acct.proof.method) && w.accountId === id) return;
+    // Signed in to this account on the server already: nothing to ask. Otherwise (a new device, or a different
+    // account) the wallet signs one free message and the server signs this browser in to the account.
+    if (snap.signedIn === id) return;
     if (synced.current === id) return;
     synced.current = id;
     void proveNear(id);
-  }, [wallet.accountId, snap.status, snap.workspace, snap.scope, proveNear]);
+  }, [wallet.accountId, snap.status, snap.workspace, snap.scope, snap.signedIn, proveNear]);
+
+  // The NEAR wallet was disconnected (here or in the wallet itself): sign this browser out, so your calendar
+  // and plans are no longer shown here. They stay saved with your account.
+  const signingOut = useRef(false);
+  useEffect(() => {
+    if (!wallet.ready || wallet.error || wallet.accountId || !snap.signedIn || snap.scope !== "personal" || signingOut.current) return;
+    signingOut.current = true;
+    void api("/api/accounts", { action: "sign-out" }, "POST", "personal")
+      .then(() => refresh())
+      .catch(() => undefined)
+      .finally(() => {
+        signingOut.current = false;
+      });
+  }, [wallet.ready, wallet.error, wallet.accountId, snap.signedIn, snap.scope, refresh]);
 
   // Returning from a redirect wallet: attach the hashes (or mark uncertain) to the journal entry.
   useEffect(() => {
@@ -167,7 +186,14 @@ export function FlowVaultRoot() {
     () => ({
       connect: () => walletRef.current.connect(),
       connectNear: (id) => walletRef.current.connectWith(id),
-      disconnect: () => walletRef.current.disconnect(),
+      // Disconnecting the NEAR wallet signs this browser out of the account, so the Ethereum and Solana
+      // wallets connected under it are disconnected here too. Everything stays saved with the account.
+      disconnect: async () => {
+        await walletRef.current.disconnect();
+        for (const x of sessionsRef.current) await disconnectWallet(x).catch(() => undefined);
+        await api("/api/accounts", { action: "sign-out" }, "POST", "personal").catch(() => undefined);
+        await refresh();
+      },
       connectWallet: async (w) => {
         const address = await connectWallet(
           w,
@@ -211,6 +237,13 @@ export function FlowVaultRoot() {
       addObligation: async (obligation) => {
         const latest = await api("/api/workspace");
         await api("/api/obligations", { revision: latest.revision, obligation });
+        await refresh();
+        await api("/api/alerts", { action: "check" }).catch(() => {});
+        window.dispatchEvent(new Event("fv:plans-refresh"));
+      },
+      updateObligation: async (obligation) => {
+        const latest = await api("/api/workspace");
+        await api("/api/obligations", { revision: latest.revision, obligation }, "PUT");
         await refresh();
         await api("/api/alerts", { action: "check" }).catch(() => {});
         window.dispatchEvent(new Event("fv:plans-refresh"));
