@@ -420,7 +420,7 @@ export function StrategiesView({ v }: { v: any }) {
                 color: "var(--fvc-5B6458)",
               }}
             >
-              Must be back before{" "}
+              Compare exit timing with{" "}
               <div
                 style={{
                   display: "flex",

@@ -132,6 +132,46 @@ export async function signNativeStaking(preparation: import("./staking-native").
     throw new Error("Native staking must call only the reviewed pool.");
   return signPrepared(preparation);
 }
+/** Interface (policy contract): an owner-only call to the FlowVault policy contract, prepared unsigned by
+ * POST /api/policy-contract. Guarded so only that exact shape reaches the wallet: one transaction to the
+ * configured contract, an owner method, 1 yoctoNEAR authentication deposit and the workspace account as signer.
+ * It moves no investment funds; it only records rules, agents or decisions in the contract. */
+export async function signPolicyOwnerCall(call: {
+  kind: string;
+  accountId: string;
+  contractId: string;
+  method: string;
+  transactions: { receiverId: string; actions: { type: string; params: { methodName: string; deposit: string; gas: string; args: unknown } }[] }[];
+}) {
+  const OWNER = ["set_plan", "add_agent", "remove_agent", "approve", "reject"];
+  const tx = call.transactions[0];
+  const a = tx?.actions[0];
+  if (
+    call.kind !== "policy_contract_owner_call" ||
+    call.transactions.length !== 1 ||
+    tx.actions.length !== 1 ||
+    tx.receiverId !== call.contractId ||
+    a.type !== "FunctionCall" ||
+    !OWNER.includes(a.params.methodName) ||
+    a.params.methodName !== call.method ||
+    a.params.deposit !== "1"
+  )
+    throw new Error("Only a prepared owner call to your policy contract can be signed here.");
+  const { selector } = await walletClient();
+  const wallet = await selector.wallet();
+  const { internalActionToNaj } = await import("@near-wallet-selector/core");
+  const accounts = await wallet.getAccounts();
+  assertWalletSigner(
+    selector.options.network.networkId,
+    selector.store.getState().accounts.find((x) => x.active)?.accountId ?? null,
+    accounts,
+    call.accountId,
+  );
+  return wallet.signAndSendTransactions({
+    transactions: [{ signerId: call.accountId, receiverId: tx.receiverId, actions: [internalActionToNaj(a as InternalAction)] }],
+  });
+}
+
 async function signPrepared(preparation: WalletPreparation) {
   if (
     !Number.isFinite(Date.parse(preparation.expiresAt)) ||

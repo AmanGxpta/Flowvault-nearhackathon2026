@@ -2,9 +2,11 @@
 // Policy · "Who holds authority". Five separate things, each shown from its own source:
 // local evaluation (saved policy), on-chain proposal acceptance (GET /api/policy-contract, finalized views),
 // owner approval (your wallet), fund authority (none, stated verbatim by the backend) and verified outcome
-// (the journals). Nothing here signs: an owner call is prepared unsigned and only shown for review.
-import { useEffect, useState } from "react";
+// (the journals). Owner controls (publish policy, agents, proposal decisions) prepare ONE unsigned call; only
+// your wallet signs it, and a change counts only when the contract's next finalized read shows it.
+import { useCallback, useEffect, useState } from "react";
 import { api, type Scope } from "./live";
+import { signPolicyOwnerCall } from "@/lib/flowvault/wallet";
 
 interface ContractState {
   status: "not_deployed" | "configured" | "unreachable";
@@ -19,9 +21,11 @@ interface ContractState {
   capturedAt: string;
 }
 interface OwnerCall {
+  kind: string;
+  accountId: string;
   contractId: string;
   method: string;
-  transactions: { receiverId: string; actions: { params: { methodName: string; gas: string; deposit: string; args: unknown } }[] }[];
+  transactions: { receiverId: string; actions: { type: string; params: { methodName: string; gas: string; deposit: string; args: unknown } }[] }[];
 }
 
 type Row = { k: string; tag: string; tone: "on" | "off" | "warn"; v: string; extra?: React.ReactNode };
@@ -37,26 +41,59 @@ const btn: React.CSSProperties = {
 
 export function PolicyContractCard({ scope, policyVersion, live }: { scope: Scope; policyVersion: number | null; live: boolean }) {
   const [state, setState] = useState<{ s: ContractState | null; err: string | null } | null>(null);
-  const [call, setCall] = useState<{ c: OwnerCall | null; err: string | null } | null>(null);
+  const [call, setCall] = useState<{ c: OwnerCall | null; err: string | null; label?: string; before?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [agentInput, setAgentInput] = useState("");
+  const [outcome, setOutcome] = useState<string | null>(null);
+  const read = useCallback(
+    () =>
+      api("/api/policy-contract", undefined, "GET", scope).then(
+        (s: ContractState) => {
+          setState({ s, err: null });
+          return s;
+        },
+        (e) => {
+          setState({ s: null, err: e instanceof Error ? e.message : String(e) });
+          return null;
+        },
+      ),
+    [scope],
+  );
   useEffect(() => {
-    let on = true;
-    api("/api/policy-contract", undefined, "GET", scope).then(
-      (s: ContractState) => on && setState({ s, err: null }),
-      (e) => on && setState({ s: null, err: e instanceof Error ? e.message : String(e) }),
-    );
-    return () => {
-      on = false;
-    };
-  }, [scope]);
+    const t = setTimeout(() => void read(), 0);
+    return () => clearTimeout(t);
+  }, [read]);
 
   const s = state?.s ?? null;
-  const prepareSetPlan = async () => {
+  /** A fingerprint of the finalized state an owner call should change, to verify the outcome after signing. */
+  const fingerprint = (x: ContractState | null) =>
+    JSON.stringify([x?.plan?.version ?? null, [...(x?.agents ?? [])].sort(), (x?.proposals ?? []).map((p) => p.id + ":" + p.status)]);
+  const prepare = async (label: string, body: Record<string, string>) => {
+    setBusy(true);
+    setOutcome(null);
+    try {
+      setCall({ c: await api("/api/policy-contract", body, "POST", scope), err: null, label, before: fingerprint(s) });
+    } catch (e) {
+      setCall({ c: null, err: e instanceof Error ? e.message : String(e), label });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const signAndVerify = async () => {
+    if (!call?.c) return;
     setBusy(true);
     try {
-      setCall({ c: await api("/api/policy-contract", { method: "set_plan" }, "POST", scope), err: null });
+      await signPolicyOwnerCall(call.c);
+      // Verification is the contract's finalized state, never the wallet's answer.
+      const after = await read();
+      setOutcome(
+        after && fingerprint(after) !== call.before
+          ? `${call.label}: confirmed in the contract’s finalized state.`
+          : `${call.label}: signed, but the finalized state doesn’t show it yet. Check again in a few seconds.`,
+      );
+      setCall(null);
     } catch (e) {
-      setCall({ c: null, err: e instanceof Error ? e.message : String(e) });
+      setCall({ ...call, err: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
     }
@@ -88,7 +125,15 @@ export function PolicyContractCard({ scope, policyVersion, live }: { scope: Scop
               extra: pending.length ? (
                 <ul style={{ margin: "6px 0 0", paddingLeft: "18px", color: "var(--fvc-5B6458)" }}>
                   {pending.slice(0, 5).map((p) => (
-                    <li key={p.id}>#{p.id} from {p.agent}: {p.action.kind} via {p.action.venue} ({p.action.method}) · plan v{p.plan_version}</li>
+                    <li key={p.id}>
+                      #{p.id} from {p.agent}: {p.action.kind} via {p.action.venue} ({p.action.method}) · plan v{p.plan_version}
+                      {live && s.ownerIsAccount ? (
+                        <span style={{ display: "inline-flex", gap: "6px", marginLeft: "8px" }}>
+                          <button type="button" style={btn} disabled={busy} onClick={() => void prepare("Approve proposal #" + p.id, { method: "approve", opId: p.id })}>Approve…</button>
+                          <button type="button" style={btn} disabled={busy} onClick={() => void prepare("Reject proposal #" + p.id, { method: "reject", opId: p.id })}>Reject…</button>
+                        </span>
+                      ) : null}
+                    </li>
                   ))}
                 </ul>
               ) : null,
@@ -125,20 +170,53 @@ export function PolicyContractCard({ scope, policyVersion, live }: { scope: Scop
           </li>
         ))}
       </ul>
+      {s?.status === "not_deployed" ? (
+        <p style={{ margin: "14px 0 0", paddingTop: "12px", borderTop: "1px solid var(--fvb-EEF0E8)", fontSize: "12.5px", color: "var(--fvc-5B6458)", lineHeight: 1.5 }}>
+          Deploying the contract is your action, not FlowVault’s: see <code>contracts/policy/README.md</code> (the owner-run script deploys to testnet only). Then set <code>FLOWVAULT_POLICY_CONTRACT</code>. This app reads mainnet contracts only, so a testnet deployment shows here as unreachable.
+        </p>
+      ) : null}
       {canPublish ? (
-        <div style={{ marginTop: "14px", paddingTop: "12px", borderTop: "1px solid var(--fvb-EEF0E8)", fontSize: "12.5px", color: "var(--fvc-5B6458)" }}>
+        <div style={{ marginTop: "14px", paddingTop: "12px", borderTop: "1px solid var(--fvb-EEF0E8)", fontSize: "12.5px", color: "var(--fvc-5B6458)", display: "flex", flexDirection: "column", gap: "10px" }}>
           <div>
-            Your saved policy is revision {policyVersion ?? "—"}; the contract holds plan version {onchainVersion ?? "none"}. Publishing records your saved rules on-chain as the next plan version. It moves no funds and grants no authority.
+            Your saved policy is revision {policyVersion ?? "—"}; the contract holds plan version {onchainVersion ?? "none"}. Owner calls record rules, agents or decisions in the contract. They move no funds and grant no authority; each needs your wallet signature and 1 yoctoNEAR, which the contract returns.
           </div>
-          <button type="button" style={{ ...btn, marginTop: "8px" }} disabled={busy} onClick={() => void prepareSetPlan()}>
-            {busy ? "Preparing…" : "Prepare the unsigned publish call"}
-          </button>
-          {call?.err ? <p role="alert" style={{ margin: "8px 0 0", color: "var(--fvc-9A3F32)" }}>{call.err}</p> : null}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button type="button" style={btn} disabled={busy} onClick={() => void prepare("Publish policy revision " + (policyVersion ?? ""), { method: "set_plan" })}>Publish saved policy…</button>
+          </div>
+          <div>
+            <div style={{ fontWeight: 600, color: "var(--fvc-1E2A22)" }}>Agents (propose only, never sign)</div>
+            {(s?.agents ?? []).length ? (
+              <ul style={{ margin: "4px 0 0", paddingLeft: "18px" }}>
+                {(s?.agents ?? []).map((a) => (
+                  <li key={a}>
+                    {a}{" "}
+                    <button type="button" style={btn} disabled={busy} onClick={() => void prepare("Remove agent " + a, { method: "remove_agent", agentId: a })}>Remove…</button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div>No agents registered.</div>
+            )}
+            <div style={{ display: "flex", gap: "6px", marginTop: "6px", flexWrap: "wrap" }}>
+              <label className="fv-sr" htmlFor="fv-agent-id">Agent account</label>
+              <input id="fv-agent-id" value={agentInput} onChange={(e) => setAgentInput(e.target.value.trim().toLowerCase())} placeholder="agent.near" style={{ padding: "7px 10px", borderRadius: "9px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", fontSize: "12.5px" }} />
+              <button type="button" style={btn} disabled={busy || !agentInput} onClick={() => void prepare("Add agent " + agentInput, { method: "add_agent", agentId: agentInput })}>Add agent…</button>
+            </div>
+          </div>
+          {call?.err ? <p role="alert" style={{ margin: 0, color: "var(--fvc-9A3F32)" }}>{call.label}: {call.err}</p> : null}
           {call?.c ? (
-            <p style={{ margin: "8px 0 0" }}>
-              Unsigned: {call.c.transactions[0]?.actions[0]?.params.methodName} on {call.c.contractId}, {Number(call.c.transactions[0]?.actions[0]?.params.gas ?? 0) / 1e12} Tgas, {call.c.transactions[0]?.actions[0]?.params.deposit} yoctoNEAR (returned by the contract). Signing owner calls isn’t wired into FlowVault yet; it only becomes real when the next finalized read shows the new version.
-            </p>
+            <div role="group" aria-label="Unsigned owner call" style={{ padding: "10px", borderRadius: "10px", background: "var(--fvb-F7F8F3)" }}>
+              <div style={{ fontWeight: 600, color: "var(--fvc-1E2A22)" }}>{call.label}</div>
+              <div>
+                Unsigned: {call.c.transactions[0]?.actions[0]?.params.methodName} on {call.c.contractId}, {Number(call.c.transactions[0]?.actions[0]?.params.gas ?? 0) / 1e12} Tgas, {call.c.transactions[0]?.actions[0]?.params.deposit} yoctoNEAR (returned). Signer: {call.c.accountId}.
+              </div>
+              <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+                <button type="button" style={{ ...btn, background: "var(--fvb-2A4034)", color: "var(--fvc-FFFFFF)", border: "none" }} disabled={busy} onClick={() => void signAndVerify()}>{busy ? "Waiting for your wallet…" : "Sign in your wallet"}</button>
+                <button type="button" style={btn} disabled={busy} onClick={() => setCall(null)}>Discard</button>
+              </div>
+            </div>
           ) : null}
+          {outcome ? <p role="status" style={{ margin: 0, color: "var(--fvc-3F6B3C)" }}>{outcome}</p> : null}
         </div>
       ) : null}
     </section>

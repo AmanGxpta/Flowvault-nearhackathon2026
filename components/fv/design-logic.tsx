@@ -631,14 +631,15 @@ export class DesignApp extends Component<any, any> {
       { key: 'linear', name: 'LiNEAR', kind: 'liquid staking', apr: 8.6, exitDays: 0, exitPct: 0.3, exit: 'Instant swap ~0.3%, or a 4-epoch unstake' },
       { key: 'rnear', name: 'rNEAR', kind: 'liquid staking on Rhea', apr: 8.9, exitDays: 0, exitPct: 0.2, exit: 'Instant through the Rhea pool ~0.2%' },
     ].map((o: any) => { const earnN = sAmt * o.apr / 100 * Math.max(0, stD - s.lead) / 365; const costN = sAmt * o.exitPct / 100; const fits = o.exitDays + s.lead <= stD; const allowed = !!P.venues[o.key] && P.assets.near.uses.includes('stake');
-      return { ...o, earnN, costN, net: earnN - costN, fits, allowed, ok: fits && allowed }; });
+      // Same rule as the staking engine: stakes come from surplus only, so exit timing informs but never blocks.
+      return { ...o, earnN, costN, net: earnN - costN, fits, allowed, ok: allowed }; });
     const sRank = SO.filter((o: any) => o.ok).sort((a: any, b: any) => b.net - a.net);
     const stakeCards = [...sRank, ...SO.filter((o: any) => !o.ok)].map((o: any) => { const r = sRank.indexOf(o); const top = r === 0;
-      return { name: o.name, kind: o.kind, tag: o.ok ? (top ? 'BEST FIT #1' : 'FITS #' + (r + 1)) : (o.allowed ? 'MISSES DATE' : 'NOT ALLOWED'), tagBg: o.ok ? (top ? '#C9E86B' : '#EEF0E8') : '#F6EBDD', tagColor: o.ok ? '#1E2A22' : '#8A5F25',
+      return { name: o.name, kind: o.kind, tag: o.ok ? (top ? 'BEST FIT #1 · SURPLUS' : 'FITS #' + (r + 1) + ' · SURPLUS') : 'NOT ALLOWED', tagBg: o.ok ? (top ? '#C9E86B' : '#EEF0E8') : '#F6EBDD', tagColor: o.ok ? '#1E2A22' : '#8A5F25',
         net: o.ok ? (o.net >= 0 ? '+' : '−') + num(Math.abs(o.net)) + ' NEAR' : '—', netColor: o.ok ? '#1E2A22' : '#8A9285',
-        netSub: o.ok ? '≈ ' + usd(o.net * NP) + ' · rate held constant' : (!P.assets.near.uses.includes('stake') ? 'NEAR may not be staked under policy rev ' + P.rev : o.allowed ? 'Can’t be back ' + s.lead + ' days before ' + stDl : 'Not in your policy venues'),
+        netSub: o.ok ? '≈ ' + usd(o.net * NP) + ' · rate held constant' : (!P.assets.near.uses.includes('stake') ? 'NEAR may not be staked under policy rev ' + P.rev : 'Not in your policy venues'),
         rows: [{ k: 'Earned at ' + o.apr + '% · ' + Math.max(0, stD - s.lead) + 'd', v: '+' + num(o.earnN) + ' NEAR' }, { k: 'Exit cost', v: o.costN ? '−' + num(o.costN) + ' NEAR' : 'none' }, { k: 'Back in wallet', v: o.exitDays ? '~' + o.exitDays + ' days' : 'same block' }],
-        exit: o.exit, fitText: o.fits ? '✓ Back before ' + stDl + ' with your ' + s.lead + '-day lead' : '✕ Unbonding would end too close to ' + stDl, fitColor: o.fits ? '#3F6B3C' : '#9A3F32',
+        exit: o.exit, fitText: o.fits ? '✓ Could be back before ' + stDl + ' with your ' + s.lead + '-day lead · staked from surplus only' : 'Back after ' + stDl + ' if you exit · fine: staked from surplus only, no payment counts on it', fitColor: o.fits ? '#3F6B3C' : '#5B6458',
         border: top ? '#9DB48C' : '#E3E6DB', cta: o.ok ? 'Prepare stake' : !o.allowed ? 'Allow in Policy ↗' : 'Not available', btnBg: o.ok && top ? '#2A4034' : o.ok || !o.allowed ? '#fff' : '#F4F5EF', btnColor: o.ok && top ? '#fff' : o.ok ? '#1E2A22' : !o.allowed ? '#3F6B3C' : '#8A9285', btnBorder: o.ok && top ? 'none' : '1px solid #E3E6DB',
         onClick: () => o.ok ? self.toastMsg('Stake preparation reuses the supply handoff and is next in the build. Nothing was prepared.') : !o.allowed && self.go('policy') }; });
     const stkTabs = cashDates.slice(0, 4).map((o: any) => tab(stOb && o.id === stOb.id, dlabel(o.due) + ' · ' + o.name.split(' ')[0], () => self.setState({ stk: { ...s.stk, by: o.id } })));

@@ -16,11 +16,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {/* Apply a saved light/dark choice before first paint (ThemeToggle writes it). */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
-      </head>
-      <body>{children}</body>
+      <head />
+      <body>
+        {/* Apply a saved light/dark choice before first paint (ThemeToggle writes it). It runs as the first thing
+            in <body>, before any content, and lives outside <head> because wallet extensions inject scripts there
+            before hydration, which made React match this script against theirs. */}
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+        {children}
+      </body>
     </html>
   );
 }

@@ -966,17 +966,19 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
       ];
       return {
         name: NAMES[o.id] ?? o.venue, kind: (o.pool ?? KINDS[o.id] ?? o.venue) + (o.codeHashVerified ? " · code verified" : ""),
-        tag: needsPool ? "PICK A VALIDATOR" : !elig ? "NOT ELIGIBLE" : fits === false ? "MISSES DATE" : !executable ? "QUOTE ONLY" : polMiss.length ? "NEEDS POLICY" : "EXECUTABLE",
-        tagBg: executable && elig && fits !== false && !polMiss.length ? "#E2EAD6" : "#F6EBDD", tagColor: executable && elig && fits !== false && !polMiss.length ? "#3F6B3C" : "#8A5F25",
+        // Same rule as the staking engine: a stake is sized from surplus only (never from money reserved for a
+        // payment), so an exit landing after the next payment is information, not a block.
+        tag: needsPool ? "PICK A VALIDATOR" : !elig ? "NOT ELIGIBLE" : !executable ? "QUOTE ONLY" : polMiss.length ? "NEEDS POLICY" : "EXECUTABLE · SURPLUS",
+        tagBg: executable && elig && !polMiss.length ? "#E2EAD6" : "#F6EBDD", tagColor: executable && elig && !polMiss.length ? "#3F6B3C" : "#8A5F25",
         net: "—", netColor: "#8A9285",
         netSub: needsPool ? "Native staking needs a verified validator"
           : !elig ? refusals || "Rate or availability unknown"
           : !executable ? "Quote only · no execution path for " + (NAMES[o.id] ?? o.id) + " yet"
           : polMiss.length ? "Executable once your policy allows it · nothing is allowed by default"
           : "Owner-signed through a plan · you approve the stake, then sign in your wallet · exit takes about 4 epochs",
-        rows, exit: o.exit?.reason ? reasonText([o.exit.reason]) : "Unbonding takes at least four epochs",
-        fitText: !stOb ? "No payment date to check against" : fits === null ? "Unlock estimate unavailable" : fits ? "✓ Estimated back before " + dlabel(stOb.due) + " with your " + s.lead + "-day lead" : "✕ Estimated unlock plus your " + s.lead + "-day lead misses " + dlabel(stOb.due),
-        fitColor: fits ? "#3F6B3C" : "#9A3F32", border: "#E3E6DB",
+        rows, exit: o.exit?.reason === "EXIT_MISSES_DUE_DATE" ? "Unbonding ends after the next payment · information only for surplus" : o.exit?.reason ? reasonText([o.exit.reason]) : "Unbonding takes at least four epochs",
+        fitText: !stOb ? "Surplus only · no payment counts on this NEAR" : fits === null ? "Unlock estimate unavailable · surplus only, so no payment counts on it" : fits ? "✓ Could be back before " + dlabel(stOb.due) + " with your " + s.lead + "-day lead · staked from surplus only" : "Back after " + dlabel(stOb.due) + " if you exit · fine: it’s staked from surplus only and no payment counts on it",
+        fitColor: fits === false ? "#5B6458" : "#3F6B3C", border: "#E3E6DB",
         ...(isNative
           ? {
               poolOptions: verified.map((v: any) => ({ id: v.id, label: (v.label || v.id) + (v.aprPercent != null ? " · " + pct(v.aprPercent) : "") + (v.feePercent != null ? " · fee " + pct(v.feePercent) : "") })),
