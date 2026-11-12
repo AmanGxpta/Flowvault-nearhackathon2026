@@ -1,3 +1,4 @@
+import { saleStepAdapter } from "./adapters/sale-step";
 import { creditSettlementAdapter } from "./adapters/credit-settlement-step";
 import {stakingStepAdapter} from "./adapters/staking-step";
 import { fundingLegAdapter } from "./adapters/funding-leg-step"; // Stream A: fund_transfer legs
@@ -58,6 +59,7 @@ const ROUTES: Record<string, () => Promise<{ POST?: Handler; GET?: Handler }>> =
   payments: () => import("@/app/api/payments/route"),
   payment: () => import("@/app/api/payments/[id]/route"),
   staking: () => import("@/app/api/staking/actions/route"), // Positions P1c
+  sales: () => import("@/app/api/sales/route"),
   aave: () => import("@/app/api/lending/venues/route"),
   lending: () => import("@/app/api/lending/route"), // Engines E2
   native: () => import("@/app/api/staking/native/route"), // Engines P2
@@ -351,3 +353,5 @@ registerStepAdapter(stakingStepAdapter); // Positions: LiNEAR stake, unstake, wi
 registerStepAdapter(fundingLegAdapter); // Stream A: fund_transfer (cross-wallet funding legs)
 
 registerStepAdapter(creditSettlementAdapter);
+
+registerStepAdapter(saleStepAdapter);

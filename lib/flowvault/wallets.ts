@@ -280,3 +280,16 @@ export function solanaWallet(id: string): any | null {
   start();
   return sol.get(id) ?? null;
 }
+
+export async function sendSaleTransfer(s: WalletSession,p: import("./sale").SalePreparation) {
+  start(); const {validateSaleWallet}=await import("./sale-wallet"); validateSaleWallet(p);
+  const tx=p.sale.evmTx,d=evm.get(s.walletId);
+  if(!tx||!d||s.chain!=="evm"||s.address.toLowerCase()!==p.accountId.toLowerCase())throw new Error("Connect the reviewed sale source wallet.");
+  const accounts:string[]=await d.provider.request({method:"eth_accounts"});
+  if(!accounts.some(x=>x.toLowerCase()===p.accountId.toLowerCase()))throw new Error("Sale wallet account changed.");
+  if(BigInt(await d.provider.request({method:"eth_chainId"}))!==BigInt(tx.chainId))await d.provider.request({method:"wallet_switchEthereumChain",params:[{chainId:tx.chainId}]});
+  if(BigInt(await d.provider.request({method:"eth_chainId"}))!==BigInt(tx.chainId))throw new Error("Sale wallet chain changed.");
+  const hash:string=await d.provider.request({method:"eth_sendTransaction",params:[{from:tx.from,to:tx.to,value:tx.value,data:tx.data}]});
+  if(!/^0x[0-9a-fA-F]{64}$/.test(hash))throw new Error("Sale wallet returned no hash; inspect wallet history.");
+  return hash;
+}

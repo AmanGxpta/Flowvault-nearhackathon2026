@@ -106,6 +106,7 @@ function Rows({ entries, empty }: { entries: LedgerEntry[]; empty: string }) {
               <div role="cell" style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: "var(--fvc-1E2A22)" }}>{KIND[e.kind] ?? e.kind}{e.realized ? "" : " · not realized"}</div>
                 <div style={{ fontSize: "12px", color: "var(--fvc-8A9285)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.basis}>{e.basis}</div>
+                {e.acquisitionHistoryMissing && e.kind !== "fee" ? <div style={{fontSize:12,color:"var(--fvc-8A5F25)"}}>Acquisition history missing · realized PnL unavailable</div> : null}
               </div>
               <div role="cell"><span style={{ padding: "3px 7px", borderRadius: "6px", fontSize: "10.5px", fontWeight: 700, background: st[1], color: st[2] }}>{st[0]}</span></div>
               <div role="cell" style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{qty(e.amountRaw, e.decimals)} {e.asset}</div>

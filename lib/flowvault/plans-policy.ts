@@ -1,3 +1,5 @@
+import { AAVE_MARKETS, type AaveChain } from "./aave-markets.ts";
+import { calldata } from "./aave-abi.ts";
 // Policy entries a plan step needs (owner: Interface). Policy stays default-deny: these entries are only
 // ever added by the owner's explicit "Allow in Policy" confirmation, as a new policy revision that adds
 // EXACTLY the listed entries and changes nothing else (same pattern as the 1Click payout entries).
@@ -17,7 +19,17 @@ const venue = (v: string, what: string): PolicyEntry => ({ type: "venue", venue:
 const method = (receiver: string, m: string, what: string): PolicyEntry => ({ type: "method", receiver, method: m, label: `${m} on ${receiver} (${what})` });
 
 /** Entries one step needs. `asset` is the collateral asset; `strategy` the staking venue id (linear | rnear). */
-export function stepEntries(kind: string, opts: { asset?: string; strategy?: string; pool?: string } = {}): PolicyEntry[] {
+export function stepEntries(kind: string, opts: { asset?: string; strategy?: string; pool?: string; venue?: string } = {}): PolicyEntry[] {
+  if(opts.venue?.startsWith("aave-v3:")) {
+    const m=AAVE_MARKETS[opts.venue.split(":")[1] as AaveChain]; if(!m) return [];
+    const asset=kind==="borrow"||kind==="repay"?m.debt:m.collateral.find(a=>a.symbol===opts.asset);
+    if(!asset) return [];
+    const signatures:Record<string,string>={borrow:"borrow(address,uint256,uint256,uint16,address)",repay:"repay(address,uint256,uint256,address)",collateral_add:"supply(address,uint256,address,uint16)",collateral_release:"withdraw(address,uint256,address)"};
+    if(!signatures[kind]) return [];
+    const entries=[venue(m.pool,"Aave v3 "+m.chain),method(m.pool,calldata(signatures[kind]).slice(0,10),kind+" on the reviewed Aave pool")];
+    if(kind==="repay"||kind==="collateral_add")entries.push(method(asset.id,"0x095ea7b3","approve the exact reviewed token amount to Aave"));
+    return entries;
+  }
   switch (kind) {
     case "borrow":
       return [venue(RHEA, "Rhea lending"), method(RHEA, "execute_with_pyth", "borrow USDC at Pyth prices")];
@@ -83,7 +95,8 @@ export function withEntries<P extends Pick<Policy, "venues" | "methods">>(policy
 export function planPolicySteps(plan: {
   selectedChoiceId?: string;
   recommendedChoiceId?: string;
-  alternatives: { id: string; steps: string[] }[];
+  alternatives: { id: string; steps: string[]; venueId?: string }[];
+  request?: {asset?:string};
   collateral?: { asset: string }[];
   staking?: Record<string, { venue: string }>;
 }) {
@@ -91,6 +104,7 @@ export function planPolicySteps(plan: {
   if (!choice) return [];
   let c = 0;
   return choice.steps.map((kind) =>
+    choice.venueId?.startsWith("aave-v3:") ? {kind,venue:choice.venueId,asset:kind==="borrow"||kind==="repay"?"USDC":plan.request?.asset} :
     kind === "collateral_add" || kind === "collateral_release"
       ? { kind, asset: plan.collateral?.[c++]?.asset }
       : kind === "stake"

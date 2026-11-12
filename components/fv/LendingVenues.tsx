@@ -1,4 +1,5 @@
 "use client";
+import { ApprovedAssetSales } from "./ApprovedAssetSales";
 import { useState } from "react";
 import type { LendingVenueSnapshot } from "@/lib/flowvault/contracts";
 import type { LinkedAccount } from "@/lib/flowvault/types";
@@ -62,6 +63,7 @@ export function LendingVenues({ scope, accounts = [] }: { scope: Scope; accounts
       <p>WETH is wrapped ETH. Native ETH needs wrapping outside this flow. Saved credit policy and exact pool/method allowlists are required. Borrowing needs an additional explicit new-debt approval in the plan.</p>
       <button onClick={plan}>Create review plan</button>
     </fieldset>}
+    <ApprovedAssetSales scope={scope} accounts={accounts} />
     <p>Activity retains submitted and uncertain attempts. Recover wallet hashes and check the existing attempt before retrying. Cross-chain settlement is a separate dependent operation.</p>
   </details>;
 }

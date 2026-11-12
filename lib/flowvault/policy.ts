@@ -15,6 +15,13 @@ export const assetPolicyRowSchema = z
   .object({
     asset: z.string().min(1).max(100),
     chain: z.enum(["near", "base", "arb", "bnb", "eth"]).optional(),
+    sale: z.object({
+      tokenId: z.string().min(1).max(150),
+      decimals: z.number().int().min(0).max(36),
+      maxQuantityRaw: z.string().regex(/^[1-9]\d{0,37}$/),
+      maxValueUsdc: amount,
+      maxSlippageBps: z.number().int().min(0).max(1000),
+    }).strict().optional(),
     priority: z.enum(["P1", "P2", "P3"]),
     uses: z
       .array(

@@ -27,6 +27,7 @@ export function assertAaveContext(p: LendingPreparation,w: Workspace,revision:nu
 export async function aaveJournalAction(request: Request,id:string,action:string,hashes:string[]=[]) {
   const s=await session(request), {attempt:a,previous}=await readAttempt(s.id,id), p=a.preparation;
   if(!isAave(p) || s.workspace.mode!=="live" || !mayRead(s.workspace,"evm",a.accountId)) throw new Error("Aave attempt not available in this live workspace.");
+  if((action==="check"||action==="attach")&&a.state==="confirmed"){if(hashes.some(h=>!a.hashes.includes(h)))throw new Error("Confirmed Aave attempt cannot accept another hash.");return a;}
   let revision:number|undefined;
   if(action==="authorize") {
     assertAaveContext(p,s.workspace,s.revision);

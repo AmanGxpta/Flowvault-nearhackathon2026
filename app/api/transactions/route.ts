@@ -1,3 +1,4 @@
+import { saleJournalAction } from "@/lib/flowvault/sale-journal";
 import { isAave } from "@/lib/flowvault/aave";
 import { aaveJournalAction } from "@/lib/flowvault/aave-journal";
 import {
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
       })
       .parse(await request.json());
     const { attempt, previous } = await readAttempt(s.id, b.id);
+    if (attempt.kind === "sell") return json({attempt:await saleJournalAction(request,b.id,b.action,b.hashes)},s.cookie);
     if (isAave(attempt.preparation)) return json({ attempt: await aaveJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
     if (b.hashes?.some(h => h.startsWith("0x"))) throw new Error("NEAR attempts require NEAR transaction hashes.");
     let authorizationRevision: number | undefined;

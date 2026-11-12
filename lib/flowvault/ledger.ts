@@ -1,3 +1,4 @@
+import { saleLedger } from "./sale-ledger.ts";
 import { isAave } from "./aave.ts";
 import { aaveLedger } from "./aave-ledger.ts";
 // Engines E3: the ledger and the period statement. Pure functions over journal records only: confirmed
@@ -77,6 +78,7 @@ function base(a: WalletAttempt, source: Source) {
 /** Entries for one wallet attempt. Confirmed → confirmed entries; submitted → pending; unknown/partial →
  * unresolved (visible, never counted). Prepared/failed attempts moved nothing and produce no principal entry. */
 export function attemptLedger(a: WalletAttempt, prices: PriceEvidence | null, source: Source = "live"): LedgerEntry[] {
+  if (a.kind === "sell") return source === "live" ? saleLedger(a) : [];
   if (isAave(a.preparation)) return source === "live" ? aaveLedger(a) : [];
   const status: LedgerEntry["status"] | null =
     a.state === "confirmed" ? "confirmed" : a.state === "submitted" ? "pending" : a.state === "unknown" || a.state === "partial" ? "unresolved" : null;

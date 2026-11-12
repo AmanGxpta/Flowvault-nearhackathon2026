@@ -240,6 +240,7 @@ export function newPlan(i: NewPlanInput, at = Date.now()): ActionPlan & { recomm
 }
 
 const SIGNED: StepKind[] = [
+  "sell",
   "supply", "withdraw", "stake", "unstake", "withdraw_unstaked", "native_stake", "native_unstake", "native_withdraw", "collateral_add",
   "borrow", "repay", "collateral_release", "pay_deposit",
   "fund_transfer", // Stream A: signed by the source account's own wallet (signer set by wireLegSteps)
@@ -321,6 +322,7 @@ export function assertSameIntent(existing: ActionPlan, objective: PlanObjective,
 }
 
 export const STEP_LABEL: Record<StepKind, string> = {
+  sell: "Sell an approved asset for net USDC",
   supply: "Supply to Rhea",
   withdraw: "Withdraw from Rhea",
   stake: "Stake NEAR for LiNEAR",

@@ -86,3 +86,12 @@ test("NEAR settlement proof refuses provider-only success, short/foreign/duplica
   assert.equal(nearUsdcProof({...r,receipts_outcome:[...r.receipts_outcome,...r.receipts_outcome]},hash,"owner.near",amount),null);
   assert.equal(nearUsdcProof({status:"SUCCESS"},hash,"owner.near",amount),null);
 });
+
+test("Aave plan policy approval names the exact Aave pool/method, never Rhea",async()=>{
+  const {stepEntries,planPolicySteps}=await import("../lib/flowvault/plans-policy.ts");
+  const entries=stepEntries("borrow",{venue:"aave-v3:base",asset:"USDC"});
+  assert.ok(entries.some(e=>e.type==="venue"&&e.venue===m.pool));
+  assert.ok(entries.every(e=>e.type!=="venue"||!e.venue.endsWith("near")));
+  const steps=planPolicySteps({alternatives:[{id:"aave",steps:["borrow"],venueId:"aave-v3:base"}],selectedChoiceId:"aave",request:{asset:"USDC"}});
+  assert.equal(steps[0].venue,"aave-v3:base");
+});

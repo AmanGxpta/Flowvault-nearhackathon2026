@@ -19,6 +19,7 @@ export function supplyHoldback(mandate: Mandate) {
 }
 export type SupplyPreparation = ReturnType<typeof prepareSupply>;
 export type PreparationKind =
+  | "sell"
   | "supply"
   | "withdraw"
   | "pay"
@@ -35,6 +36,7 @@ export type PreparationKind =
   | "native_unstake"
   | "native_withdraw";
 export type WalletPreparation =
+  | import("./sale.ts").SalePreparation
   | SupplyPreparation
   | WithdrawPreparation
   | PayPreparation

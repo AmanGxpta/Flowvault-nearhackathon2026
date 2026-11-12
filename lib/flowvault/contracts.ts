@@ -97,6 +97,7 @@ export type PlanState =
   | "cancelled";
 
 export type StepKind =
+  | "sell"
   | "supply"
   | "withdraw"
   | "stake"
@@ -131,6 +132,7 @@ export type StepState =
   | "skipped";
 
 export interface FundingChoice {
+  saleQuote?: SaleQuote;
   creditSettlement?: { leg: FundingLeg; debtBeforeUsdcRaw: string; borrowApr: string; minHealth: string };
   venueId?: string;
   accountId?: string;
@@ -234,6 +236,8 @@ export type LedgerKind =
   | "payment_out";
 
 export interface LedgerEntry {
+  acquisitionHistoryMissing?: boolean;
+  realizedPnlUsdcRaw?: string | null;
   id: string;
   at: string;
   kind: LedgerKind;
@@ -531,4 +535,47 @@ export interface FundsLocation {
   /** What the owner can do next, if anything. */
   next: string | null;
   evidence: string[];
+}
+
+/* Phase 4 — asset sale venues. Discovery/quotes are not execution evidence. */
+export interface SaleRequest {
+  asset: VenueAsset;
+  accountId: string;
+  recipient: string;
+  netUsdcRaw: string;
+  maxInputRaw: string;
+  slippageBps: number;
+}
+export interface SaleQuote {
+  venueId: string;
+  request: SaleRequest;
+  dry: boolean;
+  inputRaw: string;
+  minInputRaw: string;
+  minProceedsUsdcRaw: string;
+  inputValueUsdcRaw: string;
+  costsUsdcRaw: string;
+  refundableBufferUsdcRaw: string;
+  capturedAt: string;
+  expiresAt: string;
+  evidence: unknown;
+}
+export interface SaleReconciliation {
+  soldRaw: string | null;
+  proceedsUsdcRaw: string | null;
+  leftoversRaw: string | null;
+  /** A price quote does not establish acquisition cost. */
+  acquisitionHistoryMissing: boolean;
+  realizedPnlUsdcRaw: string | null;
+  complete: boolean;
+  reasons: string[];
+}
+export interface SaleVenueAdapter<Preparation, Evidence> {
+  id: string;
+  supports(asset: VenueAsset): boolean;
+  /** Validated catalog/market identity, liquidity and exact NET proceeds. No key or spending authority. */
+  quoteExactNet(request: SaleRequest, evidence: Evidence, dry: boolean): Promise<SaleQuote>;
+  /** Builds only; caller persists to the existing fenced wallet journal before signing. */
+  prepareOperation(quote: SaleQuote, evidence: Evidence): Preparation;
+  reconcile(quote: SaleQuote, proof: { inputRaw: string; refundRaw: string | null; proceedsUsdcRaw: string | null; finalized: boolean }): SaleReconciliation;
 }

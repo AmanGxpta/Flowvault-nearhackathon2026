@@ -1,3 +1,4 @@
+import { approvedSaleChoices } from "./sale-live";
 import { wireCreditSettlement } from "./aave-funding";
 // Builds action plans from ENGINE figures (owner: Interface). Every amount here is computed by an existing
 // engine (calendar ranking, payment sources, policy evaluation, exact-output quote). This file only maps
@@ -297,6 +298,7 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
   for (const a of alternatives) a.reasons = [...new Set(a.reasons)];
   for (const a of alternatives.slice(0, 3)) a.eligible = a.reasons.length === 0;
   alternatives.push(...(await venueBorrowChoices(w, funding ?? 0n, o.dueDate, true)).map(a => { const reasons=[...a.reasons,...common,...(funding===null?["SOURCES_UNVERIFIED"]:[])]; return {...a,reasons,eligible:reasons.length===0}; }));
+  alternatives.push(...(await approvedSaleChoices(w, funding ?? 0n)).map(a=>{const reasons=[...a.reasons,...common,...(funding===null?["SOURCES_UNVERIFIED"]:[])];return {...a,reasons,eligible:reasons.length===0};}));
   // Stream A: when idle NEAR USDC is short, other proven accounts can send the rest (each leg in its own wallet).
   const mesh = funding !== null && src ? await meshAlternatives(s, { requiredRaw: funding, idleRaw: units(src.idleAvailable), settleSteps: idleSteps, common: [...common, ...adapterReasons(idleSteps)] }) : null;
   if (mesh) alternatives.push(...mesh.choices);
@@ -395,6 +397,7 @@ async function accessCash(
   // Stream A: other proven accounts can send USDC to the NEAR account (legs only; nothing to settle after).
   const cashMesh = await meshAlternatives(s, { requiredRaw: amount, idleRaw: 0n, settleSteps: [], common: [] });
   alternatives.push(...cashMesh.choices);
+  alternatives.push(...(await approvedSaleChoices(w, amount)).map(a=>({...a,steps:a.saleQuote?["sell" as const]:[]})));
   const cashCredit = await creditSource(w, amount, deadline ?? today);
   const b = cashCredit.choice;
   const bSteps: StepKind[] = ["borrow"];
@@ -739,6 +742,7 @@ export function reviewChoice(plan: StoredPlan, choiceId: string) {
   if (sized) return review(plan, choiceId, sized);
   let collateralIndex = 0;
   const specs: StepSpec[] = choice.steps.map((kind) => {
+    if (kind === "sell" && choice.saleQuote) return {kind,expected:{amountRaw:choice.saleQuote.inputRaw,asset:choice.saleQuote.request.asset.symbol,usdcRaw:choice.saleQuote.inputValueUsdcRaw,venue:choice.saleQuote.venueId,note:"Acquisition history missing: realized PnL unavailable"}};
     if (kind === "supply")
       return { kind, expected: { amountRaw: choice.amountUsdcRaw, asset: "USDC", usdcRaw: choice.amountUsdcRaw, note: "strategy:" + choice.id } };
     if (kind === "withdraw")
@@ -764,6 +768,10 @@ export function reviewChoice(plan: StoredPlan, choiceId: string) {
   } else if (choice.kind === "borrow") applyCreditEffects(plan, choice);
   if (choice.kind === "multi_source") return reviewMesh(plan, choiceId, () => review(plan, choiceId, specs)); // Stream A
   const reviewed = review(plan, choiceId, specs);
+  if (choice.saleQuote) {
+    for (const step of reviewed.steps.filter(x=>x.kind==="sell")) step.signer=choice.saleQuote.request.accountId;
+    reviewed.effects.exposure=[...reviewed.effects.exposure,{asset:choice.saleQuote.request.asset.symbol+" · sold (maximum)",deltaRaw:"-"+choice.saleQuote.inputRaw,decimals:choice.saleQuote.request.asset.decimals},{asset:"USDC · NEAR sale proceeds (minimum)",deltaRaw:choice.saleQuote.request.netUsdcRaw,decimals:6}];
+  }
   if (choice.creditSettlement) wireCreditSettlement(reviewed, choice);
   return reviewed;
 }

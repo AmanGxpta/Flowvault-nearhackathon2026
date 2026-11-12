@@ -287,3 +287,11 @@ export async function signUnwrap(p: { accountId: string; amountRaw: string; tran
     transactions: [{ signerId: p.accountId, receiverId: "wrap.near", actions: t.actions.map((x) => internalActionToNaj(x as InternalAction)) }],
   });
 }
+
+/** Existing owner-wallet path; /api/transactions authorization must succeed first. */
+export async function signSale(preparation: import("./sale").SalePreparation) {
+  const {validateSaleWallet}=await import("./sale-wallet");
+  validateSaleWallet(preparation);
+  if(preparation.sale.evmTx) throw new Error("Use the prepared EVM account for this sale.");
+  return signPrepared(preparation);
+}
