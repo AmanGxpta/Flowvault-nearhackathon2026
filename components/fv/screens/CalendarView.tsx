@@ -78,22 +78,24 @@ export function CalendarView({ v }: { v: any }) {
                   style={{
                     padding: "18px 24px",
                     display: "flex",
+                    flexWrap: "wrap",
                     alignItems: "baseline",
-                    gap: "10px",
+                    gap: "4px 12px",
                     borderBottom: "1px solid var(--fvb-EEF0E8)",
                   }}
                 >
-                  <div style={{ fontSize: "17px", fontWeight: "500" }}>{g.title}</div>
+                  <div style={{ fontSize: "17px", fontWeight: "500", whiteSpace: "nowrap" }}>{g.title}</div>
                   <div style={{ fontSize: "13px", color: "var(--fvc-8A9285)" }}>{g.sub}</div>
                 </div>
                 {(g.items || []).map((o: any, i_o_1: number) => (
                   <Fragment key={i_o_1}>
+                    {/* Wrapping row: details take the width; amount, status and action stay together and drop
+                        below only when the card is narrow (e.g. beside Plan settings). */}
                     <div
                       style={{
-                        minWidth: "620px",
-                        display: "grid",
-                        gridTemplateColumns: "64px minmax(0,1fr) 120px 120px 130px",
-                        gap: "16px",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "12px 16px",
                         alignItems: "center",
                         padding: "16px 24px",
                         borderBottom: "1px solid var(--fvb-F1F2EB)",
@@ -103,6 +105,7 @@ export function CalendarView({ v }: { v: any }) {
                         style={{
                           width: "52px",
                           height: "56px",
+                          flexShrink: "0",
                           borderRadius: "12px",
                           background: "var(--fvb-F4F5EF)",
                           border: "1px solid var(--fvb-E8EBE1)",
@@ -124,31 +127,38 @@ export function CalendarView({ v }: { v: any }) {
                         </div>
                         <div style={{ fontSize: "20px", fontWeight: "500", lineHeight: "1.1" }}>{o.day}</div>
                       </div>
-                      <div style={{ minWidth: "0" }}>
-                        <div style={{ fontSize: "15.5px", fontWeight: "500" }}>{o.name}</div>
+                      <div style={{ flex: "1 1 220px", minWidth: "0" }}>
+                        <div style={{ fontSize: "15.5px", fontWeight: "500", overflowWrap: "anywhere" }}>{o.name}</div>
                         <div
                           style={{
                             marginTop: "3px",
                             fontSize: "12.5px",
                             color: "var(--fvc-6F786B)",
                             display: "flex",
-                            gap: "8px",
+                            gap: "4px 8px",
                             flexWrap: "wrap",
+                            whiteSpace: "nowrap",
                           }}
                         >
+                          {/* Each separator travels with the item after it, so a wrap never leaves a dangling "·". */}
                           <span>{o.chain}</span>
-                          <span>·</span>
-                          <span style={{ fontFamily: "'DM Mono',monospace" }}>{o.recipientShort}</span>
-                          <span>·</span>
-                          <span>{o.inDays}</span>
+                          <span>
+                            {"· "}
+                            {/* Monospace only for a real address; "not set" reads as plain text. */}
+                            <span style={o.recipientShort === "not set" ? undefined : { fontFamily: "'DM Mono',monospace" }}>
+                              {o.recipientShort === "not set" ? "recipient not set" : o.recipientShort}
+                            </span>
+                          </span>
+                          <span>{"· " + o.inDays}</span>
                         </div>
                         <div style={{ marginTop: "3px", fontSize: "12.5px", color: "var(--fvc-8A9285)" }}>{o.note}</div>
                       </div>
-                      <div style={{ textAlign: "right" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "14px", marginLeft: "auto", flexShrink: "0" }}>
+                      <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <div style={{ fontSize: "15.5px", fontWeight: "500" }}>{o.amountF}</div>
                         <div style={{ fontSize: "11.5px", color: "var(--fvc-8A9285)" }}>net to recipient</div>
                       </div>
-                      <div>
+                      <div style={{ whiteSpace: "nowrap" }}>
                         <span
                           style={{
                             fontSize: "11.5px",
@@ -180,6 +190,7 @@ export function CalendarView({ v }: { v: any }) {
                         >
                           {o.btnLabel}
                         </button>
+                      </div>
                       </div>
                     </div>
                   </Fragment>

@@ -247,7 +247,7 @@ export class DesignApp extends Component<any, any> {
       const canPay = !paid && o.status !== 'paying';
       return { id: o.id, name: o.name, chain: o.chain, asset: AS(o), note: o.note || '', recipientShort: short(o.recipient), amountF: num(o.amount) + ' ' + AS(o),
         dueLabel: dlabel(o.due), mon: MON[new Date(o.due + 'T00:00:00Z').getUTCMonth()].toUpperCase(), day: new Date(o.due + 'T00:00:00Z').getUTCDate(),
-        inDays: paid ? 'paid' : dd === 0 ? 'today' : dd < 0 ? Math.abs(dd) + ' days ago' : 'in ' + dd + ' days',
+        inDays: paid ? 'paid' : dd === 0 ? 'today' : dd === -1 ? '1 day ago' : dd < 0 ? Math.abs(dd) + ' days ago' : dd === 1 ? 'tomorrow' : 'in ' + dd + ' days',
         stLabel: ST[key][0], stBg: ST[key][1], stColor: ST[key][2],
         btnLabel: paid ? 'Receipt' : o.status === 'paying' ? 'Check status' : o.status === 'failed' ? 'Pay again' : 'Pay', btnBg: urgent && canPay ? '#2A4034' : '#fff', btnColor: urgent && canPay ? '#fff' : '#1E2A22', btnBorder: urgent && canPay ? 'none' : '1px solid #DDE1D4',
         onPay: () => paid || o.status === 'paying' ? (self.setState({ screen: 'activity' })) : self.openPay(o.id) };

@@ -1442,7 +1442,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
         { k: "Asset", v: pob.asset, font: "inherit" },
         { k: "Recipient receives", v: num(pob.amount) + " " + pob.asset + " (net, exact output)", font: "inherit" },
         { k: "Policy revision " + (P?.version ?? "—"), v: "Checked when sources are planned and again at prepare", font: "inherit" },
-        { k: "Due", v: dlabel(pob.due) + " · in " + days(pob.due) + " days", font: "inherit" },
+        { k: "Due", v: dlabel(pob.due) + " · in " + days(pob.due) + (days(pob.due) === 1 ? " day" : " days"), font: "inherit" },
       ];
       out.payToSources = () => {
         if (pay && !PAY_TERMINAL.includes(pay.state)) return self.setState({ pay: { ...lp, step: stepForPay(pay.state) } });
