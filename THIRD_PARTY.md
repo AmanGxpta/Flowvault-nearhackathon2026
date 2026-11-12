@@ -103,3 +103,7 @@ Newly authored BNB/Ethereum configuration and receipt verification use the live 
 ## Phase 4 Solana transfers — Stream A (13 Nov 2026)
 - `@solana/kit` 8.6.0 (MIT, Anza; published 28 Oct 2026), `@solana-program/token` 0.18.0 and `@solana-program/memo` 0.16.0 (Apache-2.0, Solana Program Library clients). Pinned exact, no install scripts. Used for the RPC client (genesis check, jsonParsed USDC account reads, blockhash, finalized signature status/fees) and to build the one SPL `TransferChecked` (+ idempotent associated-token-account create, + optional memo) that the owner's Solana wallet signs through Wallet Standard `solana:signAndSendTransaction`. The memo uses the canonical SPL Memo v2 program (`MemoSq4g…`, exported as `LEGACY_MEMO_PROGRAM_ADDRESS_V3`), not the package's newer default deployment.
 - No keys, endpoints or fee recipients inherited. The default RPC is the keyless public endpoint already used for Solana reads; `SOLANA_RPC_URL` overrides it.
+
+## Vault NEP-141 implementation (13 Nov 2026)
+- `near-sdk = 5.30.1`, `near-contract-standards = 5.30.1` (MIT OR Apache-2.0), from near/near-sdk-rs: standard fungible-token storage, NEP-141 transfer/callback and mint/burn event behavior. Pinned in contracts/vault/Cargo.toml/Cargo.lock; no upstream deployment/accounts/keys imported.
+- `uint = 0.9.5` (MIT OR Apache-2.0), full-width U256 arithmetic for raw-asset/share products. Vault accounting/permissions/queues/NAV/fees are original FlowVault code. No management fee is implemented; performance fees and authority are explicit immutable terms.
