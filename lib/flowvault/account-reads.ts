@@ -166,8 +166,16 @@ export interface Readers {
   evm: typeof readEvmNetwork;
   solana: typeof readSolana;
   near: (account: string) => Promise<Portfolio>;
+  /** Stream C: Hyperliquid margin account of a proven EVM address (collateral; positive uPnL excluded). */
+  hyperliquid?: (address: string, accountId: string) => Promise<Position[]>;
 }
-const DEFAULT: Readers = { evm: readEvmNetwork, solana: readSolana, near: readPortfolio };
+async function readHyperliquid(address: string, accountId: string): Promise<Position[]> {
+  const { parseClearinghouse, perpPortfolioPositions, HL_API } = await import("./hyperliquid.ts");
+  const r = await fetch(HL_API + "/info", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "clearinghouseState", user: address.toLowerCase() }), signal: AbortSignal.timeout(8000) });
+  if (!r.ok) throw new Error("Hyperliquid read failed: " + r.status);
+  return perpPortfolioPositions(parseClearinghouse(address, await r.json()), accountId);
+}
+const DEFAULT: Readers = { evm: readEvmNetwork, solana: readSolana, near: readPortfolio, hyperliquid: readHyperliquid };
 
 /**
  * Everything the older readers don't cover: the main NEAR account and the first EVM account's Base/Arbitrum
@@ -197,6 +205,10 @@ export async function readProvenAccounts(w: Workspace, readers: Readers = DEFAUL
         const legacyUsdc = (chain === "base" && w.evmAddresses?.base === a.address) || (chain === "arb" && w.evmAddresses?.arb === a.address);
         run(`acct:${a.id}:${chain}`, `${shortAddress(a.label)} on ${name}`, () => readers.evm(chain, a.address, legacyUsdc));
       }
+    if (a.chain === "evm" && readers.hyperliquid) {
+      const hl = readers.hyperliquid;
+      run(`acct:${a.id}:hyperliquid`, `${shortAddress(a.label)} on Hyperliquid`, () => hl(a.address, a.id));
+    }
     else if (a.chain === "solana") run(`acct:${a.id}`, `${shortAddress(a.label)} on Solana`, () => readers.solana(a.address));
     else if (a.chain === "near" && !a.primary)
       run(`acct:${a.id}`, a.label, async () => {

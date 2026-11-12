@@ -124,7 +124,8 @@ export function validateMandate(m: AgentMandate, strategies: StrategySpec[] = []
   if (cap <= 0n) p.push("Capital limit must be above zero.");
   if (per > day) p.push("Per-action limit is above the daily limit.");
   if (day > life) p.push("Daily limit is above the lifetime limit.");
-  if (per > cap) p.push("Per-action limit is above the capital limit.");
+  // Perps: per-action is order notional and capital is margin, so leverage lets notional exceed it.
+  if (per > cap && !m.perps) p.push("Per-action limit is above the capital limit.");
   if (m.limits.maxActionsPerDay < 1 || m.limits.maxActionsPerDay > MANDATE_LIMITS.maxActionsPerDay)
     p.push(`Actions per day must be 1 to ${MANDATE_LIMITS.maxActionsPerDay}.`);
   if (m.limits.maxSlippageBps < 0 || m.limits.maxSlippageBps > 500) p.push("Slippage limit must be 0 to 500 bps.");
@@ -147,6 +148,15 @@ export function validateMandate(m: AgentMandate, strategies: StrategySpec[] = []
   if (m.borrowing.allowed && !/^\d+(\.\d+)?$/.test(m.borrowing.minHealth)) p.push("Borrowing needs a minimum health.");
   const usesPerps = m.scope.actions.some((a) => a === "perp_order" || a === "perp_reduce");
   if (usesPerps && m.authority.kind !== "hyperliquid_agent") p.push("Perpetual actions need a Hyperliquid agent wallet authority.");
+  if (usesPerps) {
+    if (!m.perps) p.push("Perpetual actions need perp limits (assets, leverage, order size, liquidation cushion).");
+    else {
+      if (!m.perps.assets.length) p.push("Name the perpetual markets the mandate may trade.");
+      if (m.perps.maxLeverage < 1 || m.perps.maxLeverage > 20) p.push("Perp leverage limit must be 1 to 20.");
+      if (!RAW.test(m.perps.maxNotionalUsdcRaw) || BigInt(m.perps.maxNotionalUsdcRaw) <= 0n) p.push("Perp order size limit must be above zero.");
+      if (m.perps.minLiquidationDistanceBps < 500) p.push("Keep at least a 5% liquidation cushion.");
+    }
+  }
   for (const id of m.scope.strategies) {
     const s = strategies.find((x) => x.id === id);
     if (!s) p.push(`Unknown strategy ${id}.`);

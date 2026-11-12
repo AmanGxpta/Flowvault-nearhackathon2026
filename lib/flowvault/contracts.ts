@@ -401,6 +401,8 @@ export interface AgentMandate {
   concentration: { maxPositionBps: number; maxProtocolBps: number; maxChainBps: number };
   schedule: { everyMinutes: number; nextRunAt: string | null; lastRunAt: string | null };
   authority: MandateAuthority;
+  /** Stream C slice 2 (additive): perpetuals limits; required for perp_order / perp_reduce actions. */
+  perps?: { assets: string[]; maxLeverage: number; maxNotionalUsdcRaw: string; minLiquidationDistanceBps: number };
 }
 /** One deterministic check. ok null = could not be evaluated, which blocks like a failure. */
 export interface MandateCheck {

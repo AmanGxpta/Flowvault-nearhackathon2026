@@ -87,8 +87,8 @@ const body = z.discriminatedUnion("action", [
 ]);
 
 function requireOwner(s: SessionInfo) {
-  if (s.workspace.mode !== "live" || !s.workspace.accountId)
-    throw new Error("Mandates run on your own live NEAR account. Open your workspace (not the example) first.");
+  if (s.workspace.mode !== "live") throw new Error("This runs on your own workspace, not the example.");
+  if (!s.workspace.accountId) throw new Error("Connect your NEAR wallet first. Mandates and agents are saved with your NEAR account.");
   if (s.slot === "personal" && s.account !== s.workspace.accountId)
     throw new Error("Connect your NEAR wallet first. Mandates are saved with your NEAR account.");
   return s.workspace.accountId;

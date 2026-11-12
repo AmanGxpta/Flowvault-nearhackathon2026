@@ -243,3 +243,40 @@ export async function sendAaveOperation(s: WalletSession, prep: import("./lendin
     await onHash(hash);
   }
 }
+
+/* ───────────── EIP-712 signature (Stream C: Hyperliquid approveAgent / withdraw) ───────────── */
+
+/** The wallet's current chain id; Hyperliquid accepts a signature on any chain (signatureChainId names it). */
+export async function evmChainId(s: WalletSession): Promise<number> {
+  start();
+  const d = evm.get(s.walletId);
+  if (s.chain !== "evm" || !d) throw new Error(s.walletName + " isn’t available in this browser. Reconnect it from the wallet menu.");
+  return parseInt(String(await d.provider.request({ method: "eth_chainId" })), 16);
+}
+/** Asks the wallet to sign server-built typed data. Moves nothing by itself; the server verifies the signer. */
+export async function signTypedData(s: WalletSession, typed: { domain: { chainId: number }; types: Record<string, unknown>; primaryType: string; message: unknown }) {
+  start();
+  const d = evm.get(s.walletId);
+  if (s.chain !== "evm" || !d) throw new Error(s.walletName + " isn’t available in this browser. Reconnect it from the wallet menu.");
+  const chain = parseInt(String(await d.provider.request({ method: "eth_chainId" })), 16);
+  if (chain !== typed.domain.chainId) throw new Error("Your wallet switched networks. Start again.");
+  const payload = {
+    ...typed,
+    types: {
+      EIP712Domain: [
+        { name: "name", type: "string" },
+        { name: "version", type: "string" },
+        { name: "chainId", type: "uint256" },
+        { name: "verifyingContract", type: "address" },
+      ],
+      ...typed.types,
+    },
+  };
+  return String(await d.provider.request({ method: "eth_signTypedData_v4", params: [s.address, JSON.stringify(payload)] }));
+}
+
+/** Stream A: the Wallet Standard wallet object behind a Solana session (for its own transaction checks). */
+export function solanaWallet(id: string): any | null {
+  start();
+  return sol.get(id) ?? null;
+}

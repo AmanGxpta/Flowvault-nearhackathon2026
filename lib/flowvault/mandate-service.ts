@@ -208,6 +208,7 @@ export async function runMandate(s: MandateSession, id: string, trigger: "cron" 
   m = { ...m, updatedAt: at, schedule: { ...m.schedule, lastRunAt: at, nextRunAt: new Date(now + m.schedule.everyMinutes * 60_000).toISOString() } };
   revision = await mandateSave(s.id, m, revision);
 
+  if (m.authority.kind === "hyperliquid_agent") return runPerps(s, m, runId, now);
   const audit = await auditList(s.id, m.id);
   let observation: MandateObservation;
   try {
@@ -337,4 +338,51 @@ export async function setKill(s: MandateSession, on: boolean, now = Date.now()) 
     await auditAppend(s.id, [await entry(s.id, mandate, null, "lifecycle", on ? "Kill switch ON: no mandate runs or prepares anything." : "Kill switch off.", {}, at)]);
   }
   return notes;
+}
+
+/**
+ * Perps mandate run: reconcile orders by cloid (an unknown outcome freezes the mandate), confirm the named agent
+ * is still approved on Hyperliquid, book fills/fees/funding/transfers, then protective deleveraging only. New
+ * risk is never opened on a schedule; opening orders come from the owner's explicit request within the mandate.
+ */
+async function runPerps(s: MandateSession, m: AgentMandate, runId: string, now: number): Promise<RunResult> {
+  const at = new Date(now).toISOString();
+  const p = await import("./perps-service");
+  const { serverSetting } = await import("./server-setting");
+  const master = m.scope.accounts.find((a) => a.startsWith("evm:"))?.slice(4) ?? null;
+  const log: MandateAuditEntry[] = [];
+  const finish = async (outcome: string, freeze?: string) => {
+    if (freeze) {
+      const latest = await mandateGet(s.id, m.id);
+      if (latest && !latest.mandate.frozen) {
+        m = { ...latest.mandate, frozen: { at, reason: freeze, ref: null }, updatedAt: at };
+        await mandateSave(s.id, m, latest.revision).catch(() => undefined);
+      }
+      log.push(await entry(s.id, m, runId, "freeze", freeze, {}, at));
+    }
+    await auditAppend(s.id, log);
+    return { mandate: m, runId, outcome };
+  };
+  if (!master) return finish("Stop: the mandate names no Hyperliquid master account.");
+  try {
+    const settled = await p.reconcileOrders(s.id);
+    for (const o of settled) log.push(await entry(s.id, m, runId, "result", `Order ${o.cloid} ${o.intent.coin} ${o.intent.isBuy ? "buy" : "sell"} ${o.intent.size}: ${o.state}.`, { data: { order: o } }, at));
+    const unknown = (await p.openOrders(s.id)).filter((o) => o.master === master.toLowerCase() && o.state === "unknown");
+    if (unknown.length) return finish("Frozen.", `Order outcome unknown (${unknown.map((o) => o.cloid).join(", ")}). Check Hyperliquid before anything else runs.`);
+    const link = await p.verifyLink(s, master);
+    log.push(await entry(s.id, m, runId, "observe", `Agent ${link.agentAddress} is ${link.status} on Hyperliquid.`, { data: { link: { ...link, action: undefined } } }, at));
+    if (link.status !== "verified") return finish("Stop: the agent wallet is not approved any more.");
+    const booked = await p.syncPerpLedger(s.id, master, Date.parse(link.createdAt));
+    if (booked.length) log.push(await entry(s.id, m, runId, "result", `Ledger has ${booked.length} Hyperliquid entries (fees, realized PnL, funding, transfers).`, { ledgerEntryIds: booked.map((e) => e.id).slice(-50) }, at));
+    const kill = !!(await killSwitch(s.id));
+    if (kill) return finish("Kill switch is on.");
+    const prot = await p.protect({ sessionId: s.id, mandate: m, master, secret: await serverSetting("FLOWVAULT_AGENT_KEY_SECRET"), killSwitch: kill, now });
+    log.push(await entry(s.id, m, runId, "decide", prot.reason ? "Protect: " + prot.reason : "Healthy: cushion and loss within limits; nothing to do.", {}, at));
+    for (const o of prot.orders) log.push(await entry(s.id, m, runId, "execute", `Reduce-only ${o.intent.coin} ${o.intent.size}: ${o.state}${o.error ? " — " + o.error : ""}.`, { data: { order: o }, txHashes: [] }, at));
+    if (prot.orders.some((o) => o.state === "unknown")) return finish("Frozen.", "A protective order's outcome is unknown.");
+    return finish(prot.reason ?? "Healthy.");
+  } catch (e) {
+    log.push(await entry(s.id, m, runId, "observe", "Stopped: " + msg(e), {}, at));
+    return finish("Stopped: " + msg(e));
+  }
 }
