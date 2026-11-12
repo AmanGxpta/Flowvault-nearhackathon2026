@@ -33,6 +33,8 @@
     "@near-wallet-selector/meteor-wallet": "10.1.4",
     "@near-wallet-selector/modal-ui": "10.1.4",
     "@near-wallet-selector/my-near-wallet": "10.1.4",
+    "@noble/curves": "1.8.1",
+    "@noble/hashes": "1.8.0",
     "@shadcn/react": "^0.3.0",
     "buffer": "6.0.3",
     "class-variance-authority": "0.7.1",

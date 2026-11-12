@@ -1,28 +1,36 @@
-// Accounts (owner: Interface). The accounts you have proven are yours, on any chain. An account enters only
-// through its wallet ("connect", sent by the browser after the wallet connected as it); there is no way to add
-// an address by typing it. Rename and forget. Nothing here signs or moves funds.
+// Accounts (owner: Interface). An account enters only when its own wallet signs a one-time challenge that this
+// server verifies (NEP-413 for NEAR, Sign-In with Ethereum, Sign-In with Solana). There is no way to add an
+// address by typing it, and a browser can't simply report a connection. Rename and forget. Nothing here signs
+// a transaction or moves funds.
 import { z } from "zod";
 import { session, save, mutation, json, failure } from "@/lib/flowvault/store";
-import { applyAccountAction, unreadAccounts, type AccountAction } from "@/lib/flowvault/account-registry";
+import { applyAccountAction, type AccountAction } from "@/lib/flowvault/account-registry";
+import { makeChallenge, verifyEvm, verifySolana, verifyNear, assertLive, b64, base58Decode } from "@/lib/flowvault/account-proof";
+import { saveChallenge, takeChallenge, nearKeyPermission } from "@/lib/flowvault/account-proof-store";
 import type { Workspace } from "@/lib/flowvault/types";
 
 const chain = z.enum(["near", "evm", "solana"]);
 const id = z.string().min(3).max(120);
 const body = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("connect"), chain, address: z.string().min(2).max(80) }).strict(),
+  z.object({ action: z.literal("challenge"), chain, address: z.string().min(2).max(80) }).strict(),
+  z
+    .object({
+      action: z.literal("prove"),
+      challengeId: z.string().regex(/^[0-9a-f]{32}$/),
+      /** EVM: 0x hex (65 bytes). Solana: base64 or base58 (64 bytes). NEAR: base64 (64 bytes). */
+      signature: z.string().min(10).max(400),
+      /** NEAR only: the signing key ("ed25519:…") and the account the wallet signed for. */
+      publicKey: z.string().max(120).optional(),
+      accountId: z.string().max(80).optional(),
+    })
+    .strict(),
   z.object({ action: z.literal("rename"), id, label: z.string().min(1).max(60) }).strict(),
   z.object({ action: z.literal("forget"), id }).strict(),
 ]);
 
 function view(w: Workspace, revision: number, message = "") {
   const fictional = w.mode === "demo" || !!w.fictional;
-  return {
-    fictional,
-    accounts: fictional ? [] : (w.accounts ?? []),
-    unread: fictional ? [] : unreadAccounts(w).map((a) => a.id),
-    revision,
-    message,
-  };
+  return { fictional, accounts: fictional ? [] : (w.accounts ?? []), revision, message };
 }
 
 export async function GET(r: Request) {
@@ -37,10 +45,28 @@ export async function GET(r: Request) {
 export async function POST(r: Request) {
   try {
     mutation(r);
-    const b = body.parse(await r.json()) as AccountAction;
+    const b = body.parse(await r.json());
     const s = await session(r);
-    const { counted, message } = applyAccountAction(s.workspace, b);
-    if (b.action === "connect" && !message) return json(view(s.workspace, s.revision), s.cookie);
+    if (s.workspace.mode === "demo" || s.workspace.fictional) throw new Error("The example workspace’s accounts are fictional and can’t be changed.");
+    if (b.action === "challenge") {
+      const origin = r.headers.get("origin") ?? new URL(r.url).origin;
+      const c = makeChallenge(b.chain, b.address, origin);
+      await saveChallenge(s.id, c);
+      return json({ challengeId: c.id, message: c.message, nonce: c.nonce, recipient: c.recipient, expiresAt: c.expiresAt }, s.cookie);
+    }
+    let act: AccountAction;
+    if (b.action === "prove") {
+      const c = await takeChallenge(s.id, b.challengeId);
+      assertLive(c);
+      const proof =
+        c.chain === "evm"
+          ? verifyEvm(c, b.signature)
+          : c.chain === "solana"
+            ? verifySolana(c, /^[A-Za-z0-9+/]+=*$/.test(b.signature) && b.signature.length % 4 === 0 && b64.decode(b.signature).length === 64 ? b64.decode(b.signature) : base58Decode(b.signature))
+            : await verifyNear(c, { accountId: b.accountId ?? "", publicKey: b.publicKey ?? "", signature: b.signature }, nearKeyPermission);
+      act = { action: "proven", chain: c.chain, address: c.address, method: proof.method };
+    } else act = b;
+    const { counted, message } = applyAccountAction(s.workspace, act);
     if (counted) {
       // Same rule as every other account change: what counts moved, so unexecuted drafts no longer hold.
       s.workspace.mandate.version++;

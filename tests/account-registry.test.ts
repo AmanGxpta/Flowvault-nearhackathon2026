@@ -23,9 +23,11 @@ function ws(over: Partial<Workspace> = {}): Workspace {
     ...over,
   } as Workspace;
 }
-const connect = (w: Workspace, chain: "near" | "evm" | "solana", address: string) => applyAccountAction(w, { action: "connect", chain, address }, NOW);
+const METHOD = { near: "nep413", evm: "siwe", solana: "siws" } as const;
+// "proven" is applied only after the server verified the wallet's signature (app/api/accounts).
+const connect = (w: Workspace, chain: "near" | "evm" | "solana", address: string) => applyAccountAction(w, { action: "proven", chain, address, method: METHOD[chain] }, NOW);
 
-test("an account enters only through its wallet; a NEAR wallet becomes the main account", () => {
+test("an account enters only through a verified wallet signature; a NEAR wallet becomes the main account", () => {
   const w = ws();
   ensureAccounts(w, NOW);
   assert.equal(w.accounts!.length, 0);
@@ -34,8 +36,8 @@ test("an account enters only through its wallet; a NEAR wallet becomes the main 
   assert.equal(w.accountId, "datamastr3.near");
   const a = w.accounts![0];
   assert.equal(a.primary, true);
-  assert.equal(a.proof!.method, "wallet-session");
-  assert.equal(connect(w, "near", "datamastr3.near").counted, false, "reconnecting changes nothing");
+  assert.equal(a.proof!.method, "nep413");
+  assert.equal(connect(w, "near", "datamastr3.near").counted, false, "proving again changes nothing that counts");
 });
 
 test("migration: watched addresses are dropped; typed-in ones are kept unproven and never read", () => {
@@ -62,20 +64,22 @@ test("migration: watched addresses are dropped; typed-in ones are kept unproven 
   assert.equal(mayRead(w, "near", "typed.near"), true);
 });
 
-test("migration from the first registry: watched entries go, declared proof becomes unproven, wallet sessions stay", () => {
+test("migration from the first registry: watched go, declared and browser-reported wallet sessions become unproven", () => {
   const w = ws({
     accountId: "datamastr3.near",
     accounts: [
       { id: "near:datamastr3.near", chain: "near", address: "datamastr3.near", label: "datamastr3.near", role: "owned", proof: { method: "wallet-session", at: NOW }, networks: ["near"], primary: true, addedAt: NOW },
       { id: "evm:" + EVM.toLowerCase(), chain: "evm", address: EVM.toLowerCase(), label: "0x32E5…004A", role: "owned", proof: { method: "declared", at: NOW }, networks: ["ethereum", "base", "arbitrum"], addedAt: NOW },
       { id: "near:friend.near", chain: "near", address: "friend.near", label: "Friend", role: "watched", proof: null, networks: ["near"], addedAt: NOW },
+      { id: "near:signed.near", chain: "near", address: "signed.near", label: "signed.near", role: "owned", proof: { method: "nep413", at: NOW }, networks: ["near"], addedAt: NOW },
     ] as unknown as Workspace["accounts"],
   });
   ensureAccounts(w, NOW);
-  assert.equal(w.accounts!.length, 2);
+  assert.equal(w.accounts!.length, 3);
   assert.ok(!JSON.stringify(w.accounts).includes("role"));
-  assert.equal(w.accountId, "datamastr3.near");
-  assert.equal(w.accounts![1].proof, null);
+  assert.deepEqual(w.accounts!.map((a) => a.proof?.method ?? null), [null, null, "nep413"]);
+  // The main account was only browser-reported, so it isn't read until its wallet signs the challenge.
+  assert.equal(w.accountId, null);
   assert.deepEqual(w.evmAddresses, {});
 });
 
@@ -88,13 +92,10 @@ test("several wallets per chain; proven ones no reader covers yet are reported u
   connect(w, "near", "second.near");
   // The NEAR wallet connected last is the main account; the previous one stays yours.
   assert.equal(w.accountId, "second.near");
-  assert.equal(w.accounts!.find((a) => a.address === "datamastr3.near")!.proof!.method, "wallet-session");
+  assert.equal(w.accounts!.find((a) => a.address === "datamastr3.near")!.proof!.method, "nep413");
   assert.deepEqual(w.evmAddresses, { base: EVM.toLowerCase(), arb: EVM.toLowerCase() });
   assert.equal(w.accounts!.find((a) => a.chain === "evm")!.label, "0x32E5…004A", "label keeps checksum case");
-  assert.deepEqual(
-    unreadAccounts(w).map((a) => a.id).sort(),
-    ["evm:0x" + "ab".repeat(20), "near:datamastr3.near", "solana:7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV"].sort(),
-  );
+  assert.deepEqual(unreadAccounts(w), [], "every chain and network has a reader since A2");
 });
 
 test("forget: the main account clears it; others leave it; nothing else can add an account", () => {

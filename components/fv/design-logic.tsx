@@ -741,7 +741,7 @@ export class DesignApp extends Component<any, any> {
     const why = Object.fromEntries(whyKeys.map((k: any) => [k, !s.whyOff[k]]));
     const dismissWhy = Object.fromEntries(whyKeys.map((k: any) => [k, () => { const off: any = { ...s.whyOff, [k]: true }; try { sessionStorage.setItem('fv-why', JSON.stringify(off)); } catch (e) {} self.setState({ whyOff: off }); }]));
     const onbS = (done: any, active: any) => ({ bg: done ? '#F4F7EE' : '#fff', dotBg: done ? '#4E7A4A' : active ? '#2B4233' : '#EEF0E8', dotColor: done || active ? '#fff' : '#5B6458' });
-    const d1 = s.connected || !!s.watchAddr, d2 = s.reserve > 0, d3 = s.obs.length > 0;
+    const d1 = s.connected || !!s.watchAddr, d2 = s.reserveSet ?? s.reserve > 0, d3 = s.obs.length > 0;
     const onb: any = { s1: { ...onbS(d1, !d1), glyph: d1 ? '✓' : '1', sub: s.connected ? 'Connected ' + LIVE_ACC + ' · can approve' : 'Connecting proves the account is yours. FlowVault reads only accounts you connect, and you approve every action.' },
       s2: { ...onbS(d2, d1 && !d2), glyph: d2 ? '✓' : '2' }, s3: { ...onbS(d3, d2 && !d3), glyph: d3 ? '✓' : '3', sub: d3 ? s.obs[0].name + ' · ' + num(s.obs[0].amount) + ' ' + AS(s.obs[0]) + ' · ' + dlabel(s.obs[0].due) : 'Amount the recipient receives, chain, address and due date.' },
       s4: { ...onbS(false, d1 && d2 && d3), glyph: '4', btnBg: d1 && d2 && d3 ? '#2A4034' : '#B9C0B2' }, notReady: !(d1 && d2 && d3) };
@@ -843,7 +843,7 @@ export class DesignApp extends Component<any, any> {
       crumb: crumbs[s.screen], planLabel: 'Plan v' + s.version + ' · updated today', version: s.version, nextVersion: s.version + 1, horizon: s.horizon, horizonEnd: dlabel(new Date(TODAY + s.horizon * 864e5).toISOString().slice(0, 10)),
       isOverview: s.screen === 'overview', isCalendar: s.screen === 'calendar', isStrategies: s.screen === 'strategies', isActivity: s.screen === 'activity', isPortfolio: s.screen === 'portfolio', isCredit: s.screen === 'credit',
       showOnboarding: !!s.firstRun, showPlanView: !s.firstRun,
-      ob1Bg: s.reserve > 0 ? '#F4F7EE' : '#fff', ob1DotBg: s.reserve > 0 ? '#4E7A4A' : '#EEF0E8', ob1DotColor: s.reserve > 0 ? '#fff' : '#5B6458', ob1Glyph: s.reserve > 0 ? '✓' : '1',
+      ob1Bg: (s.reserveSet ?? s.reserve > 0) ? '#F4F7EE' : '#fff', ob1DotBg: (s.reserveSet ?? s.reserve > 0) ? '#4E7A4A' : '#EEF0E8', ob1DotColor: (s.reserveSet ?? s.reserve > 0) ? '#fff' : '#5B6458', ob1Glyph: (s.reserveSet ?? s.reserve > 0) ? '✓' : '1',
       reserveDraft: s.reserveDraft, onReserveDraft: (e: any) => self.setState({ reserveDraft: e.target.value }),
       saveReserve: () => { const v = parseFloat(s.reserveDraft) || 0; if (s.ws === 'live') return self.liveCall(() => self.props.actions.savePlan({ reserve: String(s.reserveDraft).trim() }), 'Reserve floor set to ' + usd(v) + '.'); self.setState({ reserve: v, planDraft: { ...s.planDraft, reserve: String(v) }, version: s.version + 1 }); self.toastMsg('Reserve floor set to ' + usd(v) + '.'); },
       rec, metrics, bar, strip, upcoming, positions, obsCountLabel: inH.length + ' payments · ' + usd(obsSum) + ' held back',

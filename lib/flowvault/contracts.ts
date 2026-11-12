@@ -13,7 +13,8 @@ export interface Valuation {
   positionId: string;
   kind: ValuationKind;
   asset: string;
-  chain?: Chain;
+  /** "solana" (additive, Interface A2): a connected Solana wallet's position. */
+  chain?: Chain | "solana";
   quantityRaw: string;
   decimals: number;
   /** USDC (6 decimals) value; null = unknown/unsupported. Never coerce null to "0". */

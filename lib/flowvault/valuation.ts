@@ -13,7 +13,7 @@ import type {
 import type { Mandate, Obligation, Portfolio, Position, Source, Workspace } from "./types.ts";
 
 const LSTS: Record<string, string> = { LiNEAR: "linear-protocol.near", rNEAR: "lst.rhealab.near" };
-const DECIMALS: Record<string, number> = { USDC: 6, USDT: 6, NEAR: 24, LiNEAR: 24, rNEAR: 24, ETH: 18 };
+const DECIMALS: Record<string, number> = { USDC: 6, USDT: 6, NEAR: 24, LiNEAR: 24, rNEAR: 24, ETH: 18, SOL: 9 };
 const STABLE = new Set(["USDC", "USDT"]);
 /** Refundable drift buffer on a reservation held until the due date. */
 export const DRIFT_BPS = { stable: 50n, volatile: 1000n };
@@ -129,7 +129,8 @@ export function valuePosition(
   if (!fresh(prices.freshUntil, now)) return none("Price evidence is stale.");
   const side = p.kind === "debt" ? "liability" : "asset";
   try {
-    if (p.asset === "NEAR" || p.asset === "USDT")
+    // ETH and SOL (Interface A2, additive): connected EVM and Solana wallets, same Pyth evidence.
+    if (p.asset === "NEAR" || p.asset === "USDT" || p.asset === "ETH" || p.asset === "SOL")
       return {
         ...base,
         usdcRaw: usdcValue(q.raw, q.decimals, p.asset, prices, side).toString(),

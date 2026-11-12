@@ -1,6 +1,6 @@
 // Account registry (owner: Interface). The accounts you have proven are yours, on any chain, any number per
-// chain. An account enters ONLY through its own wallet: a wallet connection now, a server-verified signed
-// message (NEP-413 / SIWE / SIWS) next. FlowVault never reads or counts an address you can't prove, so there is
+// chain. An account enters ONLY by its own wallet signing a one-time challenge that the server verifies
+// (NEP-413 / SIWE / SIWS, account-proof.ts). FlowVault never reads or counts an address you can't prove, so there is
 // no "watched" account. "Connected" is never stored: it is a browser fact (a wallet can sign for the account
 // right now), so disconnecting can never leave a stale state behind; the account stays yours until you forget it.
 //
@@ -32,7 +32,9 @@ export function canonical(chain: AccountChain, address: string) {
 export const accountId = (chain: AccountChain, address: string) => chain + ":" + canonical(chain, address);
 export const shortAddress = (a: string) => (a.length > 22 ? a.slice(0, 6) + "…" + a.slice(-4) : a);
 export const chainName = (c: AccountChain) => (c === "near" ? "NEAR" : c === "evm" ? "EVM" : "Solana");
-export const proven = (a: LinkedAccount) => a.proof !== null;
+/** Only a server-verified signature proves an account. A browser-reported wallet session (A1) doesn't. */
+export const VERIFIED = new Set(["nep413", "siwe", "siws"]);
+export const proven = (a: LinkedAccount) => !!a.proof && VERIFIED.has(a.proof.method);
 
 function entry(chain: AccountChain, address: string, proof: LinkedAccount["proof"], now: string, label?: string): LinkedAccount {
   if (!validAddress(chain, address.trim())) throw new Error(`That isn’t a valid ${chainName(chain)} address.`);
@@ -72,7 +74,7 @@ function migrate(w: Workspace, now: string) {
     .map((a) => {
       const rest: Legacy = { ...a };
       delete rest.role;
-      return { ...rest, proof: a.proof && a.proof.method !== "declared" ? a.proof : null } as LinkedAccount;
+      return { ...rest, proof: a.proof && VERIFIED.has(a.proof.method) ? a.proof : null } as LinkedAccount;
     });
 }
 
@@ -98,12 +100,10 @@ function deriveLegacy(w: Workspace) {
   w.watchedAccounts = [];
 }
 
-/** Proven accounts that no reader covers yet (shown as "balances not read yet", never as zero). */
-export function unreadAccounts(w: Workspace) {
-  const firstEvm = (w.accounts ?? []).find((a) => a.chain === "evm" && proven(a))?.id;
-  return (w.accounts ?? []).filter(
-    (a) => proven(a) && (a.chain === "solana" || (a.chain === "near" && !a.primary) || (a.chain === "evm" && a.id !== firstEvm)),
-  );
+/** Proven accounts that no reader covers. Every chain and network is read since A2, so this is empty. */
+export function unreadAccounts(w: Workspace): LinkedAccount[] {
+  void w;
+  return [];
 }
 
 /** Whether the workspace may read this address: only accounts proven yours. Anyone else's address is refused. */
@@ -123,7 +123,8 @@ export function ensureAccounts(w: Workspace, now = new Date().toISOString()) {
 }
 
 export type AccountAction =
-  | { action: "connect"; chain: AccountChain; address: string }
+  /** Only after the server verified the wallet's signature over its challenge (see app/api/accounts). */
+  | { action: "proven"; chain: AccountChain; address: string; method: "nep413" | "siwe" | "siws" }
   | { action: "rename"; id: string; label: string }
   | { action: "forget"; id: string };
 
@@ -143,26 +144,22 @@ export function applyAccountAction(w: Workspace, act: AccountAction, now = new D
   let counted = false;
   let message = "";
   switch (act.action) {
-    case "connect": {
-      // Reported by the browser after the wallet connected as this account. A server-verified signature (A3)
-      // replaces this as the proof that counts; until then the account is labelled as a wallet session.
+    case "proven": {
       const id = accountId(act.chain, act.address);
       const existing = list.find((x) => x.id === id);
       const wasMain = w.accountId;
       if (existing) {
-        if (!existing.proof) {
-          existing.proof = { method: "wallet-session", at: now };
-          counted = true;
-        }
+        counted = !proven(existing);
+        existing.proof = { method: act.method, at: now };
       } else {
         if (list.length >= MAX_ACCOUNTS) throw new Error(`Up to ${MAX_ACCOUNTS} accounts. Forget one first.`);
-        list.push(entry(act.chain, act.address, { method: "wallet-session", at: now }, now));
+        list.push(entry(act.chain, act.address, { method: act.method, at: now }, now));
         counted = true;
       }
       // The NEAR wallet you connect is the account plans run from; your other accounts stay yours.
       if (act.chain === "near") w.accountId = canonical("near", act.address);
       counted ||= wasMain !== w.accountId;
-      message = counted ? `Connected ${shortAddress(act.address)}.` : "";
+      message = `Connected ${shortAddress(act.address)}. Ownership verified by signature.`;
       break;
     }
     case "rename": {

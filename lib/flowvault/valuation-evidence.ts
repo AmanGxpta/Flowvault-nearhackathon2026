@@ -15,8 +15,17 @@ export const PRICE_TOKENS = {
   NEAR: "wrap.near",
   USDC,
   USDT: "usdt.tether-token.near",
+  // Interface (multi-wallet A2, additive): ETH held in connected EVM wallets, priced by the same Rhea Pyth feed.
+  ETH: "eth.bridge.near",
 } as const;
-export type PricedAsset = keyof typeof PRICE_TOKENS;
+/**
+ * Interface (multi-wallet A2, additive): assets Rhea doesn't list, read from Rhea's own Pyth oracle by their
+ * published Pyth price feed id (Crypto.SOL/USD). Same freshness and confidence rules as every other price.
+ */
+export const PYTH_FEEDS = {
+  SOL: "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
+} as const;
+export type PricedAsset = keyof typeof PRICE_TOKENS | keyof typeof PYTH_FEEDS;
 /** Observed prices older than this are not used for any decision. */
 export const PRICE_MAX_AGE_MS = 180_000;
 
@@ -101,10 +110,12 @@ async function fetchPriceEvidence(now = Date.now()): Promise<PriceEvidence> {
   const lstNearPerToken: PriceEvidence["lstNearPerToken"] = {};
   // R22: oracle prices and LST ft_price reads run together.
   await Promise.all([
-    ...(Object.keys(PRICE_TOKENS) as PricedAsset[]).map(async (asset) => {
+    ...([...Object.keys(PRICE_TOKENS), ...Object.keys(PYTH_FEEDS)] as PricedAsset[]).map(async (asset) => {
       try {
-        const info = infos.data?.[PRICE_TOKENS[asset]];
-        const id = info?.price_identifier;
+        const id =
+          asset in PYTH_FEEDS
+            ? PYTH_FEEDS[asset as keyof typeof PYTH_FEEDS]
+            : infos.data?.[PRICE_TOKENS[asset as keyof typeof PRICE_TOKENS]]?.price_identifier;
         if (typeof id !== "string" || !/^[0-9a-f]{64}$/.test(id) || /^0+$/.test(id))
           throw new Error("no Pyth identifier in Rhea config");
         const r = await view<any>(oracle, "get_price", { price_identifier: id });

@@ -6,6 +6,7 @@ import { displayPosition } from "./accounts.ts";
 import { decimal } from "./money.ts";
 import type { Workspace, Portfolio, Position } from "./types";
 import { READ_BUDGET, withDeadline } from "./deadline.ts";
+import { readProvenAccounts } from "./account-reads.ts";
 /** R22: start a bounded read now and settle it later, so independent sections run in parallel. */
 function started<T>(work: () => Promise<T>, label: string) {
   const run = (async () => work())();
@@ -28,6 +29,8 @@ export async function workspacePortfolio(
     staking?: boolean;
     pools?: string[];
     watch?: boolean;
+    /** Interface (A2): read every other proven account (EVM networks, Solana, other NEAR accounts). */
+    accounts?: boolean;
   } = {},
   adapters: {
     readPortfolio: typeof readPortfolio;
@@ -82,6 +85,11 @@ export async function workspacePortfolio(
           ),
         )
       : [];
+  // Interface (A2): every other proven account starts now too; each account × network settles on its own.
+  const accountsRead =
+    scope.accounts !== false && (w.accounts ?? []).some((a) => a.proof)
+      ? started(() => readProvenAccounts(w), "Connected accounts read")
+      : null;
   if (account) {
     try {
       p = await settled(nearRead!);
@@ -301,6 +309,14 @@ export async function workspacePortfolio(
         }
       }),
     );
+  if (accountsRead)
+    try {
+      const extra = await settled(accountsRead);
+      p.positions.push(...extra.positions);
+      p.sections!.push(...extra.sections);
+    } catch (e) {
+      recordSection("connected-accounts", "unavailable", [String(e)], [], ["netWorth"]);
+    }
   p.positions = p.positions.map((x) =>
     displayPosition(x, "live", p.capturedAt),
   );

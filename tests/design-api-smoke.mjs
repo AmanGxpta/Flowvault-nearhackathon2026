@@ -1,5 +1,7 @@
 // One fresh local cookie, no wallet/provider model call/quote signing or external account read.
 import assert from "node:assert/strict";
+import { secp256k1 } from "@noble/curves/secp256k1";
+import { keccak_256 } from "@noble/hashes/sha3";
 const base = process.env.FLOWVAULT_TEST_URL || "http://127.0.0.1:5173";
 let cookie = "";
 async function call(
@@ -24,10 +26,18 @@ async function call(
   return json;
 }
 const ex = "?workspace=example";
-// Accounts enter only through their wallet: the browser reports the connection (no typed-in or watched addresses).
-await call("/api/accounts", { action: "connect", chain: "near", address: "fixture-api-smoke.near" });
-await call("/api/accounts", { action: "connect", chain: "evm", address: "0x" + "99".repeat(20) });
+// Accounts enter only when their wallet signs a server challenge (no typed-in, watched or browser-reported
+// addresses). A throwaway secp256k1 key plays the wallet; a browser report without a signature is refused.
+const priv = secp256k1.utils.randomPrivateKey();
+const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+const evmAddress = "0x" + hex(keccak_256(secp256k1.getPublicKey(priv, false).slice(1)).slice(-20));
+const challenge = await call("/api/accounts", { action: "challenge", chain: "evm", address: evmAddress });
+const msg = new TextEncoder().encode(challenge.message);
+const sig = secp256k1.sign(keccak_256(new Uint8Array([...new TextEncoder().encode("\x19Ethereum Signed Message:\n" + msg.length), ...msg])), priv);
+await call("/api/accounts", { action: "prove", challengeId: challenge.challengeId, signature: "0x" + hex(sig.toCompactRawBytes()) + (27 + sig.recovery).toString(16) });
+await call("/api/accounts", { action: "connect", chain: "near", address: "fixture-api-smoke.near" }, 400);
 let personal = await call("/api/workspace");
+assert.ok(personal.workspace.accounts.some((a) => a.address === evmAddress && a.proof.method === "siwe"));
 assert.deepEqual(personal.workspace.watchedAccounts, []);
 await call("/api/workspace", { revision: personal.revision, watchedAccounts: [] }, 400, "PUT");
 await call("/api/portfolio?account=someone-else.near", undefined, 400);

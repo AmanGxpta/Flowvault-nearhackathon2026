@@ -5,12 +5,18 @@ import { PlanDock } from "./PlanDock";
 import { DesignApp } from "./design-logic";
 import { api, clearLegacyEvm, emptySnapshot, getScope, loadSnapshot, setScope, takeLegacyEvm, type LiveSnapshot, type Scope } from "./live";
 import { useNearWallet, signSupply, signWithdraw, signPayment, signLending, signStaking, signNativeStaking, walletClient } from "@/lib/flowvault/wallet";
+import { useMultiWallets, connectWallet, disconnectWallet, type DiscoveredWallet, type WalletSession } from "@/lib/flowvault/wallets";
 
 const noopSubscribe = () => () => {};
 
 export interface LiveActions {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
+  /** Multi-wallet (A3): connect an Ethereum or Solana wallet (one free signature the server verifies). */
+  connectWallet(w: DiscoveredWallet): Promise<string>;
+  disconnectWallet(s: WalletSession): Promise<void>;
+  /** Ask the connected NEAR wallet for its NEP-413 ownership signature again. */
+  proveNear(): Promise<void>;
   /** Account registry: accounts enter only through their wallet (connect); rename and forget. Never signs. */
   accounts(body: Record<string, unknown>): Promise<any>;
   refresh(): Promise<void>;
@@ -55,7 +61,12 @@ export function FlowVaultRoot() {
   const wallet = useNearWallet();
   const walletRef = useRef(wallet);
   const [raw, setSnap] = useState<LiveSnapshot>(() => emptySnapshot());
-  const snap = useMemo(() => ({ ...raw, walletAccount: wallet.accountId, walletName: wallet.walletName, walletError: wallet.error }), [raw, wallet.accountId, wallet.walletName, wallet.error]);
+  const multi = useMultiWallets();
+  const [nearProof, setNearProof] = useState<LiveSnapshot["nearProof"]>(null);
+  const snap = useMemo(
+    () => ({ ...raw, walletAccount: wallet.accountId, walletName: wallet.walletName, walletError: wallet.error, walletSessions: multi.sessions, walletsFound: multi.wallets, nearProof }),
+    [raw, wallet.accountId, wallet.walletName, wallet.error, multi.sessions, multi.wallets, nearProof],
+  );
   const snapRef = useRef(snap);
   useEffect(() => {
     walletRef.current = wallet;
@@ -97,8 +108,25 @@ export function FlowVaultRoot() {
     if (takeLegacyEvm()) clearLegacyEvm();
   }, [mounted]);
 
-  // A connected NEAR wallet is how an account enters the workspace: it becomes (or stays) the main account and
-  // is recorded as proven by a wallet session, in one write. Re-runs whenever the workspace and the wallet disagree.
+  // A connected NEAR wallet proves its account with one NEP-413 signature over a server challenge (free, no
+  // transaction); the server verifies it and the account becomes the main account. Asked once per account per
+  // page; if declined, the account menu offers to ask again.
+  const proveNear = useCallback(async (id: string) => {
+    setNearProof({ account: id, state: "signing" });
+    try {
+      const c = await api("/api/accounts", { action: "challenge", chain: "near", address: id }, "POST", "personal");
+      const { selector } = await walletClient();
+      const w = await selector.wallet();
+      const { Buffer } = await import("buffer");
+      const signed: any = await (w as any).signMessage({ message: c.message, recipient: c.recipient, nonce: Buffer.from(c.nonce, "base64") });
+      if (!signed?.signature) throw new Error("The wallet didn’t return a signature.");
+      await api("/api/accounts", { action: "prove", challengeId: c.challengeId, signature: signed.signature, publicKey: signed.publicKey, accountId: signed.accountId }, "POST", "personal");
+      setNearProof(null);
+      await refresh();
+    } catch (e) {
+      setNearProof({ account: id, state: "declined", error: (e as Error).message });
+    }
+  }, [refresh]);
   useEffect(() => {
     const id = wallet.accountId;
     if (!id) {
@@ -107,15 +135,12 @@ export function FlowVaultRoot() {
     }
     const w: any = snap.workspace;
     if (snap.scope !== "personal" || snap.status === "loading" || !w) return;
-    const main = (w.accounts ?? []).find((a: any) => a.primary);
-    if (w.accountId === id && main?.address === id && main.proof) return;
-    const key = id + ":" + snap.revision;
-    if (synced.current === key) return;
-    synced.current = key;
-    void api("/api/accounts", { action: "connect", chain: "near", address: id }, "POST", "personal")
-      .then(() => refresh())
-      .catch((e) => setSnap((s) => ({ ...s, error: (e as Error).message })));
-  }, [wallet.accountId, snap.status, snap.workspace, snap.scope, snap.revision, refresh]);
+    const acct = (w.accounts ?? []).find((a: any) => a.id === "near:" + id);
+    if (acct?.proof && ["nep413", "siwe", "siws"].includes(acct.proof.method) && w.accountId === id) return;
+    if (synced.current === id) return;
+    synced.current = id;
+    void proveNear(id);
+  }, [wallet.accountId, snap.status, snap.workspace, snap.scope, proveNear]);
 
   // Returning from a redirect wallet: attach the hashes (or mark uncertain) to the journal entry.
   useEffect(() => {
@@ -140,6 +165,23 @@ export function FlowVaultRoot() {
     () => ({
       connect: () => walletRef.current.connect(),
       disconnect: () => walletRef.current.disconnect(),
+      connectWallet: async (w) => {
+        const address = await connectWallet(
+          w,
+          (chain, address) => api("/api/accounts", { action: "challenge", chain, address }, "POST", "personal"),
+          (body) => api("/api/accounts", body, "POST", "personal"),
+        );
+        await refresh();
+        return address;
+      },
+      disconnectWallet: async (s) => {
+        await disconnectWallet(s);
+      },
+      proveNear: async () => {
+        const id = walletRef.current.accountId;
+        if (!id) throw new Error("Connect a NEAR wallet first.");
+        await proveNear(id);
+      },
       accounts: async (body) => {
         const r = await api("/api/accounts", body, "POST");
         await refresh();
@@ -262,7 +304,7 @@ export function FlowVaultRoot() {
         await refresh();
       },
     }),
-    [refresh],
+    [refresh, proveNear],
   );
 
   if (!mounted) return null;

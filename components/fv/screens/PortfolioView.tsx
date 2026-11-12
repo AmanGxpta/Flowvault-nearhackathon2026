@@ -49,7 +49,7 @@ export function PortfolioView({ v }: { v: any }) {
               textWrap: "pretty",
             }}
           >
-            Wallet tokens, Rhea positions and staking on NEAR, Base and Arbitrum. What you can use by a date is shown
+            Every wallet you've connected: NEAR (with Rhea and staking), Ethereum, Base, Arbitrum and Solana. What you can use by a date is shown
             separately from what you own.
           </p>
         </div>
@@ -276,7 +276,7 @@ export function PortfolioView({ v }: { v: any }) {
                   background: "var(--fvb-F7F8F3)",
                 }}
               >
-                Coverage: NEAR, Base and Arbitrum of 7 target chains. Unsupported positions are shown as unvalued, never
+                Coverage: NEAR, Ethereum, Base, Arbitrum and Solana (native coin and USDC on each). Unsupported positions are shown as unvalued, never
                 zero.
               </div>
             </div>

@@ -661,7 +661,10 @@ export function Shell({ v }: { v: any }) {
                       right: "0",
                       top: "calc(100% + 6px)",
                       zIndex: "45",
-                      width: "270px",
+                      width: "300px",
+                      maxWidth: "calc(100vw - 24px)",
+                      maxHeight: "calc(100vh - 90px)",
+                      overflowY: "auto",
                       background: "var(--fvb-FFFFFF)",
                       border: "1px solid var(--fvb-E3E6DB)",
                       borderRadius: "14px",
@@ -765,24 +768,43 @@ export function Shell({ v }: { v: any }) {
                     </div>
                     {(v.acctItems || []).map((it: any, i_it_0: number) => (
                       <Fragment key={i_it_0}>
-                        <button
-                          type="button"
-                          onClick={it.onClick}
-                          style={{
-                            width: "100%",
-                            textAlign: "left",
-                            padding: "10px 12px",
-                            border: "none",
-                            borderRadius: "9px",
-                            background: "transparent",
-                            fontSize: "14px",
-                            cursor: "pointer",
-                            color: tc(it.color, "fg"),
-                          }}
-                          className="fvh5"
-                        >
-                          {it.label}
-                        </button>
+                        {it.heading ? (
+                          <div style={{ padding: "10px 12px 4px", fontSize: "11px", letterSpacing: ".12em", fontWeight: 600, color: "var(--fvc-8A9285)" }}>{it.heading}</div>
+                        ) : it.divider ? (
+                          <div style={{ height: "1px", background: "var(--fvb-E6E8DF)", margin: "6px 4px" }}></div>
+                        ) : (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={it.onClick}
+                            disabled={!!it.disabled}
+                            style={{
+                              width: "100%",
+                              textAlign: "left",
+                              padding: it.sub ? "8px 12px" : "10px 12px",
+                              border: "none",
+                              borderRadius: "9px",
+                              background: "transparent",
+                              fontSize: "14px",
+                              cursor: it.disabled ? "default" : "pointer",
+                              color: tc(it.disabled ? "#8A9285" : it.color, "fg"),
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "10px",
+                            }}
+                            className={it.disabled ? undefined : "fvh5"}
+                          >
+                            {it.icon ? (
+                              <img src={it.icon} alt="" width={20} height={20} style={{ borderRadius: "5px", flexShrink: 0 }} />
+                            ) : it.glyph ? (
+                              <span aria-hidden style={{ width: "20px", textAlign: "center", flexShrink: 0, fontSize: "13px" }}>{it.glyph}</span>
+                            ) : null}
+                            <span style={{ minWidth: 0 }}>
+                              <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
+                              {it.sub ? <span style={{ display: "block", fontSize: "12px", color: "var(--fvc-8A9285)", whiteSpace: "normal" }}>{it.sub}</span> : null}
+                            </span>
+                          </button>
+                        )}
                       </Fragment>
                     ))}
                   </div>

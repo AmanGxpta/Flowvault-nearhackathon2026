@@ -97,6 +97,11 @@ export interface LiveSnapshot {
   walletAccount: string | null;
   walletName: string;
   walletError: string;
+  /** Multi-wallet (A3): Ethereum and Solana wallets connected in this browser, and the ones it can connect. */
+  walletSessions?: import("@/lib/flowvault/wallets").WalletSession[];
+  walletsFound?: import("@/lib/flowvault/wallets").DiscoveredWallet[];
+  /** The connected NEAR wallet's account still needs its NEP-413 proof (declined or pending). */
+  nearProof?: { account: string; state: "signing" | "declined"; error?: string } | null;
   readingAt: string;
 }
 
@@ -160,7 +165,10 @@ export async function loadSnapshot(
   const base: Partial<LiveSnapshot> = { scope, workspace, revision: ws.revision, evm, readingAt: new Date().toISOString() };
   onPartial?.(base);
   const example = scope === "example";
-  if (!example && !workspace.accountId) {
+  // No main NEAR account and no other wallet proven yet: nothing to read. A proven Ethereum or Solana wallet
+  // alone is still read (Portfolio shows it); plans need the main NEAR account.
+  const provenOther = ((workspace as any).accounts ?? []).some((a: any) => a.proof && ["nep413", "siwe", "siws"].includes(a.proof.method));
+  if (!example && !workspace.accountId && !provenOther) {
     return { ...base, status: "ready", error: "", obligations: null, portfolio: null, policy: null, strategies: null, plan: null, staking: null };
   }
   // EVM addresses and watched accounts are persisted on the workspace (R7/R10); the portfolio reads them itself.

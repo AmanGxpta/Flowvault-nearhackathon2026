@@ -13,7 +13,7 @@ export const num = (n: number) =>
 export const usd = (n: number) => (n < 0 ? "−$" : "$") + num(Math.abs(n));
 export const short = (s: string) => (s && s.length > 16 ? s.slice(0, 6) + "…" + s.slice(-4) : s);
 export const iso = (n: number) => new Date(TODAY + n * 864e5).toISOString().slice(0, 10);
-export const chainName = (c: string) => ({ near: "NEAR", arb: "Arbitrum", base: "Base", bnb: "BNB Chain", eth: "Ethereum" } as Record<string, string>)[c] ?? c;
+export const chainName = (c: string) => ({ near: "NEAR", arb: "Arbitrum", base: "Base", bnb: "BNB Chain", eth: "Ethereum", solana: "Solana" } as Record<string, string>)[c] ?? c;
 export const chainId = (c: string) => ({ NEAR: "near", Arbitrum: "arb", Base: "base", "BNB Chain": "bnb", Ethereum: "eth" } as Record<string, string>)[c] ?? "";
 /** Live payout routes the backend executes (BACKEND_API §7): USDC to Base, Arbitrum or Ethereum; USDT to BNB Chain or Ethereum. */
 export const livePayoutSupported = (chain: string, token: string) =>

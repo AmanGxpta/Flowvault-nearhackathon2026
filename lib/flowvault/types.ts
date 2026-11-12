@@ -61,7 +61,8 @@ export interface Position {
     capturedAt: string;
     basis: string;
   } | null;
-  chain?: Chain;
+  /** Interface (A2): "solana" for connected Solana wallets; payouts and obligations stay on `Chain`. */
+  chain?: Chain | "solana";
   venue?: string;
   accountId?: string;
   rawAmount?: string;
@@ -148,9 +149,9 @@ export interface LinkedAccount {
   address: string;
   label: string;
   /**
-   * How ownership was proven. wallet-session = a wallet connected as this account in your browser (reported by
-   * the browser); nep413 / siwe / siws = a signed message the server verified. null = carried over from before
-   * this rule and not proven yet: listed so you can prove it, never read or counted.
+   * How ownership was proven: nep413 / siwe / siws = the wallet signed a one-time challenge and the server verified
+   * it. null = carried over unproven: listed so you can prove it, never read or counted. ("wallet-session" was a
+   * browser-reported connection in A1; it is migrated to null and never counts.)
    */
   proof: { method: "wallet-session" | "nep413" | "siwe" | "siws"; at: string } | null;
   /** Networks read for this account: near | ethereum | base | arbitrum | solana. */

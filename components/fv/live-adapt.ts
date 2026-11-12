@@ -4,7 +4,7 @@
 import { api, type LiveSnapshot, type Usable } from "./live";
 import { missingEntries, withEntries } from "@/lib/flowvault/plans-policy";
 import { startPlan, openPlan } from "./PlanDock";
-import { accountState, chainName as regChain, shortAddress, unreadAccounts } from "@/lib/flowvault/account-registry";
+import { accountState, chainName as regChain, shortAddress } from "@/lib/flowvault/account-registry";
 import type { LinkedAccount } from "@/lib/flowvault/types";
 import { chainName, days, dlabel, f, hhmm, livePayoutSupported, LIVE_ROUTES_TEXT, money, num, short, usd, whenLabel, TODAY } from "./format";
 
@@ -133,10 +133,13 @@ export function liveState(snap: LiveSnapshot) {
   const lead = Number(m?.leadDays ?? 3);
   const history = ((snap.policy as any)?.history ?? []) as { version: number; savedAt: string; summary: string }[];
   return {
-    wallet: sumUsdc(snap, (p) => p.ownership !== "watched" && p.kind === "wallet" && (!p.chain || p.chain === "near")),
+    // The main NEAR account's wallet USDC only: another connected NEAR account is net worth, not this wallet.
+    wallet: sumUsdc(snap, (p) => p.ownership !== "watched" && p.kind === "wallet" && (!p.chain || p.chain === "near") && (!p.accountId || p.accountId === w?.accountId)),
     rhea: sumUsdc(snap, (p) => p.ownership !== "watched" && p.kind === "supplied" && String(p.id).startsWith("rhea")),
     evm: sumUsdc(snap, (p) => p.ownership !== "watched" && p.kind === "wallet" && (p.chain === "base" || p.chain === "arb")),
     reserve: f(m?.reserve) ?? 0,
+    // A saved floor of 0 is a choice, not a missing step.
+    reserveSet: m?.reserve !== undefined && m?.reserve !== "",
     reserveDraft: m?.reserve ?? "",
     version: m?.version ?? 1,
     horizon: m?.horizon ?? 30,
@@ -199,7 +202,14 @@ const reasonList = (rs: string[]) => {
 };
 /** Portfolio sections (BACKEND_API §13): each read succeeds or fails on its own. */
 export const SECTION_NAME: Record<string, string> = { "near-native": "NEAR balance", "near-usdc": "NEAR wallet USDC", rhea: "Rhea supply", "linear-balance": "LiNEAR balance", "base-usdc": "Base USDC", "arb-usdc": "Arbitrum USDC", "native-staking": "Native staking", "linear-staking": "LiNEAR staking", "rnear-staking": "rNEAR staking", staking: "Staking" };
-const secName = (id: string) => SECTION_NAME[id] ?? id.replace(/-/g, " ");
+const NET_NAME: Record<string, string> = { eth: "Ethereum", base: "Base", arb: "Arbitrum" };
+/** "acct:evm:0x…:eth" (Interface A2: one section per connected account and network) → "0x32e5…004a · Ethereum". */
+const secName = (id: string) => {
+  if (SECTION_NAME[id]) return SECTION_NAME[id];
+  const m = /^acct:(near|evm|solana):([^:]+)(?::(\w+))?$/.exec(id);
+  if (m) return shortAddress(m[2]) + " · " + (m[1] === "evm" ? (NET_NAME[m[3] ?? ""] ?? m[3]) : m[1] === "solana" ? "Solana" : "NEAR");
+  return id.replace(/-/g, " ");
+};
 const shortWhy = (rs: string[] = []) => (rs.some((r) => /429|providers failed|NetworkError|fetch|RPC/i.test(r)) ? "NEAR RPC unavailable" : rs[0] ?? "");
 const metricSub = (m: Usable | undefined, fallback: string) => {
   if (!m) return "not read yet";
@@ -215,6 +225,17 @@ const owned = (snap: LiveSnapshot) => (snap.portfolio?.positions ?? []).filter((
 const watchedPos = (snap: LiveSnapshot) => (snap.portfolio?.positions ?? []).filter((p: any) => p.ownership === "watched");
 
 /** View-model overrides for the live workspace. `v` is the design's computed view model. */
+/** Account ids a wallet can sign for right now in this browser (NEAR selector + Ethereum/Solana sessions). */
+function accountIdOf(chain: string, address: string) {
+  return chain + ":" + (chain === "solana" ? address : address.toLowerCase());
+}
+function liveWalletIds(snap: LiveSnapshot) {
+  const ids = new Set<string>();
+  if (snap.walletAccount) ids.add("near:" + snap.walletAccount);
+  for (const x of snap.walletSessions ?? []) ids.add(accountIdOf(x.chain, x.address));
+  return ids;
+}
+
 /** A dated payment that isn't paying or paid can be removed from the calendar (the obligations API refuses the rest). */
 function withRemove(self: any, example: boolean, o: any) {
   if (example || ["Receipt", "Check status"].includes(String(o.btnLabel))) return o;
@@ -284,31 +305,72 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
 
   // Header, account and workspace labels (the example workspace keeps the design's example account).
   if (!example) {
-  // Account registry: the main account is yours whether or not a wallet is connected right now; "connected"
-  // is only whether a wallet can sign for it in this browser. Disconnecting never turns it into "watching".
-  out.acctLabel = connected ? acct : acct ? acct + " · not connected" : "Connect wallet";
+  // Multi-wallet (A1-A3): every wallet you connected is listed; "connected" (a wallet can sign right now) is a
+  // browser fact, never stored. New wallets connect from here: NEAR through its selector, Ethereum and Solana
+  // wallets discovered in this browser (EIP-6963 / Wallet Standard). Each connection is proven by one free
+  // signature the server verifies. Forget lives on the Portfolio list.
+  const reg: LinkedAccount[] = ((snap.workspace as any)?.accounts ?? []) as LinkedAccount[];
+  const live = liveWalletIds(snap);
+  const others = reg.filter((a) => a.proof && !a.primary).length;
+  const proof = snap.nearProof;
+  out.acctLabel = connected ? acct + (others ? " +" + others : "") : acct ? acct + " · not connected" : proof ? snap.walletAccount + " · sign to prove" : others ? others + (others === 1 ? " wallet" : " wallets") + " · no NEAR account" : "Connect wallet";
   out.netLabel = connected ? "Mainnet · wallet connected" : acct ? "Mainnet · not connected, read only" : "Not connected · read only";
   out.netColor = connected ? "#4E7A4A" : "#8A9285";
   out.wsRole = connected ? "Owner · can approve" : acct ? "Yours · read only until you connect" : "Read only · not connected";
-  out.acctMenuNote = connected
-    ? "Signed in on NEAR mainnet · " + (snap.walletName || "wallet")
-    : acct
-      ? "Yours · no wallet connected · nothing can be approved"
-      : "No wallet connected";
-  const forgetMain = { label: "Forget " + acct, color: "#9A3F32", onClick: () => askForgetMain(self, acct, connected) };
-
-  const copy = { label: "Copy address", color: "#1E2A22", onClick: () => { try { navigator.clipboard.writeText(acct); } catch {} self.closeMenu(); self.toastMsg("Copied " + acct + "."); } };
-  out.acctItems = connected
-    ? [
-        { label: "Switch wallet", color: "#1E2A22", onClick: () => { self.closeMenu(); self.liveCall(() => self.props.actions.connect()); } },
-        copy,
-        { label: "Disconnect", color: "#9A3F32", onClick: () => { self.setState({ menu: null }); self.liveCall(() => self.props.actions.disconnect(), "Disconnected. " + acct + " stays in your accounts, read only. Use Forget to remove it."); } },
-        forgetMain,
-      ]
-    : [
-        { label: "Connect wallet", color: "#3F6B3C", onClick: () => { self.setState({ menu: null }); self.liveCall(() => self.props.actions.connect()); } },
-        ...(acct ? [copy, forgetMain] : []),
-      ];
+  const nConnected = reg.filter((a) => live.has(a.id)).length;
+  out.acctMenuNote = reg.length
+    ? reg.length + (reg.length === 1 ? " wallet" : " wallets") + " · " + nConnected + " connected in this browser · you approve every action in its own wallet"
+    : "No wallet connected yet. Connecting proves the account is yours with one free signature.";
+  const acts0 = self.props.actions;
+  const close = () => self.setState({ menu: null });
+  const walletRows = reg.map((a) => {
+    const on = live.has(a.id);
+    const session = (snap.walletSessions ?? []).find((x) => accountIdOf(x.chain, x.address) === a.id);
+    return {
+      icon: session?.icon,
+      glyph: session?.icon ? undefined : a.chain === "near" ? "Ⓝ" : a.chain === "evm" ? "Ξ" : "◎",
+      label: a.label + (a.primary ? " · main" : ""),
+      sub: regChain(a.chain) + " · " + (!a.proof ? "not proven · connect it to prove" : on ? (session?.walletName ?? (snap.walletName || "wallet")) + " · connected" : "not connected · read only") + " · copy address",
+      color: "#1E2A22",
+      onClick: () => { try { navigator.clipboard.writeText(a.address); } catch {} close(); self.toastMsg("Copied " + a.address + "."); },
+    };
+  });
+  const found = snap.walletsFound ?? [];
+  const evmFound = found.filter((w) => w.chain === "evm");
+  const solFound = found.filter((w) => w.chain === "solana");
+  const connectItem = (w: any) => ({
+    icon: w.icon,
+    glyph: w.icon ? undefined : w.chain === "evm" ? "Ξ" : "◎",
+    label: w.name,
+    sub: (w.chain === "evm" ? "Ethereum, Base, Arbitrum" : "Solana") + " · one free signature",
+    color: "#1E2A22",
+    onClick: () => {
+      close();
+      self.liveCall(() => acts0.connectWallet(w).then((addr: string) => self.toastMsg("Connected " + shortAddress(addr) + " from " + w.name + ". Ownership verified by signature.")));
+    },
+  });
+  const disconnectRows = [
+    ...(connected ? [{ label: "Disconnect " + acct, sub: "NEAR · stays yours, read only", color: "#9A3F32", onClick: () => { close(); self.liveCall(() => acts0.disconnect(), "Disconnected " + acct + ". It stays in your wallets, read only; forget it from Portfolio."); } }] : []),
+    ...(snap.walletSessions ?? []).map((x) => ({
+      label: "Disconnect " + x.walletName + " " + shortAddress(x.address),
+      sub: (x.chain === "evm" ? "Ethereum" : "Solana") + " · stays yours, read only",
+      color: "#9A3F32",
+      onClick: () => { close(); self.liveCall(() => acts0.disconnectWallet(x), "Disconnected " + shortAddress(x.address) + ". It stays in your wallets, read only."); },
+    })),
+  ];
+  out.acctItems = [
+    ...(proof?.state === "declined"
+      ? [{ glyph: "✎", label: "Prove " + proof.account + " is yours", sub: "Sign one free message in your NEAR wallet" + (proof.error ? " · last try: " + proof.error : ""), color: "#3F6B3C", onClick: () => { close(); self.liveCall(() => acts0.proveNear()); } }]
+      : []),
+    ...(reg.length ? [{ heading: "YOUR WALLETS" }, ...walletRows] : []),
+    { heading: "CONNECT A WALLET" },
+    { glyph: "Ⓝ", label: connected || snap.walletAccount ? "Switch NEAR wallet" : "NEAR wallet", sub: "Meteor or MyNearWallet · one free signature", color: "#1E2A22", onClick: () => { close(); self.liveCall(() => acts0.connect()); } },
+    ...(evmFound.length ? evmFound.map(connectItem) : [{ glyph: "Ξ", label: "No Ethereum wallet in this browser", sub: "Install MetaMask, Rabby or another wallet, then reload", disabled: true }]),
+    ...(solFound.length ? solFound.map(connectItem) : [{ glyph: "◎", label: "No Solana wallet in this browser", sub: "Install Phantom, Solflare or Backpack, then reload", disabled: true }]),
+    ...(disconnectRows.length ? [{ divider: true }, ...disconnectRows] : []),
+  ];
+  // First-run "Connect wallet": a connected NEAR wallet whose proof was declined is asked to sign again.
+  out.connectFirst = () => self.liveCall(() => (snap.walletAccount && snap.nearProof?.state === "declined" ? acts0.proveNear() : acts0.connect()));
   out.walletApprove = () => self.toastMsg(readOnly ? "Connect the wallet that owns " + (acct || "this account") + " first. Nothing was signed." : "Use the dialog’s approve button. Nothing was signed.");
   }
 
@@ -386,7 +448,7 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   const bal = [
     { label: "Net worth", m: u?.netWorth, sub: (example ? "fictional valuations" : unvalued ? "owned positions · " + unvalued + " unvalued" : "owned positions") + (nWatched ? " · watched excluded" : "") },
     capital?.spendableNow != null
-      ? { label: "Spendable now", m: { ...(u?.cashNow ?? {}), amount: capital.spendableNow } as Usable, sub: "USDC in the NEAR account you sign from" + (snap.evm?.base || snap.evm?.arb || example ? " · Base and Arbitrum are read-only" : "") }
+      ? { label: "Spendable now", m: { ...(u?.cashNow ?? {}), amount: capital.spendableNow } as Usable, sub: "USDC in the NEAR account you sign from" + (example || ((snap.workspace as any)?.accounts ?? []).some((a: any) => a.proof && !a.primary) ? " · other wallets count toward net worth" : "") }
       : { label: "Cash now", m: u?.cashNow, sub: example ? "USDC on NEAR, Base and Arbitrum" : "USDC in your wallet" + (snap.evm?.base || snap.evm?.arb ? ", Base and Arbitrum" : "") },
     { label: "Withdrawable by " + wdLabel, m: wd ?? u?.cashNow, sub: pick ? "cash plus positions verified to exit in time" : "cash available now" },
     { label: "Borrowing headroom", m: u?.borrowingHeadroom, sub: "read-only preview · no borrowing in this build" },
@@ -696,10 +758,11 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   const readErr = [snap.portfolioError, ...(pf?.errors ?? []), ...(sections.length ? [] : [...new Set(((pf?.usable?.netWorth?.reasons ?? []) as string[]).filter((r) => /^[a-z-]+:/.test(r)).map(readReason))]), ...((pf as any)?.watchedErrors ?? []).map((e: any) => (typeof e === "string" ? e : (e.label ?? e.id ?? "watched") + ": " + (e.error ?? e.message ?? "read failed")))].filter(Boolean);
   // One row per section that couldn't be read, beside the real rows; unconfigured EVM wallets are said plainly.
   for (const sec of sections.filter((x) => x.status === "unavailable" || x.status === "partial"))
-    out.pfRows.push({ name: secName(sec.id) + (sec.status === "partial" ? " · partly read" : " · unavailable"), sub: (sec.reasons ?? []).map(readReason).join(" · ") || "read failed", chain: /base/.test(sec.id) ? "Base" : /arb/.test(sec.id) ? "Arbitrum" : "NEAR", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Not counted until it reads · affects " + (sec.affects ?? []).join(", "), tag: sec.status === "partial" ? "PARTIAL" : "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: sec.capturedAt ? "tried " + hhmm(sec.capturedAt) : "", opacity: 1 });
-  const unset = sections.filter((x) => x.status === "not-configured").map((x) => secName(x.id));
-  if (unset.length && !example)
-    out.pfRows.push({ name: unset.join(" and ") + " · not set up", sub: "No EVM wallet connected yet. Ethereum wallet connections are next. Nothing is assumed meanwhile.", chain: "—", value: "—", valColor: "#8A9285", by: "Not read", byColor: "#8A9285", path: "Not a zero balance", tag: "NOT SET UP", tagBg: "#EEF0E8", tagColor: "#5B6458", src: "", opacity: 0.85 });
+    out.pfRows.push({ name: secName(sec.id) + (sec.status === "partial" ? " · partly read" : " · unavailable"), sub: (sec.reasons ?? []).map(readReason).join(" · ") || "read failed", chain: /:eth$/.test(sec.id) ? "Ethereum" : /^acct:solana/.test(sec.id) ? "Solana" : /base/.test(sec.id) ? "Base" : /arb/.test(sec.id) ? "Arbitrum" : "NEAR", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Not counted until it reads · affects " + (sec.affects ?? []).join(", "), tag: sec.status === "partial" ? "PARTIAL" : "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: sec.capturedAt ? "tried " + hhmm(sec.capturedAt) : "", opacity: 1 });
+  // Multi-wallet: chains you haven't connected aren't "missing", they just aren't yours here. Only the main NEAR
+  // account is called out, because plans run from it.
+  if (!example && sections.some((x) => x.id === "near" && x.status === "not-configured"))
+    out.pfRows.push({ name: "No main NEAR account", sub: "Plans run from a NEAR account. Connect a NEAR wallet from the wallet menu (top right); your other wallets are read meanwhile.", chain: "NEAR", value: "—", valColor: "#8A9285", by: "Not read", byColor: "#8A9285", path: "Not a zero balance", tag: "NOT CONNECTED", tagBg: "#EEF0E8", tagColor: "#5B6458", src: "", opacity: 0.85 });
   if (readErr.length)
     out.pfRows.push({ name: "Some reads failed", sub: readErr.join(" · "), chain: "—", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Nothing is assumed while a read fails", tag: "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: "", opacity: 1 });
   out.pfHas = out.pfRows.length > 0;
@@ -708,49 +771,41 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   // connected / yours / not proven. "Connected" is computed here from live wallet sessions and never stored.
   const W: any = snap.workspace ?? {};
   const reg: LinkedAccount[] = W.accounts ?? [];
-  const live = new Set<string>(snap.walletAccount ? ["near:" + snap.walletAccount] : []);
-  const unread = new Set(unreadAccounts(W).map((a) => a.id));
+  const live = liveWalletIds(snap);
   const evmOwn = reg.filter((a) => a.chain === "evm" && a.proof).map((a) => a.address);
   const NET: Record<string, string> = { near: "NEAR", ethereum: "Ethereum", base: "Base", arbitrum: "Arbitrum", solana: "Solana" };
-  const READ_NOW: Record<string, string[]> = { near: ["near"], evm: ["base", "arbitrum"], solana: [] };
   const acctCall = (body: any, ok?: string) => self.liveCall(() => acts.accounts(body), ok);
-  const proofText = (a: LinkedAccount) => (a.proof?.method === "wallet-session" ? "proven by a wallet connection" : "ownership proven by signature");
+  const proofText = (a: LinkedAccount) => (a.proof?.method === "nep413" ? "proven by a NEP-413 signature" : a.proof?.method === "siwe" ? "proven by Sign-In with Ethereum" : "proven by Sign-In with Solana");
   out.pfAccounts = example
     ? [{ name: "Fictional example account", sub: "NEAR · no wallet · nothing can be approved", tag: "EXAMPLE", tagBg: "#F6EBDD", tagColor: "#8A5F25" }]
     : reg.map((a) => {
         const st = accountState(a, live);
         const nets = a.networks.map((n) => NET[n] ?? n).join(", ");
-        const readNets = a.networks.filter((n) => READ_NOW[a.chain].includes(n)).map((n) => NET[n] ?? n);
-        const notRead = st === "unproven" ? "" : unread.has(a.id) ? "balances not read yet" : readNets.length < a.networks.length ? "reads " + (readNets.join(", ") || "nothing yet") + " for now" : "";
         const sub = [
           regChain(a.chain) + (a.chain === "evm" ? " · " + nets : ""),
           ![a.address, shortAddress(a.address)].includes(a.label.toLowerCase()) && ![a.address, shortAddress(a.address)].includes(a.label) ? shortAddress(a.address) : "",
           st === "unproven"
-            ? "added before wallet proof was required · not read or counted until its wallet connects" + (a.chain === "near" ? "" : " (" + regChain(a.chain) + " wallet connection is next)")
+            ? "not proven · not read or counted · connect it from the wallet menu (top right) to prove it's yours"
             : st === "connected"
-              ? (snap.walletName || "wallet") + " connected · can approve"
-              : "yours · counted · " + proofText(a) + " · connect its wallet to approve",
-          notRead,
+              ? "connected · can approve · " + proofText(a)
+              : "yours · counted · not connected in this browser · " + proofText(a),
         ].filter(Boolean).join(" · ");
         const tagText = st === "connected" ? "CONNECTED" : st === "yours" ? (a.primary ? "MAIN · YOURS" : "YOURS") : "NOT PROVEN";
-        const actions = st !== "connected" && a.chain === "near" ? [{ label: "Connect wallet", onClick: () => self.liveCall(() => acts.connect()) }] : [];
         return {
           name: a.label,
           sub,
           tag: tagText,
           tagBg: st === "connected" ? "#E2EAD6" : st === "yours" ? "#E7ECF3" : "#F6EBDD",
           tagColor: st === "connected" ? "#3F6B3C" : st === "yours" ? "#3F5A7A" : "#8A5F25",
-          actions,
           removeLabel: "Forget " + a.label,
           onRemove: a.primary
             ? () => askForgetMain(self, a.address, connected)
             : () => acctCall({ action: "forget", id: a.id }, "Forgot " + a.label + ". Nothing on-chain changed."),
         };
       });
-  // Adding an account always goes through its wallet: NEAR now; EVM and Solana wallet connections are next (A3).
-  out.acctAddLabel = example ? "" : "+ Connect another wallet";
-  out.acctAdd = () => (example ? undefined : self.liveCall(() => acts.connect()));
-  out.acctFoot = "FlowVault shows only accounts you’ve proven are yours by connecting their wallet. Only a connected wallet can approve anything, and FlowVault never signs for you. NEAR wallets connect now; Ethereum and Solana wallets are next.";
+  // Wallets connect from the wallet menu (top right); this list only shows them.
+  out.acctAddLabel = "";
+  out.acctFoot = "Every wallet you've connected, on any chain. Connect more from the wallet menu (top right): each one proves it's yours with one free signature. FlowVault never signs for you.";
   // Staking from GET /api/portfolio (native pools) where the API returns them.
   const nat = pf?.staking?.native;
   if (!example) {
