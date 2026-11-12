@@ -605,95 +605,6 @@ export function Shell({ v }: { v: any }) {
             </div>
             <button
               type="button"
-              onClick={v.toggleJudge}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "9px",
-                padding: "9px 12px",
-                borderRadius: "10px",
-                border: `1px solid ${tc(v.judgeBorder, "bg")}`,
-                background: tc(v.judgeBg, "bg"),
-                color: "var(--fvc-1E2A22)",
-                fontSize: "13px",
-                fontWeight: "500",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              <span
-                style={{
-                  width: "28px",
-                  height: "16px",
-                  borderRadius: "999px",
-                  background: tc(v.judgeTrack, "bg"),
-                  position: "relative",
-                  display: "inline-block",
-                }}
-              >
-                <span
-                  style={{
-                    position: "absolute",
-                    top: "2px",
-                    left: v.judgeKnob,
-                    width: "12px",
-                    height: "12px",
-                    borderRadius: "50%",
-                    background: "var(--fvb-FFFFFF)",
-                  }}
-                ></span>
-              </span>
-              Demo Mode
-            </button>
-            <div
-              title={v.netLabel}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "7px",
-                fontSize: "13px",
-                color: tc(v.netColor, "fg"),
-                whiteSpace: "nowrap",
-                minWidth: "0",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                maxWidth: "190px",
-              }}
-            >
-              <span
-                style={{
-                  width: "6px",
-                  height: "6px",
-                  flexShrink: "0",
-                  borderRadius: "50%",
-                  background: tc(v.netColor, "bg"),
-                }}
-              ></span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.netLabel}</span>
-            </div>
-            <button
-              type="button"
-              onClick={v.openIntent}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "11px 14px",
-                borderRadius: "12px",
-                border: "1px solid var(--fvb-CDD6C1)",
-                background: "var(--fvb-E9EEDF)",
-                color: "var(--fvc-1E2A22)",
-                fontSize: "14px",
-                fontWeight: "500",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-              className="fvh3"
-            >
-              ↗ Pay or move money
-            </button>
-            <button
-              type="button"
               onClick={v.openAssistant}
               style={{
                 display: "flex",
@@ -750,7 +661,7 @@ export function Shell({ v }: { v: any }) {
                       right: "0",
                       top: "calc(100% + 6px)",
                       zIndex: "45",
-                      width: "250px",
+                      width: "270px",
                       background: "var(--fvb-FFFFFF)",
                       border: "1px solid var(--fvb-E3E6DB)",
                       borderRadius: "14px",
@@ -758,6 +669,97 @@ export function Shell({ v }: { v: any }) {
                       padding: "6px",
                     }}
                   >
+                    {/* Network status, Demo Mode and Pay or move money live here (moved from the header row). */}
+                    <div
+                      title={v.netLabel}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "7px",
+                        padding: "8px 12px",
+                        fontSize: "13px",
+                        color: tc(v.netColor, "fg"),
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <span
+                        style={{ width: "6px", height: "6px", flexShrink: "0", borderRadius: "50%", background: tc(v.netColor, "bg") }}
+                      ></span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.netLabel}</span>
+                    </div>
+                    <button
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={v.judgeKnob === "14px"}
+                      onClick={() => {
+                        v.closeMenu?.();
+                        v.toggleJudge();
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        padding: "10px 12px",
+                        border: "none",
+                        borderRadius: "9px",
+                        background: "transparent",
+                        fontSize: "14px",
+                        cursor: "pointer",
+                        color: "var(--fvc-1E2A22)",
+                        textAlign: "left",
+                      }}
+                      className="fvh5"
+                    >
+                      <span
+                        style={{
+                          width: "28px",
+                          height: "16px",
+                          flexShrink: "0",
+                          borderRadius: "999px",
+                          background: tc(v.judgeTrack, "bg"),
+                          position: "relative",
+                          display: "inline-block",
+                        }}
+                      >
+                        <span
+                          style={{
+                            position: "absolute",
+                            top: "2px",
+                            left: v.judgeKnob,
+                            width: "12px",
+                            height: "12px",
+                            borderRadius: "50%",
+                            background: "var(--fvb-FFFFFF)",
+                          }}
+                        ></span>
+                      </span>
+                      Demo Mode
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        v.closeMenu?.();
+                        v.openIntent();
+                      }}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "10px 12px",
+                        border: "none",
+                        borderRadius: "9px",
+                        background: "transparent",
+                        fontSize: "14px",
+                        cursor: "pointer",
+                        color: "var(--fvc-1E2A22)",
+                      }}
+                      className="fvh5"
+                    >
+                      ↗ Pay or move money
+                    </button>
+                    <div style={{ height: "1px", background: "var(--fvb-E6E8DF)", margin: "6px 4px" }}></div>
                     <div style={{ padding: "8px 12px 6px", fontSize: "12px", color: "var(--fvc-8A9285)" }}>
                       {v.acctMenuNote}
                     </div>
