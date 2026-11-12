@@ -2,6 +2,7 @@
 // Maps live API snapshots onto the design's view model. Used only in the personal (live)
 // workspace. When the API cannot establish a figure the view shows "Unavailable", never 0.
 import { api, type LiveSnapshot, type Usable } from "./live";
+import { missingEntries, withEntries } from "@/lib/flowvault/plans-policy";
 import { startPlan, openPlan } from "./PlanDock";
 import { chainName, days, dlabel, f, hhmm, livePayoutSupported, LIVE_ROUTES_TEXT, money, num, short, usd, whenLabel, TODAY } from "./format";
 
@@ -905,12 +906,28 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
       const needsPool = o.id === "native" && !o.pool;
       const isNative = o.id === "native";
       const refusals = reasonText((o.refusals ?? []).map((r: any) => (typeof r === "string" ? r : r.code ?? r.message)));
+      // Default-deny: LST staking needs its venue and deposit_and_stake; the owner adds exactly those on confirmation.
+      const PP: any = snap.policy?.policy;
+      const polMiss = PP && !isNative ? missingEntries(PP, [{ kind: "stake", strategy: o.id }]) : [];
+      const allowStake = () => {
+        self.remember();
+        self.setState({
+          modal: "confirm",
+          confirm: {
+            live: true,
+            title: "Allow " + (NAMES[o.id] ?? o.id) + " staking in your policy?",
+            text: "Staking through " + (NAMES[o.id] ?? o.id) + " needs " + polMiss.map((e) => e.label).join(" and ") + ". Saving adds exactly these as a new revision; caps, protected assets and other rules stay as they are. Nothing is prepared or signed.",
+            apply: () => acts.savePolicy(withEntries(PP, polMiss)),
+          },
+        });
+      };
       const rows = [
         { k: "Rate", v: o.aprPercent != null ? pct(o.aprPercent) + " · " + (o.rateSource ?? "") : "unknown" },
         { k: "Earliest unlock", v: unlock ? whenLabel(o.exit.estimatedUnlockAt) + " · estimate" : "unknown" },
         { k: "Exit", v: (o.exit?.minimumEpochs ?? 4) + " epochs minimum · not guaranteed" },
         ...(q?.res ? [{ k: "Unsigned quote", v: (q.res.unsignedTransactions?.length ?? 0) + " call(s) · signable: no" + (q.res.policy?.violations?.length ? " · " + q.res.policy.violations.map((x: any) => x.code).join(", ") : "") }] : []),
         ...(q?.err ? [{ k: "Quote", v: q.err }] : []),
+        ...(polMiss.length ? [{ k: "Policy", v: "Not allowed yet · needs " + polMiss.map((e) => e.label).join(", ") }] : []),
       ];
       return {
         name: NAMES[o.id] ?? o.venue, kind: (o.pool ?? KINDS[o.id] ?? o.venue) + (o.codeHashVerified ? " · code verified" : ""),
@@ -928,8 +945,9 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
               onPool: (ev: any) => self.setState({ stkPool: { scope: snap.scope, id: ev.target.value }, stakeQuote: null }),
             }
           : {}),
-        cta: needsPool ? "Validator needed" : q?.busy ? "Preparing…" : "Inspect unsigned quote", btnBg: "#fff", btnColor: needsPool ? "#8A9285" : "#1E2A22", btnBorder: "1px solid #E3E6DB",
+        cta: needsPool ? "Validator needed" : polMiss.length ? "Allow in Policy…" : q?.busy ? "Preparing…" : "Inspect unsigned quote", btnBg: "#fff", btnColor: needsPool ? "#8A9285" : polMiss.length ? "#3F6B3C" : "#1E2A22", btnBorder: "1px solid #E3E6DB",
         onClick: () => {
+          if (polMiss.length && !needsPool) return allowStake();
           if (needsPool) return self.toastMsg("Choose a verified validator first; no validator is approved by default.");
           const amount = String(s.stk.amt || "").trim();
           if (!(Number(amount) > 0)) return self.toastMsg("Enter a NEAR amount to quote.");

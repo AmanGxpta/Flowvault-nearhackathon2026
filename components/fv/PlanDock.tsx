@@ -8,13 +8,17 @@ import type { ActionPlan, FundingChoice, PlanStep } from "@/lib/flowvault/contra
 import { api, type Scope } from "./live";
 import { reasonText } from "./live-adapt";
 import { dlabel, money } from "./format";
+import { missingEntries, planPolicySteps, stepEntries, withEntries, type PolicyEntry } from "@/lib/flowvault/plans-policy";
 
 type Plan = ActionPlan & {
   title?: string;
   evidence?: string;
   recommendedChoiceId?: string;
   figures?: { label: string; value: string | null; engine: string }[];
+  collateral?: { asset: string; amountRaw: string }[];
 };
+type PolicyRead = { policy: { venues: string[]; methods: { receiver: string; method: string }[]; version?: number }; revision: number };
+const ENDED = ["completed", "cancelled", "expired", "superseded", "failed"];
 type Preparation = { attemptId: string; kind: string; accountId: string };
 export interface PlanDockProps {
   scope: Scope;
@@ -187,6 +191,57 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
     return () => clearInterval(t);
   }, [open, moving, plan, refresh]);
 
+  // Default-deny policy: credit and staking steps may need entries the owner has not allowed yet (plans-policy.ts).
+  const [policyRead, setPolicyRead] = useState<PolicyRead | null>(null);
+  const [confirmAllow, setConfirmAllow] = useState(false);
+  const gated = !!plan && !ENDED.includes(plan.state) && planPolicySteps(plan).some((x) => stepEntries(x.kind, x).length > 0);
+  const planId = plan?.id;
+  useEffect(() => {
+    if (!gated || !planId) return;
+    let live = true;
+    api("/api/policy", undefined, "GET").then(
+      (r) => live && setPolicyRead({ policy: r.policy, revision: r.revision }),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [gated, planId]);
+  const missing: PolicyEntry[] = gated && policyRead && plan ? missingEntries(policyRead.policy, planPolicySteps(plan)) : [];
+
+  const allowInPolicy = async () => {
+    if (!plan) return;
+    setBusy("policy");
+    setError(null);
+    try {
+      // Re-read so the new revision is built on the current policy, then add exactly the missing entries.
+      const fresh = await api("/api/policy", undefined, "GET");
+      const entries = missingEntries(fresh.policy, planPolicySteps(plan));
+      if (entries.length) await api("/api/policy", { revision: fresh.revision, policy: withEntries(fresh.policy, entries) }, "PUT");
+      window.dispatchEvent(new CustomEvent("fv:workspace-refresh"));
+      // A policy revision fences this plan; the same request is re-evaluated under the new revision.
+      const r = await api("/api/plans", {
+        key: crypto.randomUUID(),
+        objective: plan.objective,
+        ...(plan.request.obligationId ? { obligationId: plan.request.obligationId } : {}),
+        ...(plan.objective === "access_cash" ? { amountRaw: plan.request.amountRaw, deadline: plan.request.deadline } : {}),
+      });
+      setPlan(r.plan);
+      setConfirmAllow(false);
+      setPolicyRead(null);
+      setNotice(
+        entries.length
+          ? `Policy revision ${(fresh.policy.version ?? 0) + 1} saved with exactly: ${entries.map((e) => e.label).join("; ")}. This plan was re-evaluated under it.`
+          : "Your policy already had these entries. This plan was re-evaluated.",
+      );
+      void loadActive();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const act = async (label: string, body: Record<string, unknown>) => {
     if (!plan) return null;
     setBusy(label);
@@ -329,6 +384,29 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
                 <p style={{ margin: "8px 0 0", fontSize: "12px", color: "var(--fvc-8A9285)" }}>Choosing an alternative only reviews it. Nothing is prepared until you prepare a step, and nothing moves until you approve it in your wallet.</p>
               ) : null}
             </section>
+
+            {missing.length ? (
+              <section aria-label="Policy entries needed" style={{ padding: "12px", borderRadius: "10px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFF6E8)", fontSize: "13px", color: "var(--fvc-4A5349)" }}>
+                <div style={{ fontWeight: 600, color: "var(--fvc-1E2A22)" }}>Your policy doesn’t allow this yet</div>
+                <div style={{ marginTop: "4px" }}>Policy is default-deny, so preparing these steps would be refused. Missing:</div>
+                <ul style={{ margin: "6px 0 0", paddingLeft: "18px" }}>
+                  {missing.map((e) => <li key={e.label}>{e.label}</li>)}
+                </ul>
+                {confirmAllow ? (
+                  <>
+                    <p style={{ margin: "8px 0 0" }}>
+                      Saving adds {missing.length === 1 ? "exactly this entry" : "exactly these " + missing.length + " entries"} as policy revision {(policyRead?.policy.version ?? 0) + 1}. Caps, protected assets and every other rule stay as they are. This plan is then re-evaluated under the new revision; nothing is prepared or signed.
+                    </p>
+                    <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button type="button" style={btn(true, !!busy)} disabled={!!busy} onClick={() => void allowInPolicy()}>{busy === "policy" ? "Saving…" : "Save revision " + ((policyRead?.policy.version ?? 0) + 1)}</button>
+                      <button type="button" style={btn(false, !!busy)} disabled={!!busy} onClick={() => setConfirmAllow(false)}>Not now</button>
+                    </div>
+                  </>
+                ) : (
+                  <button type="button" style={{ ...btn(false, !!busy), marginTop: "8px" }} disabled={!!busy} onClick={() => setConfirmAllow(true)}>Allow in Policy…</button>
+                )}
+              </section>
+            ) : null}
 
             {choice ? (
               <section aria-label="Effects">

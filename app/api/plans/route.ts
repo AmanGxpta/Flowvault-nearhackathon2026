@@ -34,8 +34,10 @@ export async function GET(r: Request) {
 const createSchema = z
   .object({
     key: z.string().uuid(),
-    objective: z.enum(["deploy_surplus", "pay_obligation", "borrow", "repay", "respond_to_change"]),
+    objective: z.enum(["deploy_surplus", "pay_obligation", "borrow", "repay", "respond_to_change", "access_cash"]),
     obligationId: z.string().min(1).max(100).optional(),
+    amountRaw: z.string().regex(/^[1-9]\d{0,30}$/).optional(),
+    deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     label: z.string().max(100).optional(),
     text: z.string().max(2000).optional(),
   })
@@ -49,7 +51,7 @@ export async function POST(r: Request) {
     const id = await planIdFor(s.id, b.key);
     const existing = await planGet(s.id, id);
     if (existing) {
-      assertSameIntent(existing.plan, b.objective, { ...existing.plan.request, obligationId: b.obligationId }, s.workspace.mode);
+      assertSameIntent(existing.plan, b.objective, { ...existing.plan.request, obligationId: b.obligationId, ...(b.amountRaw ? { amountRaw: b.amountRaw } : {}) }, s.workspace.mode);
       return json({ plan: existing.plan, replay: true }, s.cookie);
     }
     const plan = await evaluatePlan(s, id, { ...b, createdBy: "user" });

@@ -84,6 +84,10 @@ export function FlowVaultRoot() {
 
   useEffect(() => {
     void refresh();
+    // The plan panel saves policy revisions itself ("Allow in Policy"); reload the snapshot after it does.
+    const onRefresh = () => void refresh();
+    window.addEventListener("fv:workspace-refresh", onRefresh);
+    return () => window.removeEventListener("fv:workspace-refresh", onRefresh);
   }, [refresh]);
 
   // EVM addresses typed before R7 lived only in this browser: move them onto the personal workspace once.
