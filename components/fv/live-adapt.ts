@@ -1585,17 +1585,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
       meta: [{ k: "Journal entry", v: short(o.id) }, { k: "Verified by", v: verify }, ...(o.kind !== "Payout" ? [{ k: "Collateral", v: "off" }] : []), { k: "Policy checked", v: "at prepare and at wallet handoff" }],
     };
   });
-  out.stmtRows = (v.ops ?? []).filter((o: any) => o.live).map((o: any) => ({
-    title: o.kind + " · " + o.title, sub: o.sub + " · " + (ST_LABEL[o.status] ?? o.status), flow: o.status === "confirmed" ? (o.kind === "Supply" ? "+" : "−") + num(o.amount) : "0.00",
-    yieldF: "—", price: "—", inc: "—", fees: "—", debt: "0.00", onOpen: () => self.setState({ actTab: "timeline", openOp: o.id }),
-  }));
-  out.stmtSummary = [
-    { k: "Cash yield", v: "Not computed yet", color: "#8A9285" },
-    { k: "Price change", v: "—", color: "#1E2A22" },
-    { k: "Incentives", v: "—", color: "#1E2A22" },
-    { k: "Fees paid", v: "In each timeline", color: "#8A5F25" },
-    { k: "Debt remaining", v: "$0.00", color: "#1E2A22" },
-  ];
+  // Statement: rendered by components/fv/Statement.tsx straight from Engines' GET /api/statement.
   out.noOps = (out.ops ?? []).length === 0;
 
   // ---- Replays: simulated recordings from GET /api/replays, shown in their own dialog.
@@ -1737,4 +1727,3 @@ export function livePreviews(snap: LiveSnapshot, v: any, ctx: { self: any; s: an
 }
 
 export { short, usd, num };
-const ST_LABEL: Record<string, string> = { confirmed: "confirmed", prepared: "prepared, not signed", awaiting: "waiting for wallet", progress: "checking", failedtx: "failed", stuck: "status unknown" };

@@ -1,6 +1,7 @@
 // Generated from docs/design/FlowVault.html by the design converter, then edited by hand.
 /* eslint-disable */
 import { Fragment } from "react";
+import { StatementPanel } from "../Statement";
 import { tc } from "../theme";
 import { PlanHistory } from "../PlanDock";
 
@@ -380,134 +381,7 @@ export function ActivityView({ v }: { v: any }) {
           </div>
         </>
       ) : null}
-      {v.actStatement ? (
-        <>
-          <div
-            style={{
-              marginTop: "20px",
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,170px),1fr))",
-              gap: "12px",
-            }}
-          >
-            {(v.stmtSummary || []).map((b: any, i_b_0: number) => (
-              <Fragment key={i_b_0}>
-                <div
-                  style={{
-                    background: "var(--fvb-FFFFFF)",
-                    border: "1px solid var(--fvb-E3E6DB)",
-                    borderRadius: "18px",
-                    padding: "16px 18px",
-                  }}
-                >
-                  <div style={{ fontSize: "12.5px", color: "var(--fvc-6F786B)" }}>{b.k}</div>
-                  <div
-                    style={{
-                      marginTop: "8px",
-                      fontSize: "22px",
-                      fontWeight: "500",
-                      letterSpacing: "-0.02em",
-                      color: tc(b.color, "fg"),
-                    }}
-                  >
-                    {b.v}
-                  </div>
-                </div>
-              </Fragment>
-            ))}
-          </div>
-          <div
-            style={{
-              marginTop: "16px",
-              background: "var(--fvb-FFFFFF)",
-              border: "1px solid var(--fvb-E3E6DB)",
-              borderRadius: "18px",
-              overflowX: "auto",
-            }}
-          >
-            <div
-              style={{
-                minWidth: "900px",
-                display: "grid",
-                gridTemplateColumns: "minmax(0,1.5fr) 110px 100px 100px 100px 96px 100px 92px",
-                gap: "12px",
-                padding: "13px 22px",
-                fontSize: "11px",
-                letterSpacing: ".12em",
-                color: "var(--fvc-8A9285)",
-                fontWeight: "600",
-                borderBottom: "1px solid var(--fvb-EEF0E8)",
-              }}
-            >
-              <div>LINE</div>
-              <div style={{ textAlign: "right" }}>IN / OUT</div>
-              <div style={{ textAlign: "right" }}>CASH YIELD</div>
-              <div style={{ textAlign: "right" }}>PRICE</div>
-              <div style={{ textAlign: "right" }}>INCENTIVES</div>
-              <div style={{ textAlign: "right" }}>FEES</div>
-              <div style={{ textAlign: "right" }}>DEBT LEFT</div>
-              <div></div>
-            </div>
-            {(v.stmtRows || []).map((r: any, i_r_0: number) => (
-              <Fragment key={i_r_0}>
-                <div
-                  style={{
-                    minWidth: "900px",
-                    display: "grid",
-                    gridTemplateColumns: "minmax(0,1.5fr) 110px 100px 100px 100px 96px 100px 92px",
-                    gap: "12px",
-                    padding: "13px 22px",
-                    alignItems: "center",
-                    borderBottom: "1px solid var(--fvb-F1F2EB)",
-                    fontSize: "13.5px",
-                    fontFamily: "'DM Mono',monospace",
-                  }}
-                >
-                  <div style={{ fontFamily: "'DM Sans',sans-serif" }}>
-                    <div style={{ fontWeight: "500" }}>{r.title}</div>
-                    <div style={{ fontSize: "12px", color: "var(--fvc-8A9285)" }}>{r.sub}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>{r.flow}</div>
-                  <div style={{ textAlign: "right", color: "var(--fvc-3F6B3C)" }}>{r.yieldF}</div>
-                  <div style={{ textAlign: "right", color: "var(--fvc-8A9285)" }}>{r.price}</div>
-                  <div style={{ textAlign: "right", color: "var(--fvc-8A9285)" }}>{r.inc}</div>
-                  <div style={{ textAlign: "right", color: "var(--fvc-8A5F25)" }}>{r.fees}</div>
-                  <div style={{ textAlign: "right" }}>{r.debt}</div>
-                  <div style={{ textAlign: "right", fontFamily: "'DM Sans',sans-serif" }}>
-                    <button
-                      type="button"
-                      onClick={r.onOpen}
-                      style={{
-                        border: "none",
-                        background: "none",
-                        padding: "0",
-                        fontSize: "13px",
-                        color: "var(--fvc-3F6B3C)",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Timeline ↗
-                    </button>
-                  </div>
-                </div>
-              </Fragment>
-            ))}
-            <div
-              style={{
-                minWidth: "900px",
-                padding: "13px 22px",
-                background: "var(--fvb-F7F8F3)",
-                fontSize: "12.5px",
-                color: "var(--fvc-6F786B)",
-                lineHeight: "1.5",
-              }}
-            >
-              Cash yield is accrued at Rhea’s variable rate and estimated until you withdraw. Network fees are converted
-              at the example NEAR price. No incentives or debt exist in this account yet.
-            </div>
-          </div>
-        </>
-      ) : null}
+      {v.actStatement && v.scope ? <StatementPanel key={v.scope} scope={v.scope} /> : null}
     </>
   );
 }
