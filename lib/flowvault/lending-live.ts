@@ -63,6 +63,7 @@ export async function readLendingState(accountId: string): Promise<LendingState>
       borrowedLimitInner: typeof c.borrowed_limit === "string" ? raw(c.borrowed_limit, "Rhea borrowed limit") : null,
       minBorrowedInner: typeof c.min_borrowed_amount === "string" ? raw(c.min_borrowed_amount, "Rhea minimum borrow") : 0n,
       borrowApr: String(a.borrow_apr),
+      supplyApr: String(a.supply_apr),
     };
   }
   for (const t of tokens) if (!byId[t]) throw new Error(t + " is not a Rhea market.");

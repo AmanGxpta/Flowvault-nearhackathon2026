@@ -56,6 +56,8 @@ export interface RheaAsset {
   borrowedLimitInner: bigint | null;
   minBorrowedInner: bigint;
   borrowApr: string;
+  /** E3: Rhea supply APR (decimal fraction text) for statement forecasts. */
+  supplyApr?: string;
 }
 export interface LendingState {
   source: "live";
@@ -389,6 +391,9 @@ export interface LendingPreparation {
   request: { asset: string; amountRaw: string; approveNewDebt: boolean };
   evidence: string;
   warning: string;
+  /** E3: USDC debt (native raw, rounded up) observed at preparation, so the ledger can separate accrued
+   * interest from journaled principal only when the debt baseline is proven. */
+  debtBeforeUsdcRaw?: string;
 }
 export interface PrepareRequest {
   kind: LendingKind;
@@ -594,6 +599,9 @@ export function prepareLending(
       methods,
     },
     evidence: `Rhea finalized block ${st.blockHeight}; ${st.prices?.basis ?? "no prices"}`,
+    debtBeforeUsdcRaw: st.assets[LENDING_USDC]
+      ? toNative(st.borrowed[LENDING_USDC] ?? 0n, st.assets[LENDING_USDC], true).toString()
+      : undefined,
     warning:
       "Prepared transactions only. Nothing has been submitted. Review the amount, health and gas, then approve in your connected wallet." +
       (req.kind === "borrow" ? " This creates new debt that accrues interest and can be liquidated if collateral falls." : ""),
