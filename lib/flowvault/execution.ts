@@ -5,17 +5,28 @@ import { prepareSupply, SUPPLY_RHEA, SUPPLY_USDC } from "./supply.ts";
 import type { WithdrawPreparation } from "./withdraw.ts";
 import { units, decimal } from "./money.ts";
 import type { Mandate } from "./types.ts";
+import { isLendingKind, verifyLendingOutcome } from "./lending.ts";
+import type { LendingPreparation } from "./lending.ts";
 export function supplyHoldback(mandate: Mandate) {
   if (!mandate.approved.includes("rhea-usdc"))
     throw new Error("Approve Rhea Lending in your cash plan before supplying.");
   return decimal(holdback(mandate));
 }
 export type SupplyPreparation = ReturnType<typeof prepareSupply>;
-export type PreparationKind = "supply" | "withdraw" | "pay";
+export type PreparationKind =
+  | "supply"
+  | "withdraw"
+  | "pay"
+  // Engines E2: Rhea credit (lending.ts owns their preparation and verification).
+  | "collateral_add"
+  | "borrow"
+  | "repay"
+  | "collateral_release";
 export type WalletPreparation =
   | SupplyPreparation
   | WithdrawPreparation
-  | PayPreparation;
+  | PayPreparation
+  | LendingPreparation;
 export interface WalletAttempt {
   timeline?: ExecutionStep[];
   retainedSignedQuote?: unknown;
@@ -160,6 +171,8 @@ export function verifyOutcome(
   if (attempt.kind === "withdraw")
     return verifyWithdrawReceipts(result, attempt, index);
   if (attempt.kind === "pay") return verifyPayDeposit(result, attempt, index);
+  if (isLendingKind(attempt.kind))
+    return verifyLendingOutcome(result, attempt.preparation as LendingPreparation, index);
   // NEP-141 ft_transfer_call resolves to the amount actually used, not merely transaction inclusion.
   if (tx.receiver_id === attempt.preparation.transactions.at(-1)?.receiverId) {
     try {
@@ -218,7 +231,10 @@ export function summarizeOutcomes(
           ? "USDC withdrawal finalized. Exact wallet payout verified."
           : attempt.kind === "pay"
             ? "Source deposit finalized; destination payment remains unverified."
-            : "USDC supply finalized. Refresh balances to see your position.",
+            : isLendingKind(attempt.kind)
+              ? outcomes.find((o) => o.index === attempt.preparation.transactions.length - 1)?.message ??
+                "Lending step finalized and verified."
+              : "USDC supply finalized. Refresh balances to see your position.",
     };
   if (outcomes.length && outcomes.every((o) => o.state === "confirmed"))
     return {

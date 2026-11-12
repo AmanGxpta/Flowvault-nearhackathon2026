@@ -1,11 +1,9 @@
 import { ownerPositions } from "./accounts";
 import { stressCapacity } from "./credit";
-import { view, RHEA, USDC } from "./near";
-import { availableLiquidity } from "./withdraw";
-import { units, decimal } from "./money";
+import { lendingPreview } from "./lending-live";
 import type { Portfolio } from "./types";
 import type { Policy } from "./policy";
-/** Read-only, same-asset USDC scenario. Other collateral requires a verified price/risk adapter. */
+/** Example: fictional scenario. Live: Engines lending capacity (real Rhea collateral and debt). */
 export async function portfolioCredit(p: Portfolio, policy?: Policy) {
   p = { ...p, positions: ownerPositions(p.positions) };
   if (p.source === "demo" && policy?.creditRows?.length) {
@@ -36,101 +34,30 @@ export async function portfolioCredit(p: Portfolio, policy?: Policy) {
         "Illustrative LiNEAR/rNEAR values and stress scenario; Rhea collateral flags/7000 volatility ratios checked 2026-11-12. Positions are not currently pledged; no borrowing is prepared.",
     };
   }
-  const settings = policy?.creditRows?.find(
-    (x) => x.assetId === USDC || x.assetId === "USDC",
-  );
-  if (!settings)
-    return {
-      capacity: null,
-      reason: "No saved USDC stress policy.",
-      borrowExecution: false,
-    };
-  if (
-    p.errors.length ||
-    p.sections?.some(
-      (s) => ["rhea", "near"].includes(s.id) && s.status !== "observed",
-    )
-  )
-    return {
-      capacity: null,
-      reason: "Portfolio coverage/health is incomplete.",
-      borrowExecution: false,
-    };
-  if (p.source === "demo")
-    return stressCapacity([
-      {
-        id: "example-rhea",
-        source: "demo",
-        capturedAt: new Date().toISOString(),
-        existingDebt: "0",
-        protocolLimit: "50000",
-        liquidity: "50000",
-        assets: [settings],
-      },
-    ]);
-  const [r, config, metadata] = await Promise.all([
-    view<any[]>(RHEA, "get_assets_paged_detailed", {
-      from_index: 0,
-      limit: 100,
-    }),
-    view<any>(RHEA, "get_config"),
-    view<any>(USDC, "ft_metadata"),
-  ]);
-  if (config.data.contract_mode !== "Running" || metadata.data.decimals !== 6)
-    return {
-      capacity: null,
-      reason: "Market not Running or token precision unverified.",
-      borrowExecution: false,
-    };
-  const a = r.data.find((x) => x.token_id === USDC);
-  if (!a || a.config?.can_borrow !== true)
-    return {
-      capacity: null,
-      reason: "USDC borrowing configuration unavailable/disabled.",
-      borrowExecution: false,
-    };
-  if (
-    !Number.isInteger(a.config.extra_decimals) ||
-    a.config.extra_decimals < 0 ||
-    a.config.extra_decimals > 32
-  )
-    return {
-      capacity: null,
-      reason: "Rhea extra decimals unverified.",
-      borrowExecution: false,
-    };
-  const scale = 10n ** BigInt(a.config.extra_decimals);
-  const value = p.positions
-    .filter((x) => x.asset === "USDC" && x.kind === "collateral")
-    .reduce((n, x) => n + units(x.amount), 0n);
-  const debt = p.positions
-    .filter((x) => x.asset === "USDC" && x.kind === "debt")
-    .reduce((n, x) => n + units(x.amount), 0n);
-  const limit = BigInt(a.config.borrowed_limit) - BigInt(a.borrowed.balance);
-  const remaining = limit > 0n ? limit / scale : 0n;
+  // Engines E2: live capacity comes from the account's real Rhea collateral, debt and asset configs
+  // (lending.ts), never from nominal sums here.
+  if (p.source !== "live")
+    return { capacity: null, reason: "No saved example credit policy.", borrowExecution: false };
+  if (!p.accountId)
+    return { capacity: null, reason: "No live NEAR account.", borrowExecution: false };
+  const { capacity: c } = await lendingPreview(p.accountId, policy);
   return {
-    ...stressCapacity([
-      {
-        id: "rhea-usdc",
-        source: "live",
-        capturedAt: new Date().toISOString(),
-        existingDebt: decimal(debt),
-        protocolLimit: decimal(remaining + debt),
-        liquidity: decimal(availableLiquidity(a) / scale),
-        debtRiskBps: a.config.volatility_ratio,
-        assets: [
-          {
-            ...settings,
-            value: decimal(value),
-            collateralId: p.accountId + ":rhea:USDC",
-            liquidationThresholdBps: a.config.volatility_ratio,
-            protocolLtvBps: 10000,
-            eligible: true,
-          },
-        ],
-      },
-    ]),
+    source: "live",
+    readOnly: false,
+    executable: c.capacityUsdcRaw !== null,
+    borrowExecution: c.capacityUsdcRaw !== null,
+    capacity: c.capacity,
+    capacityUsdcRaw: c.capacityUsdcRaw,
+    bindingConstraint: c.bindingConstraint,
+    health: c.health,
+    stressedHealth: c.stressedHealth,
+    minHealth: c.minHealth,
+    borrowApr: c.borrowApr,
+    collateral: c.collateral,
+    debt: c.debt,
+    reasons: c.reasons,
+    reason: c.capacityUsdcRaw === null ? c.reasons.join(", ") || "Capacity unverified." : null,
     valuationEvidence:
-      "Nominal same-asset USDC collateral/debt only. No independent USD price claim; full borrow execution is disabled.",
+      "Rhea get_account_all_positions + get_assets_paged_detailed (volatility ratios, borrowed_limit, liquidity) and Rhea's Pyth prices; LiNEAR/rNEAR collateral family; owner-signed steps via /api/lending.",
   };
 }

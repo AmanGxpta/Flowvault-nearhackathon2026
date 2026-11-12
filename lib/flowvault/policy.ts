@@ -132,6 +132,7 @@ export function evaluatePolicy(
       "sell",
       "pledge",
       "borrow",
+      "repay",
     ].includes(action.kind) ||
     !["live", "demo"].includes(action.source) ||
     !action.asset ||
@@ -197,7 +198,8 @@ export function evaluatePolicy(
     rows.find((r) => r.chain === action.chain) ?? rows.find((r) => !r.chain);
   if (policy.assetRows && !scoped)
     fail("ASSET_SCOPE_UNVERIFIED", "No matching asset/chain permission row.");
-  const required = action.kind === "withdraw" ? "hold" : action.kind;
+  const required =
+    action.kind === "withdraw" || action.kind === "repay" ? "hold" : action.kind;
   if (scoped && !scoped.uses.includes(required as any))
     fail(
       "ASSET_USE_NOT_ALLOWED",
@@ -292,6 +294,8 @@ export function preparationAction(
       methods: [{ receiver: USDC, method: "ft_transfer" }],
     };
   }
+  // Engines E2: lending preparations carry their own USDC-valued policy action.
+  if ("policyAction" in preparation) return { ...preparation.policyAction, id };
   const txs = preparation.transactions;
   let attached = 0n;
   for (const tx of txs)

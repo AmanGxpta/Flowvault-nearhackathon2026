@@ -112,6 +112,14 @@ export async function signPayment(preparation: PayPreparation) {
     throw new Error("Use a payment preparation for payment signing.");
   return signPrepared(preparation);
 }
+/** Engines E2: owner-signed Rhea credit step (collateral_add, borrow, repay, collateral_release). */
+export async function signLending(preparation: import("./lending").LendingPreparation) {
+  if (!["collateral_add", "borrow", "repay", "collateral_release"].includes(preparation.kind))
+    throw new Error("Use a Rhea credit preparation for credit signing.");
+  if (preparation.kind === "borrow" && !preparation.approvedNewDebt)
+    throw new Error("New debt needs explicit approval before signing.");
+  return signPrepared(preparation);
+}
 async function signPrepared(preparation: WalletPreparation) {
   if (
     !Number.isFinite(Date.parse(preparation.expiresAt)) ||

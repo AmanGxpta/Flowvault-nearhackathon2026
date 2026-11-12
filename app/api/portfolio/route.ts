@@ -5,7 +5,7 @@ import { portfolioCredit } from "@/lib/flowvault/credit-live";
 import { listActiveAttempts } from "@/lib/flowvault/attempts";
 import { units, decimal } from "@/lib/flowvault/money";
 import { readValuationEvidence } from "@/lib/flowvault/valuation-evidence";
-import { attachReservations, capitalView } from "@/lib/flowvault/valuation";
+import { attachReservations, capitalView, usdcInFlightRaw } from "@/lib/flowvault/valuation";
 export async function GET(r: Request) {
   try {
     const s = await session(r);
@@ -33,9 +33,7 @@ export async function GET(r: Request) {
     );
     const active =
       s.workspace.mode === "demo" ? [] : await listActiveAttempts(s.id);
-    const reserved = active
-      .filter((a) => a.accountId === p.accountId && a.kind !== "withdraw")
-      .reduce((n, a) => n + units(a.amount), 0n);
+    const reserved = usdcInFlightRaw(active, p.accountId);
     let credit: any;
     try {
       credit = await portfolioCredit(p, s.workspace.policy);

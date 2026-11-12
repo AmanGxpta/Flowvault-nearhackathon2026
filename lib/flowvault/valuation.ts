@@ -554,3 +554,14 @@ export function actionValuation(
     return { usdcRaw: null, basis: prices.basis, capturedAt: at, freshUntil: prices.freshUntil, unavailableReason: (e as Error).message };
   }
 }
+
+/** USDC that in-flight wallet attempts will spend from the owner's wallet. Only supply, pay and repay
+ * spend USDC; withdraw/borrow/collateral steps move other assets or bring USDC in. */
+export function usdcInFlightRaw(
+  attempts: { accountId: string; kind: string; amount: string }[],
+  accountId: string | null,
+) {
+  return attempts
+    .filter((a) => a.accountId === accountId && ["supply", "pay", "repay"].includes(a.kind))
+    .reduce((n, a) => n + units(a.amount), 0n);
+}

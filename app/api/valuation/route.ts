@@ -2,8 +2,7 @@ import { session, json, failure } from "@/lib/flowvault/store";
 import { workspacePortfolio } from "@/lib/flowvault/portfolio-service";
 import { listActiveAttempts } from "@/lib/flowvault/attempts";
 import { readValuationEvidence } from "@/lib/flowvault/valuation-evidence";
-import { capitalView, usdcText } from "@/lib/flowvault/valuation";
-import { units } from "@/lib/flowvault/money";
+import { capitalView, usdcText, usdcInFlightRaw } from "@/lib/flowvault/valuation";
 /** GET /api/valuation[?quotes=true] — the shared CapitalView (Engines). Read-only. */
 export async function GET(r: Request) {
   try {
@@ -14,9 +13,7 @@ export async function GET(r: Request) {
       readValuationEvidence(s.workspace, { quotes }),
       s.workspace.mode === "demo" ? Promise.resolve([]) : listActiveAttempts(s.id),
     ]);
-    const committedRaw = active
-      .filter((a) => a.accountId === portfolio.accountId && a.kind !== "withdraw")
-      .reduce((n, a) => n + units(a.amount), 0n);
+    const committedRaw = usdcInFlightRaw(active, portfolio.accountId);
     const stressBps = Object.fromEntries(
       (s.workspace.policy?.creditRows ?? []).map((x) => [x.assetId, x.drawdownBps]),
     );

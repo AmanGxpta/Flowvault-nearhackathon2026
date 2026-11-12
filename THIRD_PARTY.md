@@ -7,7 +7,7 @@ The initial project was generated with the installed Sites plugin's `project-set
 ## Reviewed implementation references
 
 - [NearAnyStake](https://github.com/ultratestbro/nearanystake), `src/lib/staking.ts`: inspected as the reuse map's first staking reference. Its @anywalletkit modules and protection checks are not copied or presented as enabled here. Observed upstream license in the research: Apache-2.0.
-- [Allpilot](https://github.com/zincshbar-lab/allpilot), `src/lib/lending.ts`: inspected to cross-check Rhea call shapes and lending inner-decimal distinctions. No module or wallet wrapper was copied. Observed upstream license in the research: MIT.
+- [Allpilot](https://github.com/zincshbar-lab/allpilot), `src/lib/lending.ts`: inspected to cross-check Rhea call shapes and lending inner-decimal distinctions (and, for Engines E2, the `execute_with_pyth` Borrow/Withdraw/DecreaseCollateral and `ft_transfer_call` IncreaseCollateral/Repay formats, also checked against finalized mainnet transactions). No module or wallet wrapper was copied. Observed upstream license in the research: MIT.
 - [Rhea cross-chain SDK](https://github.com/rhea-finance/cross-chain-sdk) and [Burrow SDK](https://github.com/rhea-finance/burrow-sdk-python): API/schema references retained in the source research. No upstream SDK execution or signing authority is assumed.
 - [NEAR RPC](https://docs.near.org/api/rpc/contracts) and [1Click](https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart/making-a-request): public interface documentation. Integration code in lib/flowvault is newly authored.
 

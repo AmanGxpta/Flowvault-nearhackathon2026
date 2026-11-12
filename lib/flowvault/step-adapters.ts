@@ -10,6 +10,7 @@ import type { PaymentPlan } from "./payments";
 import { readAttempt } from "./attempts";
 import { keyedAttemptId } from "./preparation-key";
 import { decimal, units } from "./money";
+import { rheaCreditAdapter } from "./lending-step";
 import { assertPreparable, depsMet, IN_FLIGHT, noteStep, settle, stepGeneration } from "./plans";
 
 /* ───────────── execution context ───────────── */
@@ -52,6 +53,7 @@ const ROUTES: Record<string, () => Promise<{ POST?: Handler; GET?: Handler }>> =
   transactions: () => import("@/app/api/transactions/route"),
   payments: () => import("@/app/api/payments/route"),
   payment: () => import("@/app/api/payments/[id]/route"),
+  lending: () => import("@/app/api/lending/route"), // Engines E2
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- journal responses are route JSON
 export async function journalCall<T = any>(
@@ -334,5 +336,5 @@ registerStepAdapter(payQuoteAdapter);
 registerStepAdapter(payDepositAdapter);
 registerStepAdapter(verifyPayoutAdapter);
 registerStepAdapter(waitAdapter);
-// Engines: registerStepAdapter(rheaCreditAdapter);   // collateral_add, borrow, repay, collateral_release
+registerStepAdapter(rheaCreditAdapter); // Engines: collateral_add, borrow, repay, collateral_release
 // Positions: registerStepAdapter(stakingStepAdapter); // stake, unstake, withdraw_unstaked

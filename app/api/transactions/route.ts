@@ -25,6 +25,10 @@ import {
 import { freshSupply, freshWithdraw } from "@/lib/flowvault/prepare";
 import { networkRpc } from "@/lib/flowvault/near";
 import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
+import { isLendingKind } from "@/lib/flowvault/lending";
+import type { LendingPreparation } from "@/lib/flowvault/lending";
+import { freshLendingAttempt } from "@/lib/flowvault/lending-live";
+import { holdback } from "@/lib/flowvault/obligations";
 export async function GET(request: Request) {
   try {
     const s = await session(request);
@@ -74,7 +78,13 @@ export async function POST(request: Request) {
             )
           : attempt.kind === "withdraw"
             ? await freshWithdraw(attempt.accountId, attempt.amount)
-            : await freshSupply(
+            : isLendingKind(attempt.kind)
+              ? await freshLendingAttempt(
+                  attempt.preparation as LendingPreparation,
+                  s.workspace.policy,
+                  attempt.kind === "repay" ? holdback(s.workspace.mandate) : undefined,
+                )
+              : await freshSupply(
                 attempt.accountId,
                 supplyHoldback(s.workspace.mandate),
                 attempt.amount,
