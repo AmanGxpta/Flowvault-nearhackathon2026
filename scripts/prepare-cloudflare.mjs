@@ -40,6 +40,8 @@ const result = {
     { binding: "DB", database_name: values.name, database_id: id },
   ],
   services: [],
+  // Monitoring and recurrence (Interface E4): every 30 minutes; reads and proposes only.
+  triggers: { crons: ["*/30 * * * *"] },
   observability: { enabled: false },
   vars: {},
 };

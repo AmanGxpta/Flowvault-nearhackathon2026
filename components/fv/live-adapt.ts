@@ -117,7 +117,12 @@ export function liveState(snap: LiveSnapshot) {
     due: o.dueDate,
     recurrence: o.recurrence ?? "none",
     rawNote: o.note ?? "",
-    note: [o.legacyProtected ? "Migrated cash need · protected until edited" : o.note, REC[o.recurrence]].filter(Boolean).join(" · "),
+    note: [
+      o.legacyProtected ? "Migrated cash need · protected until edited" : o.note,
+      REC[o.recurrence],
+      // Recurrence (recurrence.ts): "<series>-rN" is the Nth concrete instance of a repeating payment.
+      /-r(\d{1,4})$/.test(o.id) && Number(o.id.match(/-r(\d{1,4})$/)[1]) >= 2 ? "payment " + o.id.match(/-r(\d{1,4})$/)[1] + " in this series" : "",
+    ].filter(Boolean).join(" · "),
     status: OB_STATUS[o.status] ?? "upcoming",
   }));
   const connected = snap.scope === "personal" && !!snap.walletAccount && snap.walletAccount === w?.accountId;
@@ -460,7 +465,7 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
       tag + "Plan saved with a " + lead + "-day lead. Earlier drafts were superseded.",
     );
   };
-  out.recurNote = s.form?.recurrence && s.form.recurrence !== "none" ? "Saved on the calendar; each payment is still approved by you" : "";
+  out.recurNote = s.form?.recurrence && s.form.recurrence !== "none" ? "The next one is added after each payment is made or its date passes, and counted in your holdback; each payment is still approved by you" : "";
   out.saveOb = () => {
     if (v.formInvalid) return;
     const fm = s.form;
@@ -733,6 +738,8 @@ const REASON: Record<string, string> = {
   INSUFFICIENT_EXIT_LIQUIDITY: "Not enough exit liquidity",
   DEADLINE_PASSED: "Payment date has passed",
   EXIT_MISSES_DUE_DATE: "Exit misses the payment date",
+  POSITION_TOO_SMALL: "Position is worth less than the amount needed",
+  POSITION_VALUE_UNKNOWN: "Position value unknown",
   NO_NET_ADVANTAGE_OVER_LIQUID: "Doesn’t beat staying liquid",
   AMOUNT_EXCEEDS_SURPLUS: "Amount is above your surplus",
   STALE_PORTFOLIO: "Balances are stale",

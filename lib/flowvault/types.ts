@@ -130,6 +130,8 @@ export interface Workspace {
   accountId: string | null;
   mandate: Mandate;
   operations: Operation[];
+  /** Interface (recurrence.ts): generated recurring instance id -> due date, so a deleted instance is never re-created. */
+  recurrenceLog?: Record<string, string>;
 }
 export interface CashQuote {
   outputValueUsdc?: string;

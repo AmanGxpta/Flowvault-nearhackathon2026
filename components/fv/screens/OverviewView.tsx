@@ -3,6 +3,7 @@
 import { Fragment } from "react";
 import { Skel } from "../Skel";
 import { tc } from "../theme";
+import { AlertsPanel } from "../Alerts";
 
 // Design section: OVERVIEW
 export function OverviewView({ v }: { v: any }) {
@@ -406,6 +407,7 @@ export function OverviewView({ v }: { v: any }) {
           </div>
         </>
       ) : null}
+      {!v.showOnboarding && v.scope ? <AlertsPanel key={v.scope} scope={v.scope} where="overview" /> : null}
       {v.showPlanView ? (
         <>
           <div

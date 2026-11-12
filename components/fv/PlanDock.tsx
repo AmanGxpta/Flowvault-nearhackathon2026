@@ -287,7 +287,7 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
               <div style={{ fontWeight: 600, color: "var(--fvc-1E2A22)" }}>{OBJECTIVE[plan.objective] ?? plan.objective}</div>
               {plan.request.text ? <div>You asked: “{plan.request.text}”</div> : null}
               <div style={{ color: "var(--fvc-8A9285)", fontSize: "12px" }}>
-                {plan.createdBy === "assistant" ? "Proposed by Ask FlowVault · figures from the engines" : "Started by you · figures from the engines"}
+                {plan.createdBy === "assistant" ? "Proposed by Ask FlowVault · figures from the engines" : plan.createdBy === "monitor" ? "Proposed by monitoring · nothing is approved or signed until you review it" : "Started by you · figures from the engines"}
                 {plan.evidence ? " · " + plan.evidence : ""}
               </div>
             </section>
@@ -524,7 +524,7 @@ export function PlanHistory({ scope }: { scope: Scope }) {
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: "block", fontWeight: 600, color: "var(--fvc-1E2A22)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title ?? OBJECTIVE[p.objective]}</span>
               <span style={{ fontSize: "12px", color: "var(--fvc-8A9285)" }}>
-                {p.createdBy === "assistant" ? "From Ask FlowVault" : "Started by you"} · {p.steps.length ? done + " of " + p.steps.length + " steps confirmed" : "not reviewed"} · {new Date(p.updatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                {p.createdBy === "assistant" ? "From Ask FlowVault" : p.createdBy === "monitor" ? "Proposed by monitoring" : "Started by you"} · {p.steps.length ? done + " of " + p.steps.length + " steps confirmed" : "not reviewed"} · {new Date(p.updatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
               </span>
             </span>
             <span style={{ padding: "3px 8px", borderRadius: "6px", fontSize: "10.5px", fontWeight: 700, background: st[1], color: st[2], whiteSpace: "nowrap" }}>{st[0]}</span>

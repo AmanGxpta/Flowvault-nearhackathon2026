@@ -25,6 +25,10 @@ const worker = {
     }
     return runWithConnectorBinding(binding, () => handler.fetch(request, env, ctx));
   },
+  // Interface (E4): cron trigger for monitoring and recurrence. Reads and proposes only; never signs.
+  scheduled(_controller: ScheduledController, _env: Cloudflare.Env, ctx: ExecutionContext) {
+    ctx.waitUntil(import("../lib/flowvault/monitor-cron").then((m) => m.runScheduledMonitor()));
+  },
 };
 
 export default worker;

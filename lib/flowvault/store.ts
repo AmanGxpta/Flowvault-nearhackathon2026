@@ -1,9 +1,17 @@
 import { exampleCreditRows } from "./example-credit";
 import { keyedAttemptId } from "./preparation-key";
 import { migrateWorkspace } from "./obligations";
+import { advanceRecurrences } from "./recurrence";
 import { env } from "cloudflare:workers";
 import { seed, personalSeed, exampleDate } from "./seed";
 import type { Workspace } from "./types";
+export interface SessionInfo {
+  id: string;
+  slot: "example" | "personal";
+  workspace: Workspace;
+  revision: number;
+  cookie: string;
+}
 export interface Stored {
   workspace: Workspace;
   revision: number;
@@ -18,7 +26,7 @@ export async function database() {
   ).run();
   return env.DB;
 }
-export async function session(request: Request) {
+export async function session(request: Request, retry = true): Promise<SessionInfo> {
   const existing = request.headers
     .get("cookie")
     ?.match(/(?:^|;\s*)fv_session=([a-f0-9-]{36})(?:;|$)/)?.[1];
@@ -90,8 +98,17 @@ export async function session(request: Request) {
   }
   const migrated = migrateWorkspace(input);
   let revision = row.revision;
-  if (migrated.changed || refreshed)
-    revision = await save(id, migrated.workspace, revision);
+  // Interface: recurring obligations get their next concrete instance on every read (idempotent ids).
+  const recurred = advanceRecurrences(migrated.workspace).length > 0;
+  if (migrated.changed || refreshed || recurred) {
+    try {
+      revision = await save(id, migrated.workspace, revision);
+    } catch (e) {
+      // A concurrent read generated the same instances first; re-read its version once.
+      if (retry && recurred && !migrated.changed && !refreshed) return session(request, false);
+      throw e;
+    }
+  }
   return {
     id,
     slot,

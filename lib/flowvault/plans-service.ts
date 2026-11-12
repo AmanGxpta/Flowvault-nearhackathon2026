@@ -306,6 +306,80 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
   return plan;
 }
 
+/* ───────────── access cash (monitor: spendable below the holdback ahead of a payment) ───────────── */
+
+const EXIT_MARKET: Record<string, string> = { LiNEAR: "linear", rNEAR: "rnear", NEAR: "native" };
+
+async function accessCash(
+  s: SessionLike, base: BaseInput, amount: bigint, deadline: string | undefined, title: string | undefined, figures: PlanExtras["figures"],
+): Promise<StoredPlan> {
+  const w = s.workspace;
+  const { portfolio, market, ledger } = await gather(s);
+  const owner = portfolio.positions.filter((p) => p.ownership !== "watched");
+  const supplied = owner
+    .filter((p) => p.kind === "supplied" && p.asset === "USDC" && (!p.chain || p.chain === "near"))
+    .reduce((n, p) => n + units(p.amount), 0n);
+  const policy = w.policy ?? defaultPolicy(w.mandate.maxMoveCost);
+  const check = evaluatePolicy(policyAction(w, "withdraw", decimal(amount)), policy, ledger);
+  const today = new Date().toISOString().slice(0, 10);
+  const wSteps: StepKind[] = ["withdraw"];
+  const alternatives: FundingChoice[] = [
+    {
+      id: "withdraw-rhea", kind: "withdraw",
+      eligible: false,
+      reasons: [...(supplied >= amount ? [] : ["RHEA_SUPPLY_SHORT"]), ...check.violations.map((v) => v.code), ...adapterReasons(wSteps)],
+      amountUsdcRaw: amount.toString(), costsUsdcRaw: w.mode === "demo" ? "0" : null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null,
+      availableAt: today, steps: wSteps,
+    },
+  ];
+  // Unstaking: the market's exit window decides whether it can land before the date; execution needs Positions' adapter.
+  for (const p of owner.filter((x) => x.kind === "staking" && !x.availableAt)) {
+    const m = market.markets.find((x) => x.id === EXIT_MARKET[p.asset]);
+    const ready = m?.exitDays == null ? null : new Date(Date.now() + (m.exitDays + (w.mandate.leadDays ?? 1)) * 86400000).toISOString().slice(0, 10);
+    const steps: StepKind[] = ["unstake", "withdraw_unstaked"];
+    alternatives.push({
+      id: "unstake-" + p.id, kind: "unstake", eligible: false,
+      reasons: [
+        ...(ready === null ? ["EXIT_WINDOW_UNKNOWN"] : deadline && ready > deadline ? ["EXIT_MISSES_DUE_DATE"] : []),
+        ...(p.valuation?.amount == null ? ["POSITION_VALUE_UNKNOWN"] : units(p.valuation.amount) < amount ? ["POSITION_TOO_SMALL"] : []),
+        ...adapterReasons(steps),
+      ],
+      amountUsdcRaw: amount.toString(), costsUsdcRaw: null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null, availableAt: ready, steps,
+    });
+  }
+  const b = await within(borrowChoice(w, amount, deadline ?? today, true), CREDIT_READ_MS, "Rhea credit read").catch((e) => ({
+    id: "borrow", kind: "borrow" as const, eligible: false, reasons: ["CREDIT_READ_FAILED: " + (e instanceof Error ? e.message : String(e))],
+    amountUsdcRaw: amount.toString(), costsUsdcRaw: null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null, availableAt: null, steps: ["borrow"] as StepKind[],
+  }));
+  const bSteps: StepKind[] = ["borrow"];
+  alternatives.push({ ...b, steps: bSteps, reasons: [...new Set([...approvalLater(b.reasons), ...adapterReasons(bSteps)])] });
+  for (const a of alternatives) {
+    a.reasons = [...new Set(a.reasons)];
+    a.eligible = a.reasons.length === 0;
+  }
+  const pick = alternatives.find((a) => a.eligible);
+  const plan = newPlan({
+    ...base,
+    objective: "access_cash",
+    request: { ...base.request, amountRaw: amount.toString(), asset: "USDC", chain: "near", deadline },
+    alternatives,
+    recommendedChoiceId: pick?.id,
+    effects: {
+      reserveAfterUsdcRaw: raw(w.mandate.reserve),
+      debtAfterUsdcRaw: pick?.kind === "borrow" ? amount.toString() : "0",
+      costsUsdcRaw: pick?.costsUsdcRaw ?? null,
+      exposure: pick?.kind === "withdraw" ? [
+        { asset: "USDC · Rhea supply", deltaRaw: (-amount).toString(), decimals: 6 },
+        { asset: "USDC · NEAR wallet", deltaRaw: amount.toString(), decimals: 6 },
+      ] : [],
+    },
+  }) as StoredPlan;
+  plan.title = title ?? `Free up ${grouped(decimal(amount))} USDC${deadline ? " by " + deadline : ""}`;
+  plan.evidence = w.mode === "demo" ? "Fictional example figures" : "Live reads at " + portfolio.capturedAt;
+  plan.figures = figures?.length ? figures : [{ label: "Rhea USDC supply", value: decimal(supplied), engine: "workspacePortfolio" }];
+  return plan;
+}
+
 /* ───────────── borrow under stress limits ───────────── */
 
 type Cap = Awaited<ReturnType<typeof lendingPreview>>["capacity"];
@@ -517,6 +591,11 @@ export interface PlanRequest {
   /** Free-text payment label from the question (changed-payment intent). */
   label?: string;
   createdBy?: ActionPlan["createdBy"];
+  /** access_cash (monitor): USDC raw to free up, by a date, with the capital figures that raised it. */
+  amountRaw?: string;
+  deadline?: string;
+  title?: string;
+  figures?: PlanExtras["figures"];
 }
 
 export async function evaluatePlan(s: SessionLike, id: string, req: PlanRequest): Promise<StoredPlan> {
@@ -539,6 +618,10 @@ export async function evaluatePlan(s: SessionLike, id: string, req: PlanRequest)
   if (req.objective === "borrow") return borrowPlan(s, base);
   if (req.objective === "repay") return repayPlan(s, base);
   if (req.objective === "respond_to_change") return changePlan(s, base, req.label);
+  if (req.objective === "access_cash") {
+    if (!req.amountRaw || BigInt(req.amountRaw) <= 0n) throw new Error("Choose how much cash to free up.");
+    return accessCash(s, base, BigInt(req.amountRaw), req.deadline, req.title, req.figures);
+  }
   throw new Error(`Plans for ${req.objective} are not available yet.`);
 }
 

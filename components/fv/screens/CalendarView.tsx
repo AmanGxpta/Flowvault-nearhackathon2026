@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from "react";
 import { tc } from "../theme";
+import { AlertsPanel } from "../Alerts";
 
 // Design section: CALENDAR
 export function CalendarView({ v }: { v: any }) {
@@ -60,6 +61,7 @@ export function CalendarView({ v }: { v: any }) {
           + Add a payment
         </button>
       </div>
+      {v.scope ? <AlertsPanel key={v.scope} scope={v.scope} where="calendar" /> : null}
       <div style={{ marginTop: "34px", display: "flex", flexWrap: "wrap", gap: "24px", alignItems: "flex-start" }}>
         <div style={{ flex: "1 1 520px", minWidth: "0", display: "flex", flexDirection: "column", gap: "24px" }}>
           {(v.obGroups || []).map((g: any, i_g_0: number) => (
