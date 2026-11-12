@@ -219,7 +219,7 @@ test("1Click routes come from the catalog and must be official USDC with 6 decim
 });
 
 test("leg quotes must echo the request exactly and never deliver more than they take", () => {
-  const r = { network: "base" as const, from: BASE, to: "alice.near", amountRaw: "100000000", originAsset: "nep141:base-usdc", destinationAsset: "nep141:near-usdc" };
+  const r = { network: "base" as const, from: BASE, to: "alice.near", amountRaw: "100000000", originAsset: "nep141:base-usdc", destinationAsset: "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1" };
   const sent = legQuoteBody(r, false, Date.parse(at));
   const body = (q: Record<string, unknown>, echo: Record<string, unknown> = {}) => ({ quote: { amountIn: "100000000", amountOut: "99800000", minAmountOut: "99300000", depositAddress: "0x9999999999999999999999999999999999999999", timeEstimate: 60, ...q }, quoteRequest: { ...sent, ...echo } });
   const ok = checkLegQuote(r, sent, body({}));

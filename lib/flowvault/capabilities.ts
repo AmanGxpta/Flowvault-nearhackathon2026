@@ -14,7 +14,7 @@ const GAS_ASSET = { near: "NEAR", ethereum: "ETH", base: "ETH", arbitrum: "ETH",
 const GAS_DECIMALS = { NEAR: 24, ETH: 18, SOL: 9 } as const;
 
 /** Networks whose USDC FlowVault can move to the plan's NEAR account as a signed funding leg. */
-export const LEG_NETWORKS: ExecutionNetwork[] = ["ethereum", "base", "arbitrum"];
+export const LEG_NETWORKS: ExecutionNetwork[] = ["ethereum", "base", "arbitrum", "solana"];
 /** Networks where a verified USDC-gas path exists (Phase 4 item 3). Empty until it is verified and built. */
 export const USDC_GAS_NETWORKS: ExecutionNetwork[] = [];
 

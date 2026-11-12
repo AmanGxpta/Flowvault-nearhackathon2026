@@ -11,7 +11,21 @@ export const LEG_TABLE = "CREATE TABLE IF NOT EXISTS funding_legs (id TEXT PRIMA
 /** The exact source-chain request the wallet is asked to approve. */
 export type LegTransaction =
   | { kind: "evm"; chainId: string; from: string; to: string; value: string; data: string }
-  | { kind: "solana"; from: string; mint: string; depositAddress: string; amountRaw: string; memo: string | null; createRecipientAta: boolean };
+  | {
+      kind: "solana";
+      from: string;
+      mint: string;
+      depositAddress: string;
+      amountRaw: string;
+      memo: string | null;
+      /** CreateAssociatedTokenIdempotent for the deposit address is included (it had no USDC account). */
+      createRecipientAta: boolean;
+      sourceAta: string;
+      /** Unsigned wire transaction (@solana/kit); rebuilt with a fresh blockhash at every handoff. */
+      transactionBase64: string;
+      blockhash: string;
+      lastValidBlockHeight: string;
+    };
 
 export interface LegRecord {
   /** "leg:<uuid>" — also the step's attemptId, so the plan executor watches it like a wallet attempt. */

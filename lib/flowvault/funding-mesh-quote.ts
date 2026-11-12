@@ -113,7 +113,7 @@ export function checkLegQuote(r: LegRequest, sent: ReturnType<typeof legQuoteBod
   const out = BigInt(q.amountOut), min = BigInt(q.minAmountOut);
   if (min <= 0n || min > out) throw new Error("Invalid quote bounds.");
   // Stable to the same stable: delivering more than was sent would mean a mispriced or wrong-asset quote.
-  if (out > BigInt(r.amountRaw)) throw new Error("The quote delivers more USDC than it takes; refusing it.");
+  if (r.destinationAsset === "nep141:" + NEAR_USDC.contract && out > BigInt(r.amountRaw)) throw new Error("The quote delivers more USDC than it takes; refusing it.");
   const deposit = q.depositAddress ?? null;
   if (sent.dry ? deposit : !(typeof deposit === "string" && validSource(r.network, deposit)))
     throw new Error(sent.dry ? "A preview quote must not carry a deposit address." : "The quote has no valid deposit address for " + r.network + ".");
@@ -154,4 +154,11 @@ export function readStatus(body: any): ProviderReport {
     destinationHashes: hashes(d.destinationChainTxHashes),
     originHashes: hashes(d.originChainTxHashes),
   };
+}
+
+/** wNEAR as the catalog lists it (Convert to NEAR delivers wNEAR, then the NEAR wallet unwraps it). */
+export function resolveWnear(tokens: CatalogToken[]): CatalogToken {
+  const t = (Array.isArray(tokens) ? tokens : []).find((x) => x?.blockchain === "near" && x?.contractAddress === "wrap.near");
+  if (!t || t.assetId !== "nep141:wrap.near" || t.decimals !== 24) throw new Error("1Click doesn't list wNEAR right now.");
+  return t;
 }

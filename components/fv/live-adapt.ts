@@ -460,13 +460,15 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
     proof?.state === "declined"
       ? [{ glyph: "✎", label: "Prove " + proof.account + " is yours", sub: "Sign one free message in your NEAR wallet" + (proof.error ? " · last try: " + proof.error : ""), color: "#3F6B3C", onClick: () => { close(); self.liveCall(() => acts0.proveNear()); } }]
       : [];
-  // Convert to NEAR: USDC on Ethereum, Base or Arbitrum from your connected wallets → NEAR → stake.
-  const CH: Record<string, string> = { eth: "Ethereum", base: "Base", arb: "Arbitrum" };
+  // Convert to NEAR: USDC on Ethereum, Base, Arbitrum or Solana (Stream A) from your connected wallets → NEAR → stake.
+  const CH: Record<string, string> = { eth: "Ethereum", base: "Base", arb: "Arbitrum", sol: "Solana" };
   const convertSources = ((snap.portfolio as any)?.positions ?? [])
-    .filter((p: any) => p.asset === "USDC" && ["eth", "base", "arb"].includes(p.chain) && p.accountId && Number(p.amount) > 0)
+    .filter((p: any) => p.asset === "USDC" && ["eth", "base", "arb", "solana"].includes(p.chain) && p.accountId && Number(p.amount) > 0)
     .map((p: any) => {
-      const ses = sessions.find((x) => x.chain === "evm" && x.address.toLowerCase() === String(p.accountId).toLowerCase()) ?? null;
-      return { key: p.chain + ":" + p.accountId, chain: p.chain, chainName: CH[p.chain], address: p.accountId, short: shortAddress(p.accountId), usdc: String(Number(p.amount)), walletName: ses?.walletName ?? null, icon: ses?.icon, session: ses };
+      const sol = p.chain === "solana";
+      const ses = sessions.find((x) => (sol ? x.chain === "solana" && x.address === p.accountId : x.chain === "evm" && x.address.toLowerCase() === String(p.accountId).toLowerCase())) ?? null;
+      const chain = sol ? "sol" : p.chain;
+      return { key: chain + ":" + p.accountId, chain, chainName: CH[chain], address: p.accountId, short: shortAddress(p.accountId), usdc: String(Number(p.amount)), walletName: ses?.walletName ?? null, icon: ses?.icon, session: ses };
     })
     .sort((a: any, b: any) => (b.session ? 1 : 0) - (a.session ? 1 : 0) || Number(b.usdc) - Number(a.usdc));
   out.openConvert = () => self.setState({ menu: null, convertOpen: true, convertPreset: null });

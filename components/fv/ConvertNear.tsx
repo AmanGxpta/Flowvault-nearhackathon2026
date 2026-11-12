@@ -1,13 +1,14 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any -- API JSON from /api/funding and wallet errors */
-// Convert to NEAR: USDC on Ethereum, Base or Arbitrum → NEAR in your NEAR account, then stake it.
+// Convert to NEAR: USDC on Ethereum, Base, Arbitrum or Solana → NEAR in your NEAR account, then stake it.
 // Steps: preview quote → send the USDC from your Ethereum wallet (you approve it there) → 1Click delivers
 // wNEAR → unwrap it into NEAR (you approve it in your NEAR wallet) → stake. FlowVault signs nothing.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export interface ConvertSource {
   key: string;
-  chain: "eth" | "base" | "arb";
+  /** "sol" (Stream A): Solana USDC, sent by Phantom/Solflare/… through /api/funding/solana. */
+  chain: "eth" | "base" | "arb" | "sol";
   chainName: string;
   address: string;
   short: string;
@@ -42,10 +43,15 @@ const STATUS_TEXT: Record<string, string> = {
   KNOWN_DEPOSIT_TX: "1Click sees your transfer · waiting for confirmations…",
   PROCESSING: "Converting USDC to NEAR…",
   SUCCESS: "Delivered to your NEAR account.",
-  INCOMPLETE_DEPOSIT: "The deposit was smaller than quoted; 1Click will refund it to your Ethereum address.",
-  REFUNDED: "1Click refunded the USDC to your Ethereum address. Nothing was converted.",
-  FAILED: "The conversion failed. Any USDC received is refunded to your Ethereum address.",
+  INCOMPLETE_DEPOSIT: "The deposit was smaller than quoted; 1Click will refund it to the address it came from.",
+  REFUNDED: "1Click refunded the USDC to the address it came from. Nothing was converted.",
+  FAILED: "The conversion failed. Any USDC received is refunded to the address it came from.",
+  // Solana (Stream A): outcomes the source chain itself decides.
+  NOT_SENT: "Your wallet never sent it and the transaction expired, so it can't land. Your USDC is still in your wallet; try again.",
+  SOURCE_FAILED: "The transfer failed on Solana, so nothing reached 1Click. Your USDC stayed in your wallet (only the network fee was spent).",
+  UNCERTAIN: "Your wallet didn't confirm whether it sent. Checking the deposit address with 1Click instead of guessing — don't send it again yet.",
 };
+const ENDED = ["REFUNDED", "FAILED", "INCOMPLETE_DEPOSIT", "NOT_SENT", "SOURCE_FAILED"];
 
 function Btn({ primary, disabled, onClick, children }: { primary?: boolean; disabled?: boolean; onClick?: () => void; children: React.ReactNode }) {
   return (
@@ -84,6 +90,7 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
   const [nearOut, setNearOut] = useState("");
   const [registering, setRegistering] = useState(false);
   const [retry, setRetry] = useState(0);
+  const jobRef = useRef<{ id: string; quote: any } | null>(null);
 
   const src = useMemo(() => m.sources.find((x) => x.key === srcKey) ?? m.sources[0] ?? null, [m.sources, srcKey]);
   const qKey = src && Number(amount) > 0 ? src.key + "|" + amount.trim() : "";
@@ -129,9 +136,9 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
       m.status(job.id).then(
         (r) => {
           if (!alive) return;
-          setJob((j) => (j ? { ...j, status: r.status, wnearRaw: r.wnearRaw } : j));
+          setJob((j) => (j ? { ...j, status: r.status === "PENDING_DEPOSIT" && j.status === "UNCERTAIN" ? "UNCERTAIN" : r.status, wnearRaw: r.wnearRaw } : j));
           if (r.status === "SUCCESS") setStep("delivered");
-          else if (["REFUNDED", "FAILED", "INCOMPLETE_DEPOSIT"].includes(r.status)) setStep("failed");
+          else if (ENDED.includes(r.status)) setStep("failed");
         },
         () => undefined,
       );
@@ -146,10 +153,12 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
   const amountOk = !!src && Number(amount) > 0 && Number(amount) <= Number(src.usdc);
   const send = async () => {
     if (!src || !src.session) return;
+    jobRef.current = null;
     setErr("");
     setStep("sending");
     try {
       const prep = await m.fund({ action: "prepare", chain: src.chain, from: src.address, amount: amount.trim() });
+      jobRef.current = { id: prep.id, quote: prep.quote };
       setJob({ id: prep.id, quote: prep.quote });
       const hash = await m.send(src.session, prep.tx, prep.quote.depositAddress, prep.quote.amountInRaw);
       await m.fund({ action: "submitted", id: prep.id, txHash: hash }).catch(() => undefined);
@@ -157,7 +166,16 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
       setStep("tracking");
     } catch (e: any) {
       const msg = String(e?.message ?? e);
-      setErr(e?.code === 4001 || /reject|denied|cancel/i.test(msg) ? "You declined in " + (src.walletName ?? "your wallet") + ". Nothing was sent." : msg);
+      const declined = e?.code === 4001 || /reject|denied|declin|cancel/i.test(msg);
+      // Solana (Stream A): an unclear wallet answer after preparing is tracked by deposit address, never re-sent blind.
+      const pending = jobRef.current;
+      if (src.chain === "sol" && pending && !declined && !/doesn.t match|isn.t the transfer|unexpected/i.test(msg)) {
+        await m.fund({ action: "uncertain", id: pending.id }).catch(() => undefined);
+        setJob({ ...pending, status: "UNCERTAIN" });
+        setStep("tracking");
+        return;
+      }
+      setErr(declined ? "You declined in " + (src.walletName ?? "your wallet") + ". Nothing was sent." : msg);
       setStep("form");
     }
   };
@@ -215,7 +233,7 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
           </div>
         ) : !m.sources.length ? (
           <div style={{ marginTop: 14, fontSize: 14, lineHeight: 1.5, color: muted }}>
-            No USDC found on Ethereum, Base or Arbitrum in your connected wallets. Connect the Ethereum wallet that holds it from the wallet menu.
+            No USDC found on Ethereum, Base, Arbitrum or Solana in your connected wallets. Connect the wallet that holds it from the wallet menu.
             <div style={{ marginTop: 14 }}>
               <Btn onClick={m.connect}>Connect a wallet →</Btn>
             </div>
@@ -243,7 +261,7 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
                     border: `1px solid ${src?.key === x.key ? "var(--fvb-9DB48C)" : line}`,
                   }}
                 >
-                  {x.icon ? <img src={x.icon} alt="" width={24} height={24} style={{ borderRadius: 6 }} /> : <span style={{ width: 24, textAlign: "center" }}>Ξ</span>}
+                  {x.icon ? <img src={x.icon} alt="" width={24} height={24} style={{ borderRadius: 6 }} /> : <span style={{ width: 24, textAlign: "center" }}>{x.chain === "sol" ? "◎" : "Ξ"}</span>}
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: 14 }}>{Number(x.usdc).toFixed(2)} USDC on {x.chainName}</span>
                     <span style={{ display: "block", fontSize: 12, color: muted }}>
@@ -281,7 +299,7 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
                     You get ≈ {Number(quote.nearOut).toFixed(4)} NEAR
                   </div>
                   <div style={{ color: muted }}>
-                    At least {Number(quote.minNearOut).toFixed(4)} NEAR · about {Math.max(1, Math.round(quote.seconds / 60))} min · {quote.usdOut ? "worth ≈ $" + Number(quote.usdOut).toFixed(2) + " · " : ""}network fee paid in ETH by your wallet
+                    At least {Number(quote.minNearOut).toFixed(4)} NEAR · about {Math.max(1, Math.round(quote.seconds / 60))} min · {quote.usdOut ? "worth ≈ $" + Number(quote.usdOut).toFixed(2) + " · " : ""}network fee paid in {src?.chain === "sol" ? "SOL" : "ETH"} by your wallet
                   </div>
                 </>
               ) : (

@@ -261,6 +261,8 @@ export async function handoffLeg(sessionId: string, id: string): Promise<LegReco
   const { leg, previous } = got;
   if (leg.state !== "prepared") throw new Error(leg.state === "awaiting_wallet" ? "This leg was already handed to your wallet. Check its status instead of sending it again." : `This leg is ${leg.state}; it can't be sent.`);
   if (Date.parse(leg.expiresAt) <= Date.now()) throw new Error("This leg's quote expired before it reached your wallet. Prepare it again for a fresh quote.");
+  // A Solana blockhash lives ~60–90 s: the same transfer gets a fresh lifetime at the moment it is handed over.
+  if (leg.tx.kind === "solana") leg.tx = await (await import("./solana-funding")).withBlockhash(leg.tx);
   legNote(leg, "awaiting_wallet", "Handed to your wallet for approval.");
   await legSave(leg, previous);
   return leg;
@@ -340,6 +342,8 @@ export async function checkLeg(sessionId: string, id: string, prices: PriceEvide
     legNote(leg, "refunded", `1Click refunded ${st.refundedRaw ? fmt(BigInt(st.refundedRaw)) + " " : ""}USDC to ${leg.from}. Nothing was converted.`);
   } else if (st.status === "FAILED" || st.status === "INCOMPLETE_DEPOSIT") {
     legNote(leg, "unknown", st.status === "FAILED" ? "1Click reports the conversion failed; a refund to your source address is pending." : "The deposit arrived smaller than quoted; 1Click refunds it to your source address.");
+  } else if (st.status === "PENDING_DEPOSIT" && !leg.txHash && leg.tx.kind === "solana" && leg.state !== "awaiting_wallet" && (await (await import("./solana-funding")).blockhashExpired(leg.tx.lastValidBlockHeight).catch(() => false))) {
+    legNote(leg, "failed", "Your wallet never sent it and its transaction expired, so it can't land any more. The USDC is still in " + leg.from + ".");
   } else if (st.status === "PENDING_DEPOSIT" && !leg.txHash && Date.parse(leg.quote.deadline) < now) {
     legNote(leg, "failed", "Nothing arrived at the deposit address before its deadline, so nothing was sent. The USDC is still in " + leg.from + ".");
   } else if (st.status === "KNOWN_DEPOSIT_TX" || st.status === "PROCESSING" || (st.status === "PENDING_DEPOSIT" && leg.txHash)) {
