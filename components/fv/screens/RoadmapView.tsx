@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from "react";
 import { tc } from "../theme";
+import { roadmapRows, roadmapNext } from "../roadmap";
 
 // Design section: ROADMAP
 export function RoadmapView({ v }: { v: any }) {
@@ -9,7 +10,7 @@ export function RoadmapView({ v }: { v: any }) {
     <>
       <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: "12px", letterSpacing: ".22em", fontWeight: "600", color: "var(--fvc-6F786B)" }}>
-          LATER · ROADMAP
+          BUILD PROGRESS · ROADMAP
         </span>
         <span
           style={{
@@ -23,7 +24,7 @@ export function RoadmapView({ v }: { v: any }) {
             color: "var(--fvc-4A5349)",
           }}
         >
-          BUILD DIRECTION · NOT BUILT
+          IMPLEMENTED · NEXT · PLANNED
         </span>
       </div>
       <h1
@@ -35,7 +36,7 @@ export function RoadmapView({ v }: { v: any }) {
           lineHeight: "1.05",
         }}
       >
-        Where the account goes next.
+        Built so far. What comes next.
       </h1>
       <p
         style={{
@@ -46,7 +47,7 @@ export function RoadmapView({ v }: { v: any }) {
           textWrap: "pretty",
         }}
       >
-        Each phase ships when its exit criteria are met. These are directions, not dates or revenue promises.
+        Implemented means the capability and its guards are in this build. Funded rehearsals, security review and deployment are tracked separately; Demo Mode figures and replays remain illustrative.
       </p>
       <div
         style={{
@@ -71,12 +72,12 @@ export function RoadmapView({ v }: { v: any }) {
             borderBottom: "1px solid var(--fvb-EEF0E8)",
           }}
         >
-          <div>PHASE</div>
+          <div>STEP</div>
           <div>JOURNEY</div>
-          <div>SHIPS WHEN</div>
+          <div>NEXT CHECKPOINT</div>
           <div>STATUS</div>
         </div>
-        {(v.roadmap || []).map((r: any, i_r_0: number) => (
+        {roadmapRows(v).map((r: any, i_r_0: number) => (
           <Fragment key={i_r_0}>
             <div
               style={{
@@ -150,7 +151,7 @@ export function RoadmapView({ v }: { v: any }) {
         ))}
       </div>
       <h3 style={{ margin: "36px 0 0", fontSize: "22px", fontWeight: "500", letterSpacing: "-0.02em" }}>
-        Stretch work, not started
+        Next integrations
       </h3>
       <div
         style={{
@@ -160,7 +161,7 @@ export function RoadmapView({ v }: { v: any }) {
           gap: "14px",
         }}
       >
-        {(v.stretch || []).map((x: any, i_x_0: number) => (
+        {roadmapNext.map((x: any, i_x_0: number) => (
           <Fragment key={i_x_0}>
             <div
               style={{
