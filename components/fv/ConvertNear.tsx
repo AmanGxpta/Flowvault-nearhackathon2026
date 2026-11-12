@@ -4,6 +4,8 @@
 // Steps: preview quote → send the USDC from your Ethereum wallet (you approve it there) → 1Click delivers
 // wNEAR → unwrap it into NEAR (you approve it in your NEAR wallet) → stake. FlowVault signs nothing.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "./live";
+import { FUND_NETWORK, detectUsdcGas, sendWithUsdcGas } from "@/lib/flowvault/gas-abstraction-client"; // Stream A: USDC network fees
 
 export interface ConvertSource {
   key: string;
@@ -91,6 +93,12 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
   const [registering, setRegistering] = useState(false);
   const [retry, setRetry] = useState(0);
   const jobRef = useRef<{ id: string; quote: any } | null>(null);
+  // Stream A: network fee in USDC via Circle Paymaster — shown only when this wallet reports it can.
+  const [gasPay, setGasPay] = useState<"eth" | "usdc">("eth");
+  const [gasCap, setGasCap] = useState<{ key: string; supported: boolean } | null>(null);
+  const [gasEst, setGasEst] = useState<{ key: string; supported: boolean; quote?: any; reason?: string } | null>(null);
+  const [gasId, setGasId] = useState<string | null>(null);
+  const [gasPaid, setGasPaid] = useState<string | null>(null);
 
   const src = useMemo(() => m.sources.find((x) => x.key === srcKey) ?? m.sources[0] ?? null, [m.sources, srcKey]);
   const qKey = src && Number(amount) > 0 ? src.key + "|" + amount.trim() : "";
@@ -150,7 +158,31 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
     };
   }, [step, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const amountOk = !!src && Number(amount) > 0 && Number(amount) <= Number(src.usdc);
+  const gasNet = src && src.chain !== "sol" ? FUND_NETWORK[src.chain] : null;
+  const usdcGas = !!src && !!gasNet && !!src.session && gasCap?.key === src.key && gasCap.supported;
+  useEffect(() => {
+    if (!src || !gasNet || !src.session) return;
+    let live = true;
+    detectUsdcGas(src.session as any, gasNet).then((r) => live && setGasCap({ key: src.key, supported: r.supported }), () => undefined);
+    return () => {
+      live = false;
+    };
+  }, [src?.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!usdcGas || gasPay !== "usdc" || !qKey || !src || !gasNet) return;
+    const t = setTimeout(() => {
+      const amountRaw = String(Math.round(Number(amount) * 1e6));
+      api("/api/gas", { action: "estimate", network: gasNet, from: src.address, amountRaw }, "POST", "personal").then((r) => setGasEst({ key: qKey, ...r }), (e) => setGasEst({ key: qKey, supported: false, reason: String(e?.message ?? e) }));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [qKey, gasPay, usdcGas]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!gasId || (step !== "tracking" && step !== "delivered" && step !== "failed")) return;
+    api("/api/gas?id=" + encodeURIComponent(gasId), undefined, "GET", "personal").then((r) => r.chargedUsdcRaw && setGasPaid((Number(r.chargedUsdcRaw) / 1e6).toFixed(4)), () => undefined);
+  }, [gasId, step, job?.status]);
+  const est = gasEst && gasEst.key === qKey ? gasEst : null;
+  const payInUsdc = usdcGas && gasPay === "usdc";
+  const amountOk = !!src && Number(amount) > 0 && Number(amount) <= Number(src.usdc) && (!payInUsdc || !!est?.supported);
   const send = async () => {
     if (!src || !src.session) return;
     jobRef.current = null;
@@ -160,7 +192,9 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
       const prep = await m.fund({ action: "prepare", chain: src.chain, from: src.address, amount: amount.trim() });
       jobRef.current = { id: prep.id, quote: prep.quote };
       setJob({ id: prep.id, quote: prep.quote });
-      const hash = await m.send(src.session, prep.tx, prep.quote.depositAddress, prep.quote.amountInRaw);
+      const hash = payInUsdc && gasNet
+        ? await sendWithUsdcGas(src.session as any, gasNet, prep.tx, prep.quote.depositAddress, prep.quote.amountInRaw, api).then((r) => (setGasId(r.gasId), r.hash))
+        : await m.send(src.session, prep.tx, prep.quote.depositAddress, prep.quote.amountInRaw);
       await m.fund({ action: "submitted", id: prep.id, txHash: hash }).catch(() => undefined);
       setJob({ id: prep.id, quote: prep.quote, txHash: hash, status: "KNOWN_DEPOSIT_TX" });
       setStep("tracking");
@@ -306,6 +340,26 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
                 <span style={{ color: muted }}>{amount && src && Number(amount) > Number(src.usdc) ? "That’s more than this address holds." : "Enter an amount to see how much NEAR you get."}</span>
               )}
             </div>
+            {usdcGas ? (
+              <div role="radiogroup" aria-label="Pay the network fee in" style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, border: `1px solid ${line}`, fontSize: 13, lineHeight: 1.45 }}>
+                <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ color: muted }}>Network fee in</span>
+                  {(["eth", "usdc"] as const).map((g) => (
+                    <label key={g} style={{ display: "inline-flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
+                      <input type="radio" name="fv-gas" checked={gasPay === g} onChange={() => setGasPay(g)} disabled={step === "sending"} />
+                      {g === "eth" ? "ETH (your wallet)" : "USDC (Circle Paymaster)"}
+                    </label>
+                  ))}
+                </div>
+                {gasPay === "usdc" ? (
+                  <div style={{ marginTop: 6, color: muted, fontSize: 12.5 }}>
+                    {!est ? "Estimating the fee…"
+                      : est.supported && est.quote ? <>You send {amount} USDC + fee ≈ ${(Number(est.quote.gasUsdcRaw) / 1e6).toFixed(3)} gas + ${(Number(est.quote.markupUsdcRaw) / 1e6).toFixed(3)} Circle’s 10% · at most ${(Number(est.quote.maxChargeUsdcRaw) / 1e6).toFixed(2)}. You sign one USDC permit for that maximum to Circle’s paymaster; the actual fee is read from the receipt.</>
+                      : <span style={{ color: "var(--fvc-9A3F32)" }}>{String(est.reason ?? "Not available right now").replace(/^[A-Z_]+: /, "")}. Choose ETH to send now.</span>}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {needsRegister ? (
               <div style={{ marginTop: 10, padding: "12px 14px", borderRadius: 10, background: "var(--fvb-FBF6EE)", fontSize: 13, lineHeight: 1.5 }}>
                 <div style={{ fontWeight: 500 }}>One-time step: register {m.account} for wNEAR</div>
@@ -338,6 +392,7 @@ export function ConvertNearDialog({ m }: { m: ConvertModel }) {
               {job?.quote.amountIn} USDC → ≈ {Number(job?.quote.nearOut ?? 0).toFixed(4)} NEAR to {m.account}. Usually about {Math.max(1, Math.round((job?.quote.seconds ?? 60) / 60))} min after your transfer confirms. You can close this; it keeps going.
             </div>
             {job?.txHash ? <div style={{ marginTop: 8, fontSize: 12, color: muted, wordBreak: "break-all" }}>Your transfer: <span style={{ fontFamily: "'DM Mono',monospace" }}>{job.txHash}</span></div> : null}
+            {gasId ? <div style={{ marginTop: 4, fontSize: 12, color: muted }}>Network fee paid in USDC: {gasPaid ? gasPaid + " USDC (from the finalized receipt, incl. Circle’s 10%)" : "confirming…"}</div> : null}
             <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
               <Btn onClick={m.close}>Close</Btn>
             </div>

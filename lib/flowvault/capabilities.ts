@@ -15,7 +15,8 @@ const GAS_DECIMALS = { NEAR: 24, ETH: 18, SOL: 9 } as const;
 
 /** Networks whose USDC FlowVault can move to the plan's NEAR account as a signed funding leg. */
 export const LEG_NETWORKS: ExecutionNetwork[] = ["ethereum", "base", "arbitrum", "solana"];
-/** Networks where a verified USDC-gas path exists (Phase 4 item 3). Empty until it is verified and built. */
+/** USDC gas (Circle Paymaster, gas-abstraction.ts) is wallet-dependent: the browser decides per wallet via EIP-5792, so the
+ * server never marks an account payable-in-USDC. A gas need is still a hard requirement for legs here. */
 export const USDC_GAS_NETWORKS: ExecutionNetwork[] = [];
 
 /** Fixed native-gas bounds when no live figure is supplied (one transfer, generous). Live reads replace these. */

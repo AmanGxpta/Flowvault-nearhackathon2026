@@ -293,3 +293,9 @@ export async function sendSaleTransfer(s: WalletSession,p: import("./sale").Sale
   if(!/^0x[0-9a-fA-F]{64}$/.test(hash))throw new Error("Sale wallet returned no hash; inspect wallet history.");
   return hash;
 }
+
+/** Stream A: the EIP-1193 provider behind an EVM session (EIP-5792 capability checks and wallet_sendCalls). */
+export function evmProvider(id: string): Eip1193 | null {
+  start();
+  return evm.get(id)?.provider ?? null;
+}
