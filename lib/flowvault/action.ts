@@ -97,10 +97,15 @@ export function nextAction(
     portfolio.errors.length
       ? ["Some balance reads failed; this step uses only what was read."]
       : [];
-  const by = new Date(mandate.cashDate + "T12:00:00").toLocaleDateString(
-    "en-US",
-    { month: "short", day: "numeric" },
-  );
+  // Name the next pending payment only when there is one; a deleted payment must not linger in the wording.
+  // Legacy mandates (no obligations list) keep their single cash date.
+  const nextDue = mandate.obligations
+    ? mandate.obligations.filter((o) => o.status === "pending" || o.status === "processing").map((o) => o.dueDate).sort()[0]
+    : mandate.cashDate;
+  const by = nextDue
+    ? new Date(nextDue + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : null;
+  const andNeed = by ? ` and the ${by} payment` : "";
   if (encumbered > 0n)
     return {
       kind: "manage",
@@ -116,7 +121,7 @@ export function nextAction(
       return {
         kind: "none",
         title: "Your wallet is below your plan",
-        detail: `You need ${usdc(shortfall)} more USDC in your wallet for your reserve and the ${by} cash need, and there is no Rhea supply to withdraw from. Add USDC or edit your cash plan.`,
+        detail: `You need ${usdc(shortfall)} more USDC in your wallet for your reserve${andNeed}, and there is no Rhea supply to withdraw from. Add USDC, or lower your reserve floor in Calendar.`,
         caveats,
       };
     const amount = shortfall < rhea ? shortfall : rhea;
@@ -125,8 +130,8 @@ export function nextAction(
       kind: "withdraw",
       amount: decimal(amount),
       shortfall: decimal(shortfall),
-      title: `Withdraw ${usdc(amount)} USDC to restore your reserve before ${by}`,
-      detail: `Your wallet holds ${usdc(wallet)} USDC against a ${usdc(holdback)} USDC reserve plus cash need.`,
+      title: `Withdraw ${usdc(amount)} USDC to restore your reserve${by ? " before " + by : ""}`,
+      detail: `Your wallet holds ${usdc(wallet)} USDC against a ${usdc(holdback)} USDC holdback (reserve${by ? " plus payments" : ""}).`,
       caveats: [
         ...caveats,
         ...(residual > 0n
@@ -144,7 +149,7 @@ export function nextAction(
     return {
       kind: "none",
       title: "Nothing to do",
-      detail: `Your wallet covers your reserve and the ${by} cash need, and there is no surplus worth moving.`,
+      detail: `Your wallet covers your reserve${andNeed}, and there is no surplus worth moving.`,
       caveats,
     };
   if (!mandate.approved.includes("rhea-usdc"))
@@ -185,7 +190,7 @@ export function nextAction(
     kind: "supply",
     amount: decimal(surplus),
     title: `Supply ${usdc(surplus)} surplus USDC to Rhea`,
-    detail: `Keeps ${usdc(holdback)} USDC in your wallet for your reserve and the ${by} cash need.`,
+    detail: `Keeps ${usdc(holdback)} USDC in your wallet for your reserve${andNeed}.`,
     caveats: [
       ...caveats,
       ...(

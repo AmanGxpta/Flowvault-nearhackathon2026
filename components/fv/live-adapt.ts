@@ -460,6 +460,31 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
     proof?.state === "declined"
       ? [{ glyph: "✎", label: "Prove " + proof.account + " is yours", sub: "Sign one free message in your NEAR wallet" + (proof.error ? " · last try: " + proof.error : ""), color: "#3F6B3C", onClick: () => { close(); self.liveCall(() => acts0.proveNear()); } }]
       : [];
+  // Convert to NEAR: USDC on Ethereum, Base or Arbitrum from your connected wallets → NEAR → stake.
+  const CH: Record<string, string> = { eth: "Ethereum", base: "Base", arb: "Arbitrum" };
+  const convertSources = ((snap.portfolio as any)?.positions ?? [])
+    .filter((p: any) => p.asset === "USDC" && ["eth", "base", "arb"].includes(p.chain) && p.accountId && Number(p.amount) > 0)
+    .map((p: any) => {
+      const ses = sessions.find((x) => x.chain === "evm" && x.address.toLowerCase() === String(p.accountId).toLowerCase()) ?? null;
+      return { key: p.chain + ":" + p.accountId, chain: p.chain, chainName: CH[p.chain], address: p.accountId, short: shortAddress(p.accountId), usdc: String(Number(p.amount)), walletName: ses?.walletName ?? null, icon: ses?.icon, session: ses };
+    })
+    .sort((a: any, b: any) => (b.session ? 1 : 0) - (a.session ? 1 : 0) || Number(b.usdc) - Number(a.usdc));
+  out.openConvert = () => self.setState({ menu: null, convertOpen: true, convertPreset: null });
+  out.convertModal = {
+    open: !!s.convertOpen,
+    close: () => self.setState({ convertOpen: false }),
+    account: snap.signedIn ?? null,
+    sources: convertSources,
+    preset: s.convertPreset ?? null,
+    fund: (b: any) => acts0.fund(b),
+    status: (id: string) => acts0.fundStatus(id),
+    send: (ses: any, tx: any, dep: string, amt: string) => acts0.sendUsdc(ses, tx, dep, amt),
+    unwrap: () => acts0.unwrapToNear(),
+    register: () => acts0.registerWnear(),
+    stake: (n: string) => { self.setState({ convertOpen: false, screen: "strategies", stk: { ...s.stk, amt: n } }); self.toastMsg(n + " NEAR is ready. Pick LiNEAR or a validator below to stake it."); },
+    connect: () => self.setState({ convertOpen: false, menu: null, connectOpen: true, connectError: "", connectPending: null }),
+    done: (msg: string) => self.toastMsg(msg),
+  };
   // Payments belong to your NEAR account: while this browser isn't signed in to one, adding a payment (or
   // "Pay or move money") opens Connect instead, and the calendar says why it's empty.
   if (!snap.signedIn) {
@@ -1187,12 +1212,13 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
         });
       };
       const rows = [
-        { k: "Rate", v: o.aprPercent != null ? pct(o.aprPercent) + " · " + (o.rateSource ?? "") : "unknown" },
-        { k: "Earliest unlock", v: unlock ? whenLabel(o.exit.estimatedUnlockAt) + " · estimate" : "unknown" },
-        { k: "Exit", v: (o.exit?.minimumEpochs ?? 4) + " epochs minimum · not guaranteed" },
+        // Short values; the source and caveats live in the tooltip and the line under the rows.
+        { k: "Rate", v: o.aprPercent != null ? pct(o.aprPercent) + " a year" : "Unknown", title: o.rateSource ? o.rateSource : undefined },
+        { k: "Unlock", v: unlock ? whenLabel(o.exit.estimatedUnlockAt) + " (est.)" : "Unknown" },
+        { k: "Exit", v: "≈ " + Math.round(((o.exit?.minimumEpochs ?? 4) * 12) / 24) + " days · " + (o.exit?.minimumEpochs ?? 4) + " epochs" },
         ...(q?.res ? [{ k: "Unsigned quote", v: (q.res.unsignedTransactions?.length ?? 0) + " call(s) · signable: no" + (q.res.policy?.violations?.length ? " · " + q.res.policy.violations.map((x: any) => x.code).join(", ") : "") }] : []),
         ...(q?.err ? [{ k: "Quote", v: q.err }] : []),
-        ...(polMiss.length ? [{ k: "Policy", v: "Not allowed yet · needs " + polMiss.map((e) => e.label).join(", ") }] : []),
+        ...(polMiss.length ? [{ k: "Policy", v: "Not allowed yet", title: "Needs " + polMiss.map((e) => e.label).join(", ") }] : []),
       ];
       return {
         name: NAMES[o.id] ?? o.venue, kind: (o.pool ?? KINDS[o.id] ?? o.venue) + (o.codeHashVerified ? " · code verified" : ""),
@@ -1213,7 +1239,7 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
           ? {
               poolOptions: verified.map((v: any) => ({ id: v.id, label: (v.label || v.id) + (v.aprPercent != null ? " · " + pct(v.aprPercent) : "") + (v.feePercent != null ? " · fee " + pct(v.feePercent) : "") })),
               pool,
-              poolPlaceholder: !vals ? "Checking verified validators…" : vals.err ? "Validators unavailable · " + vals.err : verified.length ? "Choose a verified validator" : reasonText(vals.res?.refusals?.length ? vals.res.refusals.map((r: any) => (typeof r === "string" ? r : r.code)) : ["NO_VERIFIED_VALIDATORS_AVAILABLE"]),
+              poolPlaceholder: !vals ? "Checking verified validators…" : vals.err ? "Couldn’t load validators" : verified.length ? "Choose a verified validator" : reasonText(vals.res?.refusals?.length ? vals.res.refusals.map((r: any) => (typeof r === "string" ? r : r.code)) : ["NO_VERIFIED_VALIDATORS_AVAILABLE"]),
               onPool: (ev: any) => self.setState({ stkPool: { scope: snap.scope, id: ev.target.value }, stakeQuote: null }),
             }
           : {}),
@@ -1856,7 +1882,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
   }
   return out;
 }
-const PROP_KIND: Record<string, string> = { pay: "payout", allocate_surplus: "surplus allocation", stress: "stress scenario", explain_block: "policy explanation", clarify: "needs details", borrow: "borrow under stress limits", repay: "repay a loan", respond_to_change: "changed payment" };
+const PROP_KIND: Record<string, string> = { convert: "convert USDC to NEAR", pay: "payout", allocate_surplus: "surplus allocation", stress: "stress scenario", explain_block: "policy explanation", clarify: "needs details", borrow: "borrow under stress limits", repay: "repay a loan", respond_to_change: "changed payment" };
 /** Protection preview and Ask FlowVault (POST /api/assistant), in both workspaces. */
 export function livePreviews(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; example: boolean }) {
   const { self, s, example } = ctx;
@@ -1887,7 +1913,13 @@ export function livePreviews(snap: LiveSnapshot, v: any, ctx: { self: any; s: an
   out.asstTag1 = "READ-ONLY · NEVER PREPARES OR SIGNS";
   out.asstTag2 = example ? "FICTIONAL EXAMPLE FIGURES" : "ANSWERS FROM ENGINE FIGURES";
   const rent = s.obs.find((o: any) => o.asset === "USDT" && o.chain === "BNB Chain" && o.status === "upcoming");
-  const QS: [string, string][] = [
+  const QS: [string, string][] = !example ? [
+    ["Convert my USDC on Ethereum to NEAR and stake it", "Convert USDC to NEAR"],
+    ["Put my eligible surplus to work until my next payment", "Surplus to work"],
+    ["What can I borrow under my stress limits?", "Borrow"],
+    ["My payment moved forward, what needs to change?", "Payment moved"],
+    ["Why was my staking blocked?", "Why blocked"],
+  ] : [
     ["Pay Aman 1,000 USDT on BNB without touching my protected assets", "Pay Aman 1,000 USDT on BNB"],
     ["Put my eligible surplus to work until my next payment", "Surplus to work"],
     ["What can I borrow under my stress limits?", "Borrow"],
@@ -1942,6 +1974,7 @@ export function livePreviews(snap: LiveSnapshot, v: any, ctx: { self: any; s: an
     const act =
       plan ? { actionLabel: (plan.state === "blocked" ? "See why and the alternatives →" : "Review this plan →"), onAction: () => { self.setState(close); openPlan({ plan, note: r.planNote ?? undefined }); } }
       : p.kind === "pay" && ob ? { actionLabel: "Open the source comparison →", onAction: () => self.setState({ ...close, screen: "pay", payPick: ob }) }
+      : p.kind === "convert" && !example ? { actionLabel: "Convert to NEAR →", onAction: () => self.setState({ ...close, convertOpen: true, convertPreset: { amount: p.amount ?? undefined, chain: p.chain ?? undefined, stake: p.action === "stake" } }) }
       : p.kind === "allocate_surplus" ? { actionLabel: "Open strategies →", onAction: () => self.setState({ ...close, screen: "strategies" }) }
       : p.kind === "stress" ? { actionLabel: "Open the credit preview →", onAction: () => self.setState({ ...close, screen: "credit" }) }
       : p.kind === "explain_block" ? { actionLabel: "Open the policy test →", onAction: () => self.setState({ ...close, screen: "policy", test: { ...s.test, kind: p.action ?? "supply", amount: String(p.amount ?? s.test.amount), asset: "usdc", venue: "rhea" } }) }

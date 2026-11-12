@@ -4,6 +4,7 @@ import { Fragment } from "react";
 import { tc } from "./theme";
 import { ThemeToggle } from "./ThemeToggle";
 import { ConnectWalletModal, ConnectedWalletRow } from "./WalletConnect";
+import { ConvertNearDialog } from "./ConvertNear";
 import { OverviewView } from "./screens/OverviewView";
 import { CalendarView } from "./screens/CalendarView";
 import { StrategiesView } from "./screens/StrategiesView";
@@ -941,6 +942,7 @@ export function Shell({ v }: { v: any }) {
         {v.asstOpen ? <AssistantView v={v} /> : null}
         {v.modalOpen ? <ModalShellView v={v} /> : null}
         {v.connectModal ? <ConnectWalletModal m={v.connectModal} /> : null}
+        {v.convertModal?.open ? <ConvertNearDialog m={v.convertModal} /> : null}
         {v.hasToast ? (
           <>
             <div role="status" aria-live="polite"

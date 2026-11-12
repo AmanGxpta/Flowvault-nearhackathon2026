@@ -354,6 +354,16 @@ export function StrategiesView({ v }: { v: any }) {
             </h3>
             <span style={{ fontSize: "13.5px", color: "var(--fvc-6F786B)" }}>{v.stkSub}</span>
             <span style={{ flex: "1" }}></span>
+            {v.openConvert ? (
+              <button
+                type="button"
+                onClick={v.openConvert}
+                className="fvh5"
+                style={{ padding: "8px 12px", borderRadius: "10px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFFFFF)", color: "var(--fvc-3F6B3C)", fontSize: "13px", fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }}
+              >
+                Get NEAR from your USDC →
+              </button>
+            ) : null}
             <span
               style={{
                 fontSize: "11px",
@@ -559,9 +569,9 @@ export function StrategiesView({ v }: { v: any }) {
                   >
                     {(s.rows || []).map((r: any, i_r_1: number) => (
                       <Fragment key={i_r_1}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
-                          <span style={{ color: "var(--fvc-5B6458)" }}>{r.k}</span>
-                          <span style={{ fontVariantNumeric: "tabular-nums", fontSize: "13px" }}>{<Skel v={r.v} />}</span>
+                        <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", gap: "12px", alignItems: "baseline" }} title={r.title}>
+                          <span style={{ color: "var(--fvc-5B6458)", whiteSpace: "nowrap" }}>{r.k}</span>
+                          <span style={{ fontVariantNumeric: "tabular-nums", fontSize: "13.5px", textAlign: "right", color: "var(--fvc-1E2A22)" }}>{<Skel v={r.v} />}</span>
                         </div>
                       </Fragment>
                     ))}

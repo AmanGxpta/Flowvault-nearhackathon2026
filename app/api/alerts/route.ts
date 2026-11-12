@@ -6,12 +6,16 @@ import { runMonitor, openAlerts } from "@/lib/flowvault/monitor-service";
 import { dismissAlert, listAlerts } from "@/lib/flowvault/monitor-store";
 import type { MonitorAlert } from "@/lib/flowvault/monitor-store";
 import type { RunSummary } from "@/lib/flowvault/monitor-store";
+import type { Workspace } from "@/lib/flowvault/types";
 
-function view(source: string, alerts: MonitorAlert[], run: RunSummary | null, ran: boolean) {
+const pendingIds = (w: Workspace) => new Set((w.obligations ?? []).filter((o) => o.status === "pending" || o.status === "processing").map((o) => o.id));
+
+function view(source: string, alerts: MonitorAlert[], run: RunSummary | null, ran: boolean, obligationIds?: Set<string>) {
   return {
     source,
     fictional: source === "demo",
-    alerts: openAlerts(alerts),
+    // Never show an alert about a payment that is no longer on the calendar (it resolves on the next run).
+    alerts: openAlerts(alerts).filter((a) => !obligationIds || !a.obligationId || obligationIds.has(a.obligationId)),
     resolved: alerts.filter((a) => a.resolvedAt).sort((a, b) => b.resolvedAt!.localeCompare(a.resolvedAt!)).slice(0, 10),
     run,
     ran,
@@ -22,7 +26,7 @@ export async function GET(r: Request) {
   try {
     const s = await session(r);
     const { alerts, run, ran } = await runMonitor(s, "read");
-    return json(view(s.workspace.mode, alerts, run, ran), s.cookie);
+    return json(view(s.workspace.mode, alerts, run, ran, pendingIds(s.workspace)), s.cookie);
   } catch (e) {
     return failure(e);
   }
@@ -40,10 +44,10 @@ export async function POST(r: Request) {
     const s = await session(r);
     if (b.action === "dismiss") {
       await dismissAlert(s.id, b.id);
-      return json(view(s.workspace.mode, await listAlerts(s.id), null, false), s.cookie);
+      return json(view(s.workspace.mode, await listAlerts(s.id), null, false, pendingIds(s.workspace)), s.cookie);
     }
     const { alerts, run, ran } = await runMonitor(s, "manual");
-    return json(view(s.workspace.mode, alerts, run, ran), s.cookie);
+    return json(view(s.workspace.mode, alerts, run, ran, pendingIds(s.workspace)), s.cookie);
   } catch (e) {
     return failure(e);
   }

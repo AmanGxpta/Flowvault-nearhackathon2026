@@ -187,3 +187,39 @@ export async function disconnectWallet(s: WalletSession) {
   } catch {}
   window.dispatchEvent(new Event("fv:wallets-changed"));
 }
+
+/* ───────────── one prepared USDC transfer (Convert to NEAR) ───────────── */
+
+const USDC_CONTRACTS: Record<string, string> = {
+  "0x1": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+  "0x2105": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+  "0xa4b1": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+};
+
+/**
+ * Ask the wallet to send exactly the prepared USDC transfer. Only a plain ERC-20 transfer of USDC from the
+ * connected address, with no ETH value, is accepted; anything else is refused before the wallet is asked.
+ * The owner approves it in the wallet. Returns the transaction hash.
+ */
+export async function sendUsdcTransfer(s: WalletSession, tx: { chainId: string; from: string; to: string; value: string; data: string }, depositAddress: string, amountRaw: string) {
+  start();
+  if (s.chain !== "evm") throw new Error("Use the Ethereum wallet that holds the USDC.");
+  const d = evm.get(s.walletId);
+  if (!d) throw new Error(s.walletName + " isn’t available in this browser. Reconnect it from the wallet menu.");
+  const expected = "0xa9059cbb" + depositAddress.slice(2).toLowerCase().padStart(64, "0") + BigInt(amountRaw).toString(16).padStart(64, "0");
+  if (
+    tx.from.toLowerCase() !== s.address.toLowerCase() ||
+    USDC_CONTRACTS[tx.chainId]?.toLowerCase() !== tx.to.toLowerCase() ||
+    tx.value !== "0x0" ||
+    tx.data.toLowerCase() !== expected
+  )
+    throw new Error("The prepared transfer doesn’t match the quote. Nothing was sent.");
+  const accounts: string[] = await d.provider.request({ method: "eth_requestAccounts" });
+  if (!accounts.some((a) => a.toLowerCase() === s.address.toLowerCase()))
+    throw new Error("Select " + s.address + " in " + s.walletName + ", then try again.");
+  const current: string = await d.provider.request({ method: "eth_chainId" });
+  if (current.toLowerCase() !== tx.chainId) await d.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: tx.chainId }] });
+  const hash: string = await d.provider.request({ method: "eth_sendTransaction", params: [{ from: s.address, to: tx.to, value: "0x0", data: tx.data }] });
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error(s.walletName + " didn’t return a transaction hash.");
+  return hash;
+}

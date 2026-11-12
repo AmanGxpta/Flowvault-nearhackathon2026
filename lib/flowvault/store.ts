@@ -56,7 +56,7 @@ async function boundAccount(sessionId: string): Promise<string | null> {
   return b && Date.now() - Number(b.bound_at) < BINDING_TTL_MS ? b.account_id : null;
 }
 /** Tables whose rows belong to a workspace (session_id = workspace row id). */
-const OWNED_TABLES = ["wallet_attempts", "payment_plans", "payment_locks", "policy_ledger", "action_plans", "plan_locks", "plan_ledger_outbox"];
+const OWNED_TABLES = ["wallet_attempts", "payment_plans", "payment_locks", "policy_ledger", "action_plans", "plan_locks", "plan_ledger_outbox", "funding_transfers"];
 
 /**
  * Sign this browser in to a proven NEAR account. Call only after the account's signature was verified.

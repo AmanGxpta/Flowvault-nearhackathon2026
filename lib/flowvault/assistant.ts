@@ -36,6 +36,7 @@ export const proposalSchema = z
       "borrow",
       "repay",
       "respond_to_change",
+      "convert",
     ]),
     amount: amount.nullable(),
     recipientLabel: z.string().trim().min(1).max(100).nullable().default(null),
@@ -60,6 +61,7 @@ export const proposalSchema = z
           "BORROW_REQUEST",
           "REPAY_REQUEST",
           "SCHEDULE_CHANGE",
+          "CONVERT_REQUEST",
         ]),
       )
       .max(5),
@@ -125,6 +127,21 @@ export function parseIntent(
 ): AssistantProposal {
   const p = base();
   const q = question.toLowerCase();
+  // Convert: USDC held on Ethereum, Base or Arbitrum → NEAR in the NEAR account (and maybe stake it).
+  const convert =
+    !/\bwhy\b|blocked|refused/.test(q) &&
+    (/\b(?:convert|bridge|move|swap|exchange|turn|change|send)\b[^.?!]*\busdc\b[^.?!]*\b(?:to|into|for)\s+(?:\w+\s+)?near\b/.test(q) ||
+      /\bget\b[^.?!]*\bnear\b[^.?!]*\bfrom\b[^.?!]*\busdc\b/.test(q) ||
+      /\bstake\b[^.?!]*\b(?:my\s+)?usdc\b/.test(q));
+  if (convert) {
+    p.kind = "convert";
+    p.amount = question.match(/([\d,]+(?:\.\d+)?)\s*usdc/i)?.[1]?.replaceAll(",", "") ?? null;
+    p.asset = "USDC";
+    p.chain = /arbitrum|\barb\b/.test(q) ? "arb" : /\bbase\b/.test(q) ? "base" : /ethereum|\beth\b|\bevm\b/.test(q) ? "eth" : null;
+    p.action = /\bstake\b|\bstaking\b/.test(q) ? "stake" : null;
+    p.reasons = ["CONVERT_REQUEST"];
+    return proposalSchema.parse(p);
+  }
   if (/moved (?:forward|up|earlier)|brought forward|now due (?:earlier|sooner)|due date (?:moved|changed)|rescheduled/.test(q)) {
     p.kind = "respond_to_change";
     p.recipientLabel =
@@ -550,6 +567,32 @@ export function evaluateAssistant(
       debt === 0n
         ? "The portfolio read shows no USDC debt to repay. Nothing to plan."
         : `The portfolio shows ${decimal(debt)} USDC of debt. Repayment can only use cash above your reserve and dated payments (${ranking.holdback ?? "unknown"} USDC held back).`;
+  } else if (proposal.kind === "convert") {
+    // USDC FlowVault has read on Ethereum, Base and Arbitrum in wallets proven yours.
+    const evmUsdc = c.portfolio.positions.filter(
+      (x) => x.asset === "USDC" && ["eth", "base", "arb"].includes(String(x.chain)) && x.ownership !== "watched" && units(x.amount) > 0n,
+    );
+    const total = evmUsdc.reduce((n, x) => n + units(x.amount), 0n);
+    const chainName: Record<string, string> = { eth: "Ethereum", base: "Base", arb: "Arbitrum" };
+    const list = evmUsdc.map((x) => `${Number(decimal(units(x.amount))).toFixed(2)} USDC on ${chainName[String(x.chain)]}`).join(", ");
+    const nearAccount = w.accountId;
+    const reasons = [...(!nearAccount ? ["NO_NEAR_ACCOUNT"] : []), ...(total === 0n ? ["NO_EVM_USDC"] : [])];
+    evaluation = {
+      kind: "convert",
+      amount: proposal.amount ?? (total > 0n ? decimal(total) : null),
+      to: nearAccount,
+      available: decimal(total),
+      allowed: reasons.length === 0,
+      reasons,
+      readOnly: true,
+    };
+    answer = !nearAccount
+      ? "Connect your NEAR wallet first: converted NEAR is delivered to your NEAR account."
+      : total === 0n
+        ? "I don’t see USDC on Ethereum, Base or Arbitrum in your connected wallets. Connect the wallet that holds it, then ask again."
+        : `You hold ${list}. FlowVault can convert it to NEAR in ${nearAccount} through NEAR Intents: you approve one USDC transfer in your Ethereum wallet, 1Click delivers wNEAR in about a minute, you unwrap it to NEAR in your NEAR wallet` +
+          (proposal.action === "stake" ? ", and then stake it from Strategies (LiNEAR or a verified validator)." : ".") +
+          " Each step is yours to approve; nothing is prepared until you open it.";
   } else if (proposal.kind === "respond_to_change") {
     const pending = w.obligations
       .filter((o) => !["paid", "cancelled"].includes(o.status))

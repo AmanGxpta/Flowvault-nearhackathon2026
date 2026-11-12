@@ -254,3 +254,36 @@ export async function signStaking(
   assertStakingWalletHandoff(preparation, body.attempt);
   return signPrepared(preparation);
 }
+
+/** Convert to NEAR, first time only: register the account with wrap.near so wNEAR can be delivered. */
+export async function signWnearRegister(p: { accountId: string; depositRaw: string; transaction: { receiverId: string; actions: { type: "FunctionCall"; params: { methodName: string; args: { account_id: string; registration_only: boolean }; gas: string; deposit: string } }[] } }) {
+  const t = p.transaction;
+  const a = t.actions[0];
+  if (t.receiverId !== "wrap.near" || t.actions.length !== 1 || a.params.methodName !== "storage_deposit" || a.params.args.account_id !== p.accountId || a.params.args.registration_only !== true || a.params.deposit !== p.depositRaw || BigInt(p.depositRaw) > 10n ** 22n)
+    throw new Error("The prepared registration doesn’t match. Nothing was signed.");
+  const { selector } = await walletClient();
+  const wallet = await selector.wallet();
+  const accounts = await wallet.getAccounts();
+  assertWalletSigner(selector.options.network.networkId, selector.store.getState().accounts.find((x) => x.active)?.accountId ?? null, accounts, p.accountId);
+  const { internalActionToNaj } = await import("@near-wallet-selector/core");
+  return wallet.signAndSendTransactions({
+    transactions: [{ signerId: p.accountId, receiverId: "wrap.near", actions: t.actions.map((x) => internalActionToNaj(x as InternalAction)) }],
+  });
+}
+
+/** Convert to NEAR, last step: wrap.near near_withdraw (wNEAR → NEAR in the same account). Only that exact
+ * call is accepted, signed by the account it was prepared for. */
+export async function signUnwrap(p: { accountId: string; amountRaw: string; transaction: { receiverId: string; actions: { type: "FunctionCall"; params: { methodName: string; args: { amount: string }; gas: string; deposit: string } }[] } }) {
+  const t = p.transaction;
+  const a = t.actions[0];
+  if (t.receiverId !== "wrap.near" || t.actions.length !== 1 || a.type !== "FunctionCall" || a.params.methodName !== "near_withdraw" || a.params.deposit !== "1" || a.params.args.amount !== p.amountRaw)
+    throw new Error("The prepared unwrap doesn’t match. Nothing was signed.");
+  const { selector } = await walletClient();
+  const wallet = await selector.wallet();
+  const accounts = await wallet.getAccounts();
+  assertWalletSigner(selector.options.network.networkId, selector.store.getState().accounts.find((x) => x.active)?.accountId ?? null, accounts, p.accountId);
+  const { internalActionToNaj } = await import("@near-wallet-selector/core");
+  return wallet.signAndSendTransactions({
+    transactions: [{ signerId: p.accountId, receiverId: "wrap.near", actions: t.actions.map((x) => internalActionToNaj(x as InternalAction)) }],
+  });
+}

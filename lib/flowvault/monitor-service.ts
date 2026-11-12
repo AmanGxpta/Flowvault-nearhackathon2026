@@ -169,6 +169,12 @@ export async function runMonitor(s: MonitorSession, trigger: RunSummary["trigger
     ids.set(c.dedupeKey, prior?.id ?? (await keyedAttemptId(s.id, "alert:" + c.dedupeKey)));
   }
   const r = reconcile(existing, found.candidates, found.evaluated, at, (k) => ids.get(k)!);
+  // A payment that was removed (or is no longer pending) takes its alerts with it, even when a balance read
+  // failed this run: there is nothing left to warn about.
+  const live = new Set((s.workspace.obligations ?? []).filter((o) => o.status === "pending" || o.status === "processing").map((o) => o.id));
+  for (const a of existing)
+    if (!a.resolvedAt && a.obligationId && !live.has(a.obligationId) && !r.resolves.some((x) => x.id === a.id) && !r.upserts.some((x) => x.dedupeKey === a.dedupeKey))
+      r.resolves.push({ ...a, resolvedAt: at });
   await saveAlerts(s.id, r);
   await propose(s, r.upserts, plans, now);
   const run: RunSummary = { checkedAt: at, trigger, evaluated: found.evaluated, skipped };

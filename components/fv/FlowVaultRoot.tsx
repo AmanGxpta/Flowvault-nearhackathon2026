@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { PlanDock } from "./PlanDock";
 import { DesignApp } from "./design-logic";
 import { api, clearLegacyEvm, emptySnapshot, getScope, loadSnapshot, setScope, takeLegacyEvm, type LiveSnapshot, type Scope } from "./live";
-import { useNearWallet, signSupply, signWithdraw, signPayment, signLending, signStaking, signNativeStaking, walletClient } from "@/lib/flowvault/wallet";
-import { useMultiWallets, connectWallet, disconnectWallet, type DiscoveredWallet, type WalletSession } from "@/lib/flowvault/wallets";
+import { useNearWallet, signUnwrap, signWnearRegister, signSupply, signWithdraw, signPayment, signLending, signStaking, signNativeStaking, walletClient } from "@/lib/flowvault/wallet";
+import { useMultiWallets, connectWallet, disconnectWallet, sendUsdcTransfer, type DiscoveredWallet, type WalletSession } from "@/lib/flowvault/wallets";
 
 const noopSubscribe = () => () => {};
 
@@ -26,6 +26,12 @@ export interface LiveActions {
   addObligation(o: Record<string, unknown>): Promise<void>;
   /** Change a dated payment that isn't paying or paid (PUT /api/obligations; needs NEAR sign-in). */
   updateObligation(o: Record<string, unknown>): Promise<void>;
+  /** Convert to NEAR (POST/GET /api/funding); the wallets sign, FlowVault prepares. */
+  fund(body: Record<string, unknown>): Promise<any>;
+  fundStatus(id: string): Promise<any>;
+  sendUsdc(session: WalletSession, tx: any, depositAddress: string, amountRaw: string): Promise<string>;
+  unwrapToNear(): Promise<{ amountRaw: string; near: string }>;
+  registerWnear(): Promise<void>;
   /** Remove a dated payment that isn't paying or paid (DELETE /api/obligations). */
   removeObligation(id: string): Promise<void>;
   savePolicy(policy: unknown): Promise<void>;
@@ -240,6 +246,20 @@ export function FlowVaultRoot() {
         await refresh();
         await api("/api/alerts", { action: "check" }).catch(() => {});
         window.dispatchEvent(new Event("fv:plans-refresh"));
+      },
+      fund: (body) => api("/api/funding", body, "POST", "personal"),
+      fundStatus: (id) => api("/api/funding?id=" + encodeURIComponent(id), undefined, "GET", "personal"),
+      sendUsdc: (session, tx, depositAddress, amountRaw) => sendUsdcTransfer(session, tx, depositAddress, amountRaw),
+      registerWnear: async () => {
+        const prep = await api("/api/funding", { action: "register" }, "POST", "personal");
+        await signWnearRegister(prep);
+      },
+      unwrapToNear: async () => {
+        const prep = await api("/api/funding", { action: "unwrap" }, "POST", "personal");
+        await signUnwrap(prep);
+        await refresh();
+        const raw = BigInt(prep.amountRaw);
+        return { amountRaw: prep.amountRaw, near: (Number(raw / 10n ** 18n) / 1e6).toFixed(4) };
       },
       updateObligation: async (obligation) => {
         const latest = await api("/api/workspace");
