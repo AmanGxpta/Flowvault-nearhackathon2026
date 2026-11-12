@@ -28,6 +28,8 @@ const worker = {
   // Interface (E4): cron trigger for monitoring and recurrence. Reads and proposes only; never signs.
   scheduled(_controller: ScheduledController, _env: Cloudflare.Env, ctx: ExecutionContext) {
     ctx.waitUntil(import("../lib/flowvault/monitor-cron").then((m) => m.runScheduledMonitor()));
+    // Stream C: due autonomous mandates (claimed by compare-and-set; prepares owner-signed plans only).
+    ctx.waitUntil(import("../lib/flowvault/mandate-cron").then((m) => m.runDueMandates()));
   },
 };
 

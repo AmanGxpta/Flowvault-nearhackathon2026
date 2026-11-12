@@ -314,3 +314,103 @@ export interface LendingVenueAdapter<State, Request, Preparation, Policy> {
   /** Monitoring observes risk; it cannot authorize or send operations. */
   monitor(snapshot: LendingVenueSnapshot): { severity: "info" | "warn" | "urgent"; reason: string }[];
 }
+
+/* ───────────── Phase 4 — autonomous mandates (owner: Stream C) ─────────────
+ * Named AgentMandate because types.ts already exports `Mandate` (the reserve/horizon plan). A mandate bounds what
+ * FlowVault may decide and prepare without asking again; the on-chain bound is whatever `authority` really
+ * enforces, stated verbatim. The deterministic checker (mandate.ts) decides; research can only advise. */
+export type MandateState = "draft" | "approved" | "active" | "paused" | "expired" | "revoked";
+export type MandateActionKind =
+  | "deploy_surplus" // move surplus above reserve + dated obligations into an allowed strategy
+  | "keep_allocation" // bring deployed capital back under the mandate's capital limit
+  | "recall_for_obligation" // withdraw from a mandate position when holdback exceeds spendable
+  | "protective_exit" // reduce risk: loss limit, venue incident, health
+  | "perp_order" // open/modify a perpetual position (Hyperliquid)
+  | "perp_reduce"; // reduce-only / close a perpetual position
+export type DelegationKind =
+  | "owner_signs_each" // no delegated key: FlowVault prepares, the owner's wallet signs every action
+  | "hyperliquid_agent" // master-approved API wallet: trades only, cannot withdraw or transfer
+  | "near_custody_contract" // funds in a FlowVault custody/vault contract; agent key may call only its bounded method
+  | "near_function_call_key" // receiver+methods scoped key; cannot attach deposits (so no ft_transfer_call / Rhea execute)
+  | "evm_session_key"; // EIP-7702 / ERC-7710 delegation; wallet-dependent
+export interface MandateAuthority {
+  kind: DelegationKind;
+  status: "not_provisioned" | "prepared" | "verified" | "revoked" | "unsupported";
+  /** What the on-chain authority actually bounds, never stronger than the protocol enforces. */
+  bounds: string[];
+  /** What it does NOT bound: enforced only by FlowVault's checker before it prepares or signs. */
+  unbounded: string[];
+  custody: string;
+  upgradeAuthority: string;
+  delegate?: { address: string; chain: "near" | "evm"; name?: string; validUntil?: string };
+  verifiedAt?: string;
+  evidence?: unknown;
+}
+export interface AgentMandate {
+  id: string;
+  /** Any change to terms bumps the version and returns the mandate to draft (needs a new owner signature). */
+  version: number;
+  source: Source;
+  accountId: string;
+  title: string;
+  state: MandateState;
+  createdAt: string;
+  updatedAt: string;
+  validFrom: string;
+  validUntil: string;
+  /** Owner's NEP-413 signature over mandateDigest(); a local review is never an approval. */
+  approval: { digest: string; signedBy: string; publicKey: string; signedAt: string; method: "nep413" } | null;
+  /** Set on an uncertain operation or missing evidence; only the owner clears it. */
+  frozen: { at: string; reason: string; ref: string | null } | null;
+  scope: {
+    /** Account registry ids (`near:alice.near`, `evm:0x…`). */
+    accounts: string[];
+    assets: { asset: string; chain: Chain | "hyperliquid" }[];
+    venues: string[];
+    methods: { receiver: string; method: string }[];
+    /** "$owner" = the mandate account itself. */
+    recipients: string[];
+    actions: MandateActionKind[];
+    /** StrategySpec ids the mandate may run. */
+    strategies: string[];
+  };
+  limits: {
+    capitalUsdcRaw: string;
+    perActionUsdcRaw: string;
+    cumulativeUsdcRaw: string;
+    dailyUsdcRaw: string;
+    maxActionsPerDay: number;
+    maxCostUsdcRaw: string;
+    maxSlippageBps: number;
+    maxStrategyLossUsdcRaw: string;
+  };
+  /** Borrowing is a separate permission from spending; neither is implied by the other. */
+  borrowing: { allowed: boolean; maxDebtUsdcRaw: string; minHealth: string };
+  spending: { allowed: boolean };
+  protection: { reserveFloorUsdcRaw: string; protectObligations: true; obligationBufferDays: number };
+  freshness: { quoteMaxAgeSec: number; evidenceMaxAgeSec: number };
+  concentration: { maxPositionBps: number; maxProtocolBps: number; maxChainBps: number };
+  schedule: { everyMinutes: number; nextRunAt: string | null; lastRunAt: string | null };
+  authority: MandateAuthority;
+}
+/** One deterministic check. ok null = could not be evaluated, which blocks like a failure. */
+export interface MandateCheck {
+  id: string;
+  ok: boolean | null;
+  detail: string;
+}
+/** Append-only audit row linking observation → decision → checks → transactions → results. */
+export interface MandateAuditEntry {
+  id: string;
+  mandateId: string;
+  mandateVersion: number;
+  runId: string | null;
+  at: string;
+  phase: "lifecycle" | "observe" | "decide" | "check" | "execute" | "result" | "freeze" | "advice";
+  summary: string;
+  data?: unknown;
+  planId?: string;
+  attemptIds?: string[];
+  txHashes?: string[];
+  ledgerEntryIds?: string[];
+}

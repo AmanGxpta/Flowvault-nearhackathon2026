@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from "react";
 import { PolicyContractCard } from "../PolicyContract";
+import { MandatesCard } from "../Mandates";
 import { tc } from "../theme";
 
 // Design section: POLICY
@@ -592,6 +593,7 @@ export function PolicyView({ v }: { v: any }) {
           }}
         >
           {v.scope ? <PolicyContractCard key={v.scope} scope={v.scope} policyVersion={v.policyVersion ?? null} live={!!v.policyLive} /> : null}
+          {v.scope ? <MandatesCard key={v.scope + ":mandates"} scope={v.scope} /> : null}
           <div
             style={{
               borderRadius: "18px",
