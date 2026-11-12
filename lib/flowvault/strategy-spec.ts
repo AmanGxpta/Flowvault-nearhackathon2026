@@ -61,10 +61,18 @@ export interface StrategySpec {
   };
 }
 
-export function validateStrategySpec(s: StrategySpec, registeredKinds: StepKind[]): string[] {
+export function validateStrategySpec(
+  s: StrategySpec,
+  registeredKinds: StepKind[],
+  /** Stream A (vault-publish.ts readiness()): pooled vaults are accepted only when every mechanic exists. */
+  vault?: { vaultReady: boolean; vaultMissing: string[] },
+): string[] {
   const problems: string[] = [];
-  if (s.kind === "pooled_vault")
-    problems.push("Pooled vaults need custody, shares, NAV, fees and redemption mechanics that do not exist yet.");
+  if (s.kind === "pooled_vault" && !vault?.vaultReady)
+    problems.push(
+      "Pooled vaults need custody, shares, NAV, fees and redemption mechanics that do not exist yet." +
+        (vault?.vaultMissing.length ? " Missing: " + vault.vaultMissing.join(", ") + "." : ""),
+    );
   const missing = [...new Set([...s.entry, ...s.exit, ...s.shutdown.steps])].filter(
     (k) => k !== "wait_until" && !registeredKinds.includes(k),
   );
