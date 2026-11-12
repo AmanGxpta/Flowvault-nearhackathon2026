@@ -1,9 +1,10 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any -- adapters between untyped design view-model data and API JSON */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { PlanDock } from "./PlanDock";
 import { DesignApp } from "./design-logic";
 import { api, clearLegacyEvm, emptySnapshot, getScope, loadSnapshot, setScope, takeLegacyEvm, type LiveSnapshot, type Scope } from "./live";
-import { useNearWallet, signSupply, signWithdraw, signPayment, walletClient } from "@/lib/flowvault/wallet";
+import { useNearWallet, signSupply, signWithdraw, signPayment, signLending, walletClient } from "@/lib/flowvault/wallet";
 
 const noopSubscribe = () => () => {};
 
@@ -197,7 +198,8 @@ export function FlowVaultRoot() {
         url.searchParams.set("fv_attempt", preparation.attemptId);
         history.replaceState(null, "", url);
         try {
-          const outcomes = await (preparation.kind === "withdraw" ? signWithdraw(preparation) : preparation.kind === "pay" ? signPayment(preparation) : signSupply(preparation));
+          const lending = ["collateral_add", "borrow", "repay", "collateral_release"].includes(preparation.kind);
+          const outcomes = await (lending ? signLending(preparation) : preparation.kind === "withdraw" ? signWithdraw(preparation) : preparation.kind === "pay" ? signPayment(preparation) : signSupply(preparation));
           const hashes = (outcomes ?? []).map((o: { transaction: { hash: string } }) => o.transaction.hash);
           if (hashes.length) localStorage.setItem("fv-hashes-" + preparation.attemptId, JSON.stringify(hashes));
           await api("/api/transactions", { id: preparation.attemptId, action: hashes.length ? "attach" : "uncertain", hashes });
@@ -221,7 +223,8 @@ export function FlowVaultRoot() {
       },
       strategies: (amount) => api("/api/strategies?amount=" + encodeURIComponent(amount), undefined, "GET"),
       stakeQuote: (body) => api("/api/staking/prepare", body),
-      ask: (question, useModel) => api("/api/assistant", { question, useModel }),
+      // Each question carries a fresh idempotency key so its saved plan is never duplicated by a retry.
+      ask: (question, useModel) => api("/api/assistant", { question, useModel, planKey: crypto.randomUUID() }),
       compare: (obligationId) => api("/api/payments/compare", { obligationId }),
       resetExample: async () => {
         if (getScope() !== "example") throw new Error("Only the example workspace can be reset.");
@@ -255,5 +258,10 @@ export function FlowVaultRoot() {
   );
 
   if (!mounted) return null;
-  return <DesignApp live={snap} actions={actions} />;
+  return (
+    <>
+      <DesignApp live={snap} actions={actions} />
+      <PlanDock key={snap.scope} scope={snap.scope} sign={actions.sign} canSign={snap.scope === "personal" && !!snap.walletAccount && snap.walletAccount === snap.workspace?.accountId} />
+    </>
+  );
 }

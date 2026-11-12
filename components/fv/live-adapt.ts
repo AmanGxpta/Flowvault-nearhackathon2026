@@ -2,6 +2,7 @@
 // Maps live API snapshots onto the design's view model. Used only in the personal (live)
 // workspace. When the API cannot establish a figure the view shows "Unavailable", never 0.
 import { api, type LiveSnapshot, type Usable } from "./live";
+import { startPlan, openPlan } from "./PlanDock";
 import { chainName, days, dlabel, f, hhmm, livePayoutSupported, LIVE_ROUTES_TEXT, money, num, short, usd, whenLabel, TODAY } from "./format";
 
 const RHEA = "contract.main.burrow.near";
@@ -210,6 +211,13 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   const { self, s, example } = ctx;
   const out: any = {};
   const u = snap.portfolio?.usable;
+  // Engines' capitalView (same pass as /api/valuation): the one source for net worth, spendable, holdback, surplus.
+  const capital = (u as any)?.capital as { spendableNow?: string; holdback?: string | null; surplus?: string | null; netWorth?: string | null; blocksAutomation?: boolean; reasons?: string[] } | undefined;
+  out.scope = snap.scope;
+  out.planCta =
+    s.screen === "strategies" ? { label: "Plan putting surplus to work →", onClick: () => void startPlan({ objective: "deploy_surplus" }).catch(() => undefined), note: "Compares every venue against your dates and policy" }
+    : s.screen === "credit" ? { label: "Plan borrowing →", onClick: () => void startPlan({ objective: "borrow" }).catch(() => undefined) }
+    : null;
   const cap = snap.portfolio?.capturedAt;
   const acct = snap.workspace?.accountId ?? "";
   const connected = !!snap.walletAccount && snap.walletAccount === acct;
@@ -309,7 +317,9 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   const nWatched = watchedPos(snap).length;
   const bal = [
     { label: "Net worth", m: u?.netWorth, sub: (example ? "fictional valuations" : unvalued ? "owned positions · " + unvalued + " unvalued" : "owned positions") + (nWatched ? " · watched excluded" : "") },
-    { label: "Cash now", m: u?.cashNow, sub: example ? "USDC on NEAR, Base and Arbitrum" : "USDC in your wallet" + (snap.evm?.base || snap.evm?.arb ? ", Base and Arbitrum" : "") },
+    capital?.spendableNow != null
+      ? { label: "Spendable now", m: { ...(u?.cashNow ?? {}), amount: capital.spendableNow } as Usable, sub: "USDC in the NEAR account you sign from" + (snap.evm?.base || snap.evm?.arb || example ? " · Base and Arbitrum are read-only" : "") }
+      : { label: "Cash now", m: u?.cashNow, sub: example ? "USDC on NEAR, Base and Arbitrum" : "USDC in your wallet" + (snap.evm?.base || snap.evm?.arb ? ", Base and Arbitrum" : "") },
     { label: "Withdrawable by " + wdLabel, m: wd ?? u?.cashNow, sub: pick ? "cash plus positions verified to exit in time" : "cash available now" },
     { label: "Borrowing headroom", m: u?.borrowingHeadroom, sub: "read-only preview · no borrowing in this build" },
     { label: "Committed", m: u?.committedCapital, sub: "Rhea supply and payments in flight" },
@@ -321,7 +331,7 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   // Reserve / payments / surplus bar from API figures.
   const reserve = f(snap.workspace?.mandate.reserve) ?? 0;
   const inH = f(snap.obligations?.obligationsInHorizon) ?? 0;
-  const surplus = f(snap.strategies?.surplus) ?? 0; // unknown surplus draws as none, never as free money
+  const surplus = f(capital?.surplus ?? snap.strategies?.surplus) ?? 0; // unknown surplus draws as none, never as free money
   const total = Math.max(reserve + inH + surplus, f(u?.netWorth.knownSubtotal) ?? 0, 1);
   const pct = (x: number) => Math.min(100, (x / total) * 100) + "%";
   out.bar = { reserve: pct(reserve), obs: pct(inH), surplus: pct(surplus) };
@@ -559,6 +569,15 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   // Proposals: none exist until the optional on-chain policy contract (§9) is deployed by the owner.
   out.proposals = [];
   out.hasAgent = false;
+  // Authority, scoped honestly: what is enforced where today (I3). The policy contract is built but not deployed.
+  out.authorityNote = "Five separate things, each with its own owner. Only the first, third and fifth are active in this build.";
+  out.authority = [
+    { k: "Local policy evaluation", on: true, v: "FlowVault checks every plan step against your saved policy (rev " + (snap.policy?.policy?.version ?? "—") + ") when it prepares the step, and again at wallet handoff." },
+    { k: "On-chain proposal acceptance", on: false, v: "Not active. The policy contract is built and tested but not deployed, so no on-chain contract accepts or rejects proposals today." },
+    { k: "Owner approval", on: true, v: "You review each plan, and approve every signed step in your own wallet. New debt also needs an explicit approval in the plan first." },
+    { k: "Fund authority", on: false, v: "FlowVault and its assistant hold none: no keys, no allowance, no delegated access. Only your wallet can move funds." },
+    { k: "Verified outcome", on: true, v: "A step counts as done only from finalized NEAR receipts or an independent destination-chain proof, never from a provider or model saying so." },
+  ];
   out.agentName = "No agent registered";
   out.agentSub = "The optional on-chain policy contract is built but not deployed. After you deploy it and add an agent, its propose-only key appears here.";
   out.proposalsNote = "No proposals yet. Agent proposals arrive only through the deployed policy contract; approving one would open the normal review, and you still sign in your wallet.";
@@ -680,6 +699,27 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
 }
 
 const REASON: Record<string, string> = {
+  NOT_NEEDED_IDLE_CASH_COVERS: "Not needed: idle cash covers it",
+  NEW_DEBT_NEEDS_EXPLICIT_APPROVAL: "New debt needs your explicit approval",
+  IDLE_CASH_SHORT: "Idle cash after other payments is short",
+  SOURCES_UNVERIFIED: "Sources couldn’t be verified",
+  NO_STRESS_CAPACITY: "No borrowing capacity under your stress limits",
+  CAPACITY_UNKNOWN: "Borrowing capacity can’t be established from verified values",
+  NO_DEBT_FOUND: "No loan found to repay",
+  NO_CASH_ABOVE_HOLDBACK: "No cash above your reserve and dated payments",
+  PARTIAL_REPAY_ONLY: "Cash covers only part of the loan",
+  HOLDBACK_UNAVAILABLE: "Holdback can’t be established",
+  NO_LIVE_ROUTE: "No live payout route for this token and chain",
+  RHEA_SUPPLY_SHORT: "Rhea supply doesn’t cover the shortfall",
+  NO_PENDING_PAYMENT: "No pending payment",
+  NO_ELIGIBLE_SURPLUS: "No surplus above your holdback",
+  PLAN_EXPIRED: "Plan expired after 24 hours without execution",
+  CASH_PLAN_CHANGED: "Your cash plan changed",
+  POLICY_CHANGED: "Your policy changed",
+  WORKSPACE_CHANGED: "Your workspace changed",
+  QUOTE_UNAVAILABLE: "Quote unavailable",
+  CREDIT_READ_FAILED: "Credit read failed",
+  CREDIT_UNAVAILABLE: "Credit unavailable",
   VENUE_NOT_APPROVED: "Not in your approved venues",
   ASSET_MISMATCH: "Asset doesn’t match this USDC plan",
   RATE_OR_AVAILABILITY_UNVERIFIED: "Rate or availability unverified",
@@ -1201,6 +1241,8 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
   out.pyTag = example ? "FICTIONAL ROUTE COSTS · NOTHING CAN BE SIGNED" : "DRY QUOTES · NOTHING MOVES WITHOUT APPROVAL";
   const payables = s.obs.filter((o: any) => o.status === "upcoming" || o.status === "paying");
   const ob = payables.find((o: any) => o.id === s.payPick) ?? payables[0] ?? null;
+  // One persistent plan for this payment: alternatives, review, wallet handoff and verification (I3).
+  if (s.screen === "pay") out.planCta = ob ? { label: "Plan this payment →", onClick: () => void startPlan({ objective: "pay_obligation", obligationId: ob.id }).catch(() => undefined), note: example ? "Example plan · reviewable, never signable" : "Saved as a plan you can leave and resume" } : null;
   // A route is payable live when the backend's comparison says so (BNB/Ethereum USDT arrive this way), or it is a known Base/Arbitrum USDC route.
   const liveRoute = (o: any) => livePayoutSupported(o.chain, o.asset) || (s.payEval?.res?.comparison?.obligationId === o.id && s.payEval.res.comparison.executionSupported === true && s.payEval.res.comparison.source === "live");
   const evalMode = (o: any) => example || !liveRoute(o);
@@ -1218,7 +1260,9 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
     const p0 = src?.plans?.find((x: any) => x.id === "idle-wallet-usdc");
     const p1 = src?.plans?.find((x: any) => x.id === "cash-plus-rhea");
     const wneed = Number(src?.withdrawalNeeded ?? 0);
-    const pick = !src ? null : wneed > 0 ? "rhea" : p0?.eligible ? "wallet" : p1?.eligible ? "rhea" : null;
+    // The engine only picks a source the policy allows; a refused payment has no pick.
+    const polOk = e?.policy ? !!e.policy.allowed : true;
+    const pick = !src || !polOk ? null : wneed > 0 ? "rhea" : p0?.eligible ? "wallet" : p1?.eligible ? "rhea" : null;
     const vio: string[] = e?.policy?.violations?.map((x: any) => x.code) ?? e?.reasons ?? [];
     const fictional = q?.source === "demo" || example;
     out.pyHead = {
@@ -1239,10 +1283,10 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
     });
     const sellable = Object.entries(s.pol.assets ?? {}).filter(([, a]: any) => a.uses?.includes("sell")).map(([k]) => ASSET_ROWS[k]?.label ?? k);
     out.pyPlans = [
-      card({ name: "Idle wallet USDC", sub: "above your reserve and other payments", ok: !!p0?.eligible, tag: !src ? "CHECKING" : pick === "wallet" ? "ENGINE PICK" : "NOT ENOUGH", costF: p0 ? usd(Number(p0.available)) : "—", costSub: p0 ? "free after reserve " + money(e?.reserve) + " and other payments" : pe?.err || "Comparing sources…", rows: [["Needed", src ? usd(Number(src.funding)) : "—"], ["Approvals", "1 · deposit"]] }),
+      card({ name: "Idle wallet USDC", sub: "above your reserve and other payments", ok: !!p0?.eligible, tag: !src ? "CHECKING" : pick === "wallet" ? "ENGINE PICK" : !polOk && p0?.eligible ? "POLICY BLOCKS" : "NOT ENOUGH", costF: p0 ? usd(Number(p0.available)) : "—", costSub: p0 ? "free after reserve " + money(e?.reserve) + " and other payments" : pe?.err || "Comparing sources…", rows: [["Needed", src ? usd(Number(src.funding)) : "—"], ["Approvals", "1 · deposit"]] }),
       card({ name: "Withdraw from Rhea, then pay", sub: "withdrawal verified before the payout quote", ok: !!p1?.eligible, tag: !src ? "CHECKING" : pick === "rhea" ? "ENGINE PICK" : p1?.eligible ? (wneed > 0 ? "NEEDED" : "NOT NEEDED") : "NOT ENOUGH", costF: p1 ? usd(Number(p1.withdrawal ?? 0)) : "—", costSub: p1 ? (wneed > 0 ? "withdrawn first, then paid" : "idle cash covers it") : "—", rows: [["Rhea supply", p1?.available != null ? usd(Number(p1.available)) : "unknown"], ["Approvals", "2 · withdraw, deposit"]] }),
       card({ name: "Sell an approved asset for " + ob.asset, sub: sellable.length ? "sellable under your policy: " + sellable.join(", ") : "no asset is marked sellable in your policy", ok: false, tag: "NOT IN THIS BUILD", costSub: "The swap leg isn’t built; nothing can be sold here", rows: [["Protected", (s.pol.protectedAssets ?? []).join(", ") || "none"]], cta: "Not available" }),
-      card({ name: "Borrow USDC against collateral", sub: "read-only credit preview", ok: false, preview: true, tag: "PREVIEW · PHASE 2", costSub: "Borrowing ships in phase 2", rows: [["Repayment plan", "required"], ["Approvals", "new-debt approval"]], cta: "Preview only · phase 2" }),
+      card({ name: "Borrow USDC against collateral", sub: "credit execution not registered yet", ok: false, preview: true, tag: "NOT AVAILABLE YET", costSub: "Borrowing appears here once Rhea credit execution is registered", rows: [["Repayment plan", "required"], ["Approvals", "new-debt approval"]], cta: "Not available yet" }),
     ];
     const chk = (ok: boolean | null, text: string) => ({ glyph: ok === null ? "◷" : ok ? "✓" : "✕", color: ok === null ? "#8A5F25" : ok ? "#3F6B3C" : "#9A3F32", text, k: text });
     out.pyChecks = [
@@ -1510,7 +1554,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
   }
   return out;
 }
-const PROP_KIND: Record<string, string> = { pay: "payout", allocate_surplus: "surplus allocation", stress: "stress scenario", explain_block: "policy explanation", clarify: "needs details" };
+const PROP_KIND: Record<string, string> = { pay: "payout", allocate_surplus: "surplus allocation", stress: "stress scenario", explain_block: "policy explanation", clarify: "needs details", borrow: "borrow under stress limits", repay: "repay a loan", respond_to_change: "changed payment" };
 /** Protection preview and Ask FlowVault (POST /api/assistant), in both workspaces. */
 export function livePreviews(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; example: boolean }) {
   const { self, s, example } = ctx;
@@ -1542,9 +1586,11 @@ export function livePreviews(snap: LiveSnapshot, v: any, ctx: { self: any; s: an
   out.asstTag2 = example ? "FICTIONAL EXAMPLE FIGURES" : "ANSWERS FROM ENGINE FIGURES";
   const rent = s.obs.find((o: any) => o.asset === "USDT" && o.chain === "BNB Chain" && o.status === "upcoming");
   const QS: [string, string][] = [
-    ["Can I pay 1,000 USDT on BNB by " + (rent ? dlabel(rent.due) : "Nov 23") + " without touching my ETH?", "Pay 1,000 USDT on BNB"],
-    ["Where should my surplus go?", "Surplus"],
-    ["What if ETH falls 50%?", "ETH −50%"],
+    ["Pay Aman 1,000 USDT on BNB without touching my protected assets", "Pay Aman 1,000 USDT on BNB"],
+    ["Put my eligible surplus to work until my next payment", "Surplus to work"],
+    ["What can I borrow under my stress limits?", "Borrow"],
+    ["My payment moved forward, what needs to change?", "Payment moved"],
+    ["Can I pay 1,000 USDT on BNB by " + (rent ? dlabel(rent.due) : "Nov 23") + " without touching my ETH?", "By " + (rent ? dlabel(rent.due) : "Nov 23") + "?"],
     ["Why was my 6,000 USDC supply blocked?", "Why blocked"],
   ];
   out.asstSuggest = QS.map(([q]) => ({ q, onClick: () => self.ask(q, "chip") }));
@@ -1590,12 +1636,17 @@ export function livePreviews(snap: LiveSnapshot, v: any, ctx: { self: any; s: an
       ...reasons.filter((c) => !vio.includes(c)).map((c) => chk(false, reasonText([c]))),
     ];
     const ob = e.obligationId;
+    const plan = r.plan;
     const act =
-      p.kind === "pay" && ob ? { actionLabel: "Open the source comparison →", onAction: () => self.setState({ ...close, screen: "pay", payPick: ob }) }
+      plan ? { actionLabel: (plan.state === "blocked" ? "See why and the alternatives →" : "Review this plan →"), onAction: () => { self.setState(close); openPlan({ plan, note: r.planNote ?? undefined }); } }
+      : p.kind === "pay" && ob ? { actionLabel: "Open the source comparison →", onAction: () => self.setState({ ...close, screen: "pay", payPick: ob }) }
       : p.kind === "allocate_surplus" ? { actionLabel: "Open strategies →", onAction: () => self.setState({ ...close, screen: "strategies" }) }
       : p.kind === "stress" ? { actionLabel: "Open the credit preview →", onAction: () => self.setState({ ...close, screen: "credit" }) }
       : p.kind === "explain_block" ? { actionLabel: "Open the policy test →", onAction: () => self.setState({ ...close, screen: "policy", test: { ...s.test, kind: p.action ?? "supply", amount: String(p.amount ?? s.test.amount), asset: "usdc", venue: "rhea" } }) }
       : null;
+    if (plan) checks.push(chk(plan.state === "blocked" ? false : null, (plan.state === "blocked" ? "Saved as a blocked plan" : "Saved as a plan") + " · next: " + (plan.state === "blocked" ? "read the engines’ alternatives" : "you review it") + " · then policy authorizes, you sign, FlowVault verifies"));
+    if (r.planNote) checks.push(chk(null, r.planNote));
+    if (r.provider && r.provider.attestationVerified === false && ds.sent) checks.push(chk(null, "Model output is not attested; it only extracted the intent fields above"));
     return {
       text: r.answer + (r.warning ? " " + r.warning : ""),
       hasProposal: p.kind !== "clarify",

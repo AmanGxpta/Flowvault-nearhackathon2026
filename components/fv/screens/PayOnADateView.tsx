@@ -1,6 +1,7 @@
 // Generated from docs/design/FlowVault.html by the design converter, then edited by hand.
 /* eslint-disable */
 import { Fragment } from "react";
+import { PlanCta } from "../PlanDock";
 import { tc } from "../theme";
 
 // Design section: PAY ON A DATE
@@ -137,6 +138,7 @@ export function PayOnADateView({ v }: { v: any }) {
               </Fragment>
             ))}
           </div>
+          {v.planCta ? <div style={{ marginTop: "14px" }}><PlanCta cta={v.planCta} /></div> : null}
           <div
             style={{
               marginTop: "16px",

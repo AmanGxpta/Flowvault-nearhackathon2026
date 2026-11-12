@@ -1,6 +1,7 @@
 // Generated from docs/design/FlowVault.html by the design converter, then edited by hand.
 /* eslint-disable */
 import { Fragment } from "react";
+import { PlanCta } from "../PlanDock";
 import { Skel } from "../Skel";
 import { tc } from "../theme";
 
@@ -163,6 +164,7 @@ export function StrategiesView({ v }: { v: any }) {
                   </Fragment>
                 ))}
               </div>
+              {v.planCta ? <div style={{ marginTop: "12px" }}><PlanCta cta={v.planCta} /></div> : null}
             </div>
             <div
               style={{

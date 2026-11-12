@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from "react";
 import { tc } from "../theme";
+import { PlanHistory } from "../PlanDock";
 
 // Design section: ACTIVITY
 export function ActivityView({ v }: { v: any }) {
@@ -40,6 +41,10 @@ export function ActivityView({ v }: { v: any }) {
       <p style={{ margin: "14px 0 0", fontSize: "16.5px", color: "var(--fvc-5B6458)" }}>
         Supplies, withdrawals and payouts as step timelines. “Confirmed” only appears after the final verified step.
       </p>
+      <section aria-label="Plans" style={{ marginTop: "24px" }}>
+        <h2 style={{ margin: "0 0 10px", fontSize: "18px", fontWeight: "600" }}>Plans</h2>
+        <PlanHistory scope={v.scope} />
+      </section>
       <div
         style={{
           marginTop: "24px",

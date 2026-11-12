@@ -1,6 +1,7 @@
 // Generated from docs/design/FlowVault.html by the design converter, then edited by hand.
 /* eslint-disable */
 import { Fragment } from "react";
+import { PlanCta } from "../PlanDock";
 import { Skel } from "../Skel";
 import { tc } from "../theme";
 
@@ -253,6 +254,7 @@ export function CreditView({ v }: { v: any }) {
               Collateral rules from policy rev {v.polRev} · minimum health {v.stHp}
             </span>
             <span style={{ flex: "1" }}></span>
+            <PlanCta cta={v.planCta} />
             <button
               type="button"
               onClick={v.goPay}
