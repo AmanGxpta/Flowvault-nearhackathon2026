@@ -19,6 +19,8 @@ export function normalizeLifecycleQuote(
   q: any,
   requestedRaw: string,
 ) {
+  if (!/^[1-9]\d*$/.test(requestedRaw))
+    throw new Error("Use a positive decimal base-unit staking amount.");
   const requested = positive(decimal(BigInt(requestedRaw), 24), 24),
     near = raw(q.amount, "amount"),
     fee = raw(q.fee, "fee"),
