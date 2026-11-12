@@ -311,66 +311,141 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   // signature the server verifies. Forget lives on the Portfolio list.
   const reg: LinkedAccount[] = ((snap.workspace as any)?.accounts ?? []) as LinkedAccount[];
   const live = liveWalletIds(snap);
-  const others = reg.filter((a) => a.proof && !a.primary).length;
   const proof = snap.nearProof;
-  out.acctLabel = connected ? acct + (others ? " +" + others : "") : acct ? acct + " · not connected" : proof ? snap.walletAccount + " · sign to prove" : others ? others + (others === 1 ? " wallet" : " wallets") + " · no NEAR account" : "Connect wallet";
-  out.netLabel = connected ? "Mainnet · wallet connected" : acct ? "Mainnet · not connected, read only" : "Not connected · read only";
-  out.netColor = connected ? "#4E7A4A" : "#8A9285";
-  out.wsRole = connected ? "Owner · can approve" : acct ? "Yours · read only until you connect" : "Read only · not connected";
-  const nConnected = reg.filter((a) => live.has(a.id)).length;
-  out.acctMenuNote = reg.length
-    ? reg.length + (reg.length === 1 ? " wallet" : " wallets") + " · " + nConnected + " connected in this browser · you approve every action in its own wallet"
-    : "No wallet connected yet. Connecting proves the account is yours with one free signature.";
   const acts0 = self.props.actions;
   const close = () => self.setState({ menu: null });
-  const walletRows = reg.map((a) => {
-    const on = live.has(a.id);
-    const session = (snap.walletSessions ?? []).find((x) => accountIdOf(x.chain, x.address) === a.id);
-    return {
-      icon: session?.icon,
-      glyph: session?.icon ? undefined : a.chain === "near" ? "Ⓝ" : a.chain === "evm" ? "Ξ" : "◎",
-      label: a.label + (a.primary ? " · main" : ""),
-      sub: regChain(a.chain) + " · " + (!a.proof ? "not proven · connect it to prove" : on ? (session?.walletName ?? (snap.walletName || "wallet")) + " · connected" : "not connected · read only") + " · copy address",
-      color: "#1E2A22",
-      onClick: () => { try { navigator.clipboard.writeText(a.address); } catch {} close(); self.toastMsg("Copied " + a.address + "."); },
-    };
-  });
-  const found = snap.walletsFound ?? [];
-  const evmFound = found.filter((w) => w.chain === "evm");
-  const solFound = found.filter((w) => w.chain === "solana");
-  const connectItem = (w: any) => ({
-    icon: w.icon,
-    glyph: w.icon ? undefined : w.chain === "evm" ? "Ξ" : "◎",
-    label: w.name,
-    sub: (w.chain === "evm" ? "Ethereum, Base, Arbitrum" : "Solana") + " · one free signature",
-    color: "#1E2A22",
-    onClick: () => {
-      close();
-      self.liveCall(() => acts0.connectWallet(w).then((addr: string) => self.toastMsg("Connected " + shortAddress(addr) + " from " + w.name + ". Ownership verified by signature.")));
-    },
-  });
-  const disconnectRows = [
-    ...(connected ? [{ label: "Disconnect " + acct, sub: "NEAR · stays yours, read only", color: "#9A3F32", onClick: () => { close(); self.liveCall(() => acts0.disconnect(), "Disconnected " + acct + ". It stays in your wallets, read only; forget it from Portfolio."); } }] : []),
-    ...(snap.walletSessions ?? []).map((x) => ({
-      label: "Disconnect " + x.walletName + " " + shortAddress(x.address),
-      sub: (x.chain === "evm" ? "Ethereum" : "Solana") + " · stays yours, read only",
-      color: "#9A3F32",
-      onClick: () => { close(); self.liveCall(() => acts0.disconnectWallet(x), "Disconnected " + shortAddress(x.address) + ". It stays in your wallets, read only."); },
+  const sessions = snap.walletSessions ?? [];
+  const nearName = (id: string) => (snap.nearWallets ?? []).find((w) => w.id === id)?.name ?? (id === "meteor-wallet" ? "Meteor" : id === "my-near-wallet" ? "MyNearWallet" : id || "NEAR wallet");
+  const nearIcon = (id: string) => (snap.nearWallets ?? []).find((w) => w.id === id)?.icon;
+  const chainName = (c: string) => (c === "evm" ? "Ethereum" : c === "solana" ? "Solana" : "NEAR");
+  const copy = (address: string) => { try { navigator.clipboard.writeText(address); } catch {} self.toastMsg("Address copied."); };
+
+  // The menu lists only wallets that are connected in this browser right now, one row each, with its own
+  // copy and disconnect buttons. Wallets you proved earlier but haven't connected here stay in Portfolio.
+  const nearLive = snap.walletAccount;
+  const acctWallets = [
+    ...(nearLive
+      ? [{
+          key: "near:" + nearLive,
+          icon: nearIcon(snap.walletName),
+          glyph: "Ⓝ",
+          title: nearLive,
+          badge: nearLive === acct ? "Main" : undefined,
+          sub: "NEAR · " + nearName(snap.walletName) + (proof?.state === "signing" ? " · confirm in wallet…" : proof?.state === "declined" ? " · not proven yet" : ""),
+          onCopy: () => copy(nearLive),
+          onDisconnect: () => { close(); self.liveCall(() => acts0.disconnect(), "Disconnected " + nearLive + ". It stays in Portfolio, read only."); },
+        }]
+      : []),
+    ...sessions.map((x) => ({
+      key: x.chain + ":" + x.address,
+      icon: x.icon,
+      glyph: x.chain === "evm" ? "Ξ" : "◎",
+      title: shortAddress(x.address),
+      sub: chainName(x.chain) + " · " + x.walletName,
+      onCopy: () => copy(x.address),
+      onDisconnect: () => { close(); self.liveCall(() => acts0.disconnectWallet(x), "Disconnected " + shortAddress(x.address) + ". It stays in Portfolio, read only."); },
     })),
   ];
-  out.acctItems = [
-    ...(proof?.state === "declined"
+  const nLive = acctWallets.length;
+  const offline = reg.filter((a) => !live.has(a.id)).length;
+  out.acctWallets = acctWallets;
+  out.acctConnectOnly = nLive === 0 && proof?.state !== "signing";
+  const first = acctWallets[0];
+  out.acctLabel = !nLive ? (proof?.state === "signing" ? "Confirm in wallet…" : "Connect wallet") : first.title + (nLive > 1 ? " +" + (nLive - 1) : "");
+  out.acctIcon = first?.icon;
+  out.netLabel = nLive ? "Mainnet · " + nLive + (nLive === 1 ? " wallet" : " wallets") + " connected" : "Not connected · read only";
+  out.netColor = nLive ? "#4E7A4A" : "#8A9285";
+  out.wsRole = connected ? "Owner · can approve" : nLive ? "Connected · read only for NEAR" : "Read only · not connected";
+  out.acctOffline = offline
+    ? { label: offline + (offline === 1 ? " more wallet" : " more wallets") + " in Portfolio, not connected", onClick: () => { close(); self.go("portfolio"); } }
+    : null;
+
+  // The Connect dialog. Pending shows "Waiting for <wallet>…" until the wallet answers (connect, then the
+  // free ownership signature); a refusal or error comes back inline, never as a silent hang.
+  const openConnect = () => self.setState({ menu: null, connectOpen: true, connectError: "", connectPending: null });
+  out.openConnect = openConnect;
+  const friendly = (e: any, name: string) => {
+    const msg = String(e?.message ?? e ?? "");
+    if (e?.code === 4001 || /reject|denied|declin|cancel|closed/i.test(msg)) return "You declined in " + name + ". Nothing was connected.";
+    return msg ? name + ": " + msg : "Couldn’t connect " + name + ". Nothing was signed.";
+  };
+  const run = (key: string, name: string, icon: string | undefined, glyph: string, hint: string, fn: () => Promise<unknown>, done: (r: any) => string) => {
+    self.setState({ connectPending: { key, name, icon, glyph, hint }, connectError: "" });
+    Promise.resolve()
+      .then(fn)
+      .then((r) => {
+        if (self.state.connectPending?.key === key) self.setState({ connectPending: null, connectOpen: false });
+        self.toastMsg(done(r));
+      })
+      .catch((e) => {
+        if (self.state.connectPending?.key === key) self.setState({ connectPending: null, connectError: friendly(e, name) });
+      });
+  };
+  const found = snap.walletsFound ?? [];
+  const option = (w: any) => {
+    const mine = sessions.filter((x) => x.walletId === w.id);
+    return {
+      key: w.chain + ":" + w.id,
+      name: w.name,
+      icon: w.icon,
+      glyph: w.chain === "evm" ? "Ξ" : "◎",
+      connected: mine.length > 0,
+      sub: mine.length ? shortAddress(mine[0].address) + (mine.length > 1 ? " +" + (mine.length - 1) : "") + " · add another account" : "",
+      onClick: () =>
+        run(
+          w.chain + ":" + w.id,
+          w.name,
+          w.icon,
+          w.chain === "evm" ? "Ξ" : "◎",
+          "Approve the connection in " + w.name + ", then sign the free message. If nothing opened, click the " + w.name + " icon in your browser’s toolbar.",
+          () => acts0.connectWallet(w),
+          (addr: string) => w.name + " connected · " + shortAddress(addr) + ".",
+        ),
+    };
+  };
+  const nearOpts = (snap.nearWallets?.length ? snap.nearWallets : [{ id: "meteor-wallet", name: "Meteor" }, { id: "my-near-wallet", name: "MyNearWallet" }]) as { id: string; name: string; icon?: string }[];
+  const evmFound = found.filter((w) => w.chain === "evm");
+  const solFound = found.filter((w) => w.chain === "solana");
+  out.connectModal = {
+    open: !!s.connectOpen,
+    close: () => self.setState({ connectOpen: false, connectPending: null, connectError: "" }),
+    pending: s.connectPending ?? null,
+    error: s.connectError ?? "",
+    dismissError: () => self.setState({ connectError: "" }),
+    demo: () => { self.setState({ connectOpen: false, connectPending: null }); self.setWorkspace("demo"); },
+    groups: [
+      {
+        title: "NEAR",
+        options: nearOpts.map((w) => ({
+          key: "near:" + w.id,
+          name: w.name,
+          icon: w.icon,
+          glyph: "Ⓝ",
+          connected: !!nearLive && snap.walletName === w.id,
+          sub: nearLive && snap.walletName === w.id ? nearLive + " · switch account" : "",
+          onClick: () =>
+            run(
+              "near:" + w.id,
+              w.name,
+              w.icon,
+              "Ⓝ",
+              "Choose your account in " + w.name + ". Next it asks you to sign a free message proving the account is yours.",
+              () => acts0.connectNear(w.id),
+              () => w.name + " connected. Sign the free message in " + w.name + " to prove the account is yours.",
+            ),
+        })),
+      },
+      { title: "Ethereum, Base and Arbitrum", options: evmFound.map(option), empty: "No Ethereum wallet found in this browser. Install MetaMask or Rabby, then reload this page." },
+      { title: "Solana", options: solFound.map(option), empty: "No Solana wallet found in this browser. Install Phantom or Solflare, then reload this page." },
+    ],
+  };
+  out.acctMenuNote = "";
+  out.acctItems =
+    proof?.state === "declined"
       ? [{ glyph: "✎", label: "Prove " + proof.account + " is yours", sub: "Sign one free message in your NEAR wallet" + (proof.error ? " · last try: " + proof.error : ""), color: "#3F6B3C", onClick: () => { close(); self.liveCall(() => acts0.proveNear()); } }]
-      : []),
-    ...(reg.length ? [{ heading: "YOUR WALLETS" }, ...walletRows] : []),
-    { heading: "CONNECT A WALLET" },
-    { glyph: "Ⓝ", label: connected || snap.walletAccount ? "Switch NEAR wallet" : "NEAR wallet", sub: "Meteor or MyNearWallet · one free signature", color: "#1E2A22", onClick: () => { close(); self.liveCall(() => acts0.connect()); } },
-    ...(evmFound.length ? evmFound.map(connectItem) : [{ glyph: "Ξ", label: "No Ethereum wallet in this browser", sub: "Install MetaMask, Rabby or another wallet, then reload", disabled: true }]),
-    ...(solFound.length ? solFound.map(connectItem) : [{ glyph: "◎", label: "No Solana wallet in this browser", sub: "Install Phantom, Solflare or Backpack, then reload", disabled: true }]),
-    ...(disconnectRows.length ? [{ divider: true }, ...disconnectRows] : []),
-  ];
+      : [];
   // First-run "Connect wallet": a connected NEAR wallet whose proof was declined is asked to sign again.
-  out.connectFirst = () => self.liveCall(() => (snap.walletAccount && snap.nearProof?.state === "declined" ? acts0.proveNear() : acts0.connect()));
+  out.connectFirst = () => (snap.walletAccount && snap.nearProof?.state === "declined" ? self.liveCall(() => acts0.proveNear()) : openConnect());
   out.walletApprove = () => self.toastMsg(readOnly ? "Connect the wallet that owns " + (acct || "this account") + " first. Nothing was signed." : "Use the dialog’s approve button. Nothing was signed.");
   }
 

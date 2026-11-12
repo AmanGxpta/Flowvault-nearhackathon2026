@@ -11,6 +11,8 @@ const noopSubscribe = () => () => {};
 
 export interface LiveActions {
   connect(): Promise<void>;
+  /** Sign in with one named NEAR wallet (from FlowVault's Connect dialog). */
+  connectNear(id: string): Promise<void>;
   disconnect(): Promise<void>;
   /** Multi-wallet (A3): connect an Ethereum or Solana wallet (one free signature the server verifies). */
   connectWallet(w: DiscoveredWallet): Promise<string>;
@@ -64,8 +66,8 @@ export function FlowVaultRoot() {
   const multi = useMultiWallets();
   const [nearProof, setNearProof] = useState<LiveSnapshot["nearProof"]>(null);
   const snap = useMemo(
-    () => ({ ...raw, walletAccount: wallet.accountId, walletName: wallet.walletName, walletError: wallet.error, walletSessions: multi.sessions, walletsFound: multi.wallets, nearProof }),
-    [raw, wallet.accountId, wallet.walletName, wallet.error, multi.sessions, multi.wallets, nearProof],
+    () => ({ ...raw, walletAccount: wallet.accountId, walletName: wallet.walletName, walletError: wallet.error, walletSessions: multi.sessions, walletsFound: multi.wallets, nearWallets: wallet.options, nearProof }),
+    [raw, wallet.accountId, wallet.walletName, wallet.error, wallet.options, multi.sessions, multi.wallets, nearProof],
   );
   const snapRef = useRef(snap);
   useEffect(() => {
@@ -164,6 +166,7 @@ export function FlowVaultRoot() {
   const actions: LiveActions = useMemo(
     () => ({
       connect: () => walletRef.current.connect(),
+      connectNear: (id) => walletRef.current.connectWith(id),
       disconnect: () => walletRef.current.disconnect(),
       connectWallet: async (w) => {
         const address = await connectWallet(

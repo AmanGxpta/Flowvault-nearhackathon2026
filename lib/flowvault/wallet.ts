@@ -51,7 +51,23 @@ export function walletClient() {
     });
   return initialization;
 }
+/** A NEAR wallet FlowVault can offer in its own Connect dialog (instead of the selector's built-in modal). */
+export interface NearWalletOption {
+  id: string;
+  name: string;
+  icon?: string;
+}
+/** Sign in with one NEAR wallet directly. No contract and no function-call key are requested. Meteor opens
+ * a popup and resolves when the owner answers; MyNearWallet redirects the page and comes back. */
+export async function connectNearWallet(id: string) {
+  const { selector } = await walletClient();
+  const w = await selector.wallet(id);
+  // No contractId: FlowVault asks for no function-call key. Browser (redirect) wallets also take return URLs.
+  const extra = w.type === "browser" ? { successUrl: w.metadata.successUrl, failureUrl: w.metadata.failureUrl } : {};
+  await (w.signIn as (p: Record<string, unknown>) => Promise<unknown>)({ contractId: undefined, methodNames: undefined, ...extra });
+}
 export function useNearWallet() {
+  const [options, setOptions] = useState<NearWalletOption[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [walletName, setWalletName] = useState("");
   const [error, setError] = useState("");
@@ -63,6 +79,11 @@ export function useNearWallet() {
       .then(({ selector }) => {
         if (!alive) return;
         setError("");
+        setOptions(
+          (selector.store.getState().modules ?? [])
+            .filter((m) => m.metadata.available !== false && !m.metadata.deprecated)
+            .map((m) => ({ id: m.id, name: m.metadata.name ?? m.id, icon: m.metadata.iconUrl })),
+        );
         const update = (state: WalletSelectorState) => {
           if (!alive) return;
           setAccountId(state.accounts.find((a) => a.active)?.accountId ?? null);
@@ -84,6 +105,11 @@ export function useNearWallet() {
     accountId,
     walletName,
     error,
+    options,
+    connectWith: async (id: string) => {
+      setSubscriptionVersion((v) => v + 1);
+      await connectNearWallet(id);
+    },
     connect: async () => {
       const client = await walletClient();
       setSubscriptionVersion((v) => v + 1);

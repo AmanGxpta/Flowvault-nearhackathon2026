@@ -3,6 +3,7 @@
 import { Fragment } from "react";
 import { tc } from "./theme";
 import { ThemeToggle } from "./ThemeToggle";
+import { ConnectWalletModal, ConnectedWalletRow } from "./WalletConnect";
 import { OverviewView } from "./screens/OverviewView";
 import { CalendarView } from "./screens/CalendarView";
 import { StrategiesView } from "./screens/StrategiesView";
@@ -627,7 +628,9 @@ export function Shell({ v }: { v: any }) {
             <div style={{ position: "relative" }}>
               <button
                 type="button"
-                onClick={v.toggleAcct}
+                onClick={v.acctConnectOnly ? v.openConnect : v.toggleAcct}
+                aria-haspopup={v.acctConnectOnly ? "dialog" : "menu"}
+                aria-expanded={v.acctConnectOnly ? undefined : !!v.acctMenuOpen}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -637,19 +640,28 @@ export function Shell({ v }: { v: any }) {
                   background: "var(--fvb-FFFFFF)",
                   borderRadius: "12px",
                   fontSize: "14px",
+                  fontWeight: v.acctConnectOnly ? 500 : 400,
                   whiteSpace: "nowrap",
                   cursor: "pointer",
                   color: "var(--fvc-1E2A22)",
+                  maxWidth: "260px",
                 }}
+                className="fvh5"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--fvc-1E2A22)" strokeWidth="1.8">
-                  <rect x="3" y="6" width="18" height="14" rx="2"></rect>
-                  <path d="M16 13h2M3 9l13-5v2"></path>
-                </svg>
-                {v.acctLabel}{" "}
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--fvc-1E2A22)" strokeWidth="2">
-                  <path d="m6 9 6 6 6-6"></path>
-                </svg>
+                {v.acctIcon ? (
+                  <img src={v.acctIcon} alt="" width={18} height={18} style={{ borderRadius: "5px", flexShrink: 0 }} />
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--fvc-1E2A22)" strokeWidth="1.8" style={{ flexShrink: 0 }}>
+                    <rect x="3" y="6" width="18" height="14" rx="2"></rect>
+                    <path d="M16 13h2M3 9l13-5v2"></path>
+                  </svg>
+                )}
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.acctLabel}</span>
+                {v.acctConnectOnly ? null : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--fvc-1E2A22)" strokeWidth="2" style={{ flexShrink: 0 }}>
+                    <path d="m6 9 6 6 6-6"></path>
+                  </svg>
+                )}
               </button>
               {v.acctMenuOpen ? (
                 <>
@@ -763,9 +775,80 @@ export function Shell({ v }: { v: any }) {
                       ↗ Pay or move money
                     </button>
                     <div style={{ height: "1px", background: "var(--fvb-E6E8DF)", margin: "6px 4px" }}></div>
-                    <div style={{ padding: "8px 12px 6px", fontSize: "12px", color: "var(--fvc-8A9285)" }}>
-                      {v.acctMenuNote}
-                    </div>
+                    {v.acctWallets ? (
+                      <>
+                        <div style={{ padding: "8px 12px 4px", fontSize: "12px", fontWeight: 600, color: "var(--fvc-6F786B)" }}>
+                          Connected wallets
+                        </div>
+                        {v.acctWallets.map((w: any) => (
+                          <ConnectedWalletRow key={w.key} w={w} />
+                        ))}
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={v.openConnect}
+                          className="fvh5"
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px",
+                            padding: "9px 10px",
+                            marginTop: "2px",
+                            border: "none",
+                            borderRadius: "10px",
+                            background: "transparent",
+                            fontSize: "14px",
+                            cursor: "pointer",
+                            color: "var(--fvc-3F6B3C)",
+                            textAlign: "left",
+                          }}
+                        >
+                          <span
+                            aria-hidden
+                            style={{
+                              width: "28px",
+                              height: "28px",
+                              flexShrink: 0,
+                              borderRadius: "7px",
+                              border: "1px dashed var(--fvb-C9D6C1)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "16px",
+                            }}
+                          >
+                            +
+                          </span>
+                          Connect another wallet
+                        </button>
+                        {v.acctOffline ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={v.acctOffline.onClick}
+                            className="fvh5"
+                            style={{
+                              width: "100%",
+                              padding: "8px 12px",
+                              border: "none",
+                              borderRadius: "9px",
+                              background: "transparent",
+                              fontSize: "12.5px",
+                              cursor: "pointer",
+                              color: "var(--fvc-6F786B)",
+                              textAlign: "left",
+                            }}
+                          >
+                            {v.acctOffline.label} →
+                          </button>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div style={{ padding: "8px 12px 6px", fontSize: "12px", color: "var(--fvc-8A9285)" }}>
+                        {v.acctMenuNote}
+                      </div>
+                    )}
                     {(v.acctItems || []).map((it: any, i_it_0: number) => (
                       <Fragment key={i_it_0}>
                         {it.heading ? (
@@ -858,6 +941,7 @@ export function Shell({ v }: { v: any }) {
         </main>
         {v.asstOpen ? <AssistantView v={v} /> : null}
         {v.modalOpen ? <ModalShellView v={v} /> : null}
+        {v.connectModal ? <ConnectWalletModal m={v.connectModal} /> : null}
         {v.hasToast ? (
           <>
             <div role="status" aria-live="polite"

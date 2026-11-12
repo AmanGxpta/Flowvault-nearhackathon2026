@@ -100,6 +100,8 @@ export interface LiveSnapshot {
   /** Multi-wallet (A3): Ethereum and Solana wallets connected in this browser, and the ones it can connect. */
   walletSessions?: import("@/lib/flowvault/wallets").WalletSession[];
   walletsFound?: import("@/lib/flowvault/wallets").DiscoveredWallet[];
+  /** NEAR wallets offered in FlowVault's own Connect dialog (Meteor, MyNearWallet). */
+  nearWallets?: import("@/lib/flowvault/wallet").NearWalletOption[];
   /** The connected NEAR wallet's account still needs its NEP-413 proof (declined or pending). */
   nearProof?: { account: string; state: "signing" | "declined"; error?: string } | null;
   readingAt: string;
