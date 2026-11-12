@@ -42,6 +42,16 @@ pub enum Kind {
     Supply,
     Withdraw,
     Pay,
+    /// Native validator staking (deposit_and_stake). Amount is the settlement-asset value of the stake.
+    Stake,
+    /// Delayed unstake and the later claim return capital to the owner, like Withdraw.
+    Unstake,
+    WithdrawUnstaked,
+}
+impl Kind {
+    fn returns_capital(&self) -> bool {
+        matches!(self, Kind::Withdraw | Kind::Unstake | Kind::WithdrawUnstaked)
+    }
 }
 #[near(serializers=[borsh,json])]
 #[derive(Clone, Debug)]
@@ -245,7 +255,7 @@ impl PolicyContract {
             "METHOD_NOT_ALLOWED"
         );
         assert!(
-            action.kind == Kind::Withdraw || !p.protected_assets.contains(&action.asset_id),
+            action.kind.returns_capital() || !p.protected_assets.contains(&action.asset_id),
             "PROTECTED_ASSET"
         );
         assert!(
@@ -716,6 +726,53 @@ mod tests {
         fails(|| {
             c.record_outcome(p.id, vec!["1".repeat(43)], "a".repeat(64), "success".into());
         });
+    }
+    #[test]
+    fn native_staking_proposals_follow_the_same_caps_and_protected_rules() {
+        let mut c = contract();
+        context(owner(), 1, 1000);
+        let mut p = plan();
+        p.version = U64(2);
+        p.venues.push("native:pool.poolv1.testnet".into());
+        p.methods.push(MethodRule {
+            receiver: "pool.poolv1.testnet".parse().unwrap(),
+            method: "deposit_and_stake".into(),
+        });
+        p.methods.push(MethodRule {
+            receiver: "pool.poolv1.testnet".parse().unwrap(),
+            method: "unstake".into(),
+        });
+        c.set_plan(p.clone());
+        context(agent(), 0, 1000);
+        let mut stake = action();
+        stake.kind = Kind::Stake;
+        stake.venue = "native:pool.poolv1.testnet".into();
+        stake.receiver = "pool.poolv1.testnet".parse().unwrap();
+        stake.method = "deposit_and_stake".into();
+        let id = c.propose(owner(), U64(2), stake.clone(), U64(60000)).id;
+        context(owner(), 1, 1000);
+        assert_eq!(c.approve(id).status, Status::Approved);
+        // Over the per-action cap is refused like any other kind.
+        context(agent(), 0, 1000);
+        let mut big = stake.clone();
+        big.amount = U128(p.per_action_cap.0 + 1);
+        fails(|| {
+            c.propose(owner(), U64(2), big, U64(60000));
+        });
+        // A protected asset cannot be staked, but unstaking it (capital returning) is allowed.
+        context(owner(), 1, 1000);
+        let mut q = p.clone();
+        q.version = U64(3);
+        q.protected_assets.push(receiver());
+        c.set_plan(q);
+        context(agent(), 0, 1000);
+        fails(|| {
+            c.propose(owner(), U64(3), stake.clone(), U64(60000));
+        });
+        let mut unstake = stake;
+        unstake.kind = Kind::Unstake;
+        unstake.method = "unstake".into();
+        c.propose(owner(), U64(3), unstake, U64(60000));
     }
     #[test]
     fn settlement_asset_cannot_change_daily_units() {

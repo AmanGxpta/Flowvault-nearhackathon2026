@@ -6,8 +6,9 @@
   "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
   "target": "wasm32-unknown-unknown",
   "builtUtcDate": "2026-11-12",
-  "wasmBytes": 270724,
-  "wasmSha256": "05e6fa998a2ddfabec4602f01d9c6cb6c4222fc0f0cd02f253be1bfb21e28c6a",
-  "sourceSha256": "491627b41391502d2fc955bc8b7322fda4db1f549508348bf611d89ab6cdfad2",
-  "cargoLockSha256": "38de6a3ac716a3481e48686c11c7628291954749a1b76f780c09f667421f0d6b"
+  "wasmBytes": 271133,
+  "wasmSha256": "d7c0531f2bb7ad7f31aecfd023940e4d40066b4c487ad71418f471687dae4747",
+  "sourceSha256": "5e346b430348610278365e73905251e9e8e94e701ef4abcf55f00816876b9cb1",
+  "cargoLockSha256": "38de6a3ac716a3481e48686c11c7628291954749a1b76f780c09f667421f0d6b",
+  "changes": "12 Nov: proposal kinds stake, unstake, withdraw_unstaked (native validator staking); unstake/claim exempt from the protected-asset refusal like withdraw."
 }

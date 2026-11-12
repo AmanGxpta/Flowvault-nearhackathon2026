@@ -17,6 +17,10 @@ const STAKING: Record<string, LedgerKind> = {
   stake: "position_entry",
   unstake: "internal_transfer",
   withdraw_unstaked: "position_exit",
+  // P2 native validator staking.
+  native_stake: "position_entry",
+  native_unstake: "internal_transfer",
+  native_withdraw: "position_exit",
 };
 const PAID = "paid";
 const big = (v: string | null | undefined) => (v && /^-?\d+$/.test(v) ? BigInt(v) : null);
@@ -100,10 +104,10 @@ export function attemptLedger(a: WalletAttempt, prices: PriceEvidence | null, so
           : a.kind === "collateral_add" ? "Rhea increase_collateral verified from finalized receipts" : "Rhea decrease_collateral and payout verified from finalized receipts",
       });
     } else if (a.kind in STAKING) {
-      const p = a.preparation as unknown as { asset: string; amountRaw: string; decimals: number; usdcValueRaw?: string };
+      const p = a.preparation as unknown as { asset: string; amountRaw: string; decimals: number; usdcValueRaw?: string; pool?: string };
       principal({
         kind: STAKING[a.kind], asset: p.asset, amountRaw: p.amountRaw, decimals: p.decimals, usdcRaw: p.usdcValueRaw ?? null,
-        netWorthEffectUsdcRaw: "0", liabilityEffectUsdcRaw: "0", positionId: p.asset === "LiNEAR" || a.kind !== "stake" ? "linear" : "native",
+        netWorthEffectUsdcRaw: "0", liabilityEffectUsdcRaw: "0", positionId: a.kind.startsWith("native_") ? "native:" + p.pool : "linear",
         basis: `Staking ${a.kind} verified from finalized receipts (principal moves between NEAR and the staked position)`,
       });
     }
