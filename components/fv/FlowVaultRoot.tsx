@@ -11,12 +11,7 @@ const noopSubscribe = () => () => {};
 export interface LiveActions {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
-  watch(accountId: string): Promise<void>;
-  /** Owner's EVM addresses, persisted on the workspace (R7). Declared ownership, not proof of control. */
-  setEvm(v: { base?: string; arb?: string }): Promise<void>;
-  /** Watched accounts are read-only and excluded from every engine figure (R10). Full replacement. */
-  setWatched(list: { id: string; label: string; chain: "near" | "base" | "arb"; address: string }[]): Promise<void>;
-  /** Account registry (any chain, any number): add, set-role, rename, forget. Never signs or moves funds. */
+  /** Account registry: accounts enter only through their wallet (connect); rename and forget. Never signs. */
   accounts(body: Record<string, unknown>): Promise<any>;
   refresh(): Promise<void>;
   savePlan(changes: { reserve?: string; horizon?: number; leadDays?: number; borrowing?: boolean }): Promise<void>;
@@ -94,37 +89,33 @@ export function FlowVaultRoot() {
     return () => window.removeEventListener("fv:workspace-refresh", onRefresh);
   }, [refresh]);
 
-  // EVM addresses typed before R7 lived only in this browser: move them onto the personal workspace once.
+  // EVM addresses typed before R7 lived only in this browser. Typed-in addresses are no longer accepted (an
+  // account enters only through its wallet), so the old copy is simply discarded.
   useEffect(() => {
-    const w: any = snap.workspace;
-    if (migrated.current || snap.scope !== "personal" || !w?.accountId || snap.status !== "ready") return;
+    if (migrated.current || !mounted) return;
     migrated.current = true;
-    const legacy = takeLegacyEvm();
-    if (!legacy) return;
-    if (w.evmAddresses?.base || w.evmAddresses?.arb) return clearLegacyEvm();
-    void api("/api/workspace", { revision: snap.revision, evmAddresses: legacy }, "PUT", "personal")
-      .then(() => { clearLegacyEvm(); return refresh(); })
-      .catch(() => {});
-  }, [snap.workspace, snap.scope, snap.status, snap.revision, refresh]);
+    if (takeLegacyEvm()) clearLegacyEvm();
+  }, [mounted]);
 
-  // A newly connected wallet becomes the live workspace account (same rule as before the redesign).
+  // A connected NEAR wallet is how an account enters the workspace: it becomes (or stays) the main account and
+  // is recorded as proven by a wallet session, in one write. Re-runs whenever the workspace and the wallet disagree.
   useEffect(() => {
     const id = wallet.accountId;
     if (!id) {
       synced.current = null;
       return;
     }
-    if (snap.scope !== "personal" || synced.current === id || snap.status === "loading" || !snap.workspace) return;
-    synced.current = id;
-    void (async () => {
-      const latest = await api("/api/workspace", undefined, "GET", "personal");
-      if (!(latest.workspace.mode === "live" && latest.workspace.accountId === id))
-        await api("/api/workspace", { revision: latest.revision, mode: "live", accountId: id }, "PUT", "personal");
-      // The registry records that a wallet signed in as this account (client-reported, labelled as such).
-      await api("/api/accounts", { action: "wallet-session", chain: "near", address: id }, "POST", "personal").catch(() => {});
-      await refresh();
-    })().catch((e) => setSnap((s) => ({ ...s, error: (e as Error).message })));
-  }, [wallet.accountId, snap.status, snap.workspace, snap.scope, refresh]);
+    const w: any = snap.workspace;
+    if (snap.scope !== "personal" || snap.status === "loading" || !w) return;
+    const main = (w.accounts ?? []).find((a: any) => a.primary);
+    if (w.accountId === id && main?.address === id && main.proof) return;
+    const key = id + ":" + snap.revision;
+    if (synced.current === key) return;
+    synced.current = key;
+    void api("/api/accounts", { action: "connect", chain: "near", address: id }, "POST", "personal")
+      .then(() => refresh())
+      .catch((e) => setSnap((s) => ({ ...s, error: (e as Error).message })));
+  }, [wallet.accountId, snap.status, snap.workspace, snap.scope, snap.revision, refresh]);
 
   // Returning from a redirect wallet: attach the hashes (or mark uncertain) to the journal entry.
   useEffect(() => {
@@ -149,28 +140,10 @@ export function FlowVaultRoot() {
     () => ({
       connect: () => walletRef.current.connect(),
       disconnect: () => walletRef.current.disconnect(),
-      watch: async (accountId: string) => {
-        const latest = await api("/api/workspace");
-        await api("/api/workspace", { revision: latest.revision, mode: "live", accountId: accountId.trim().toLowerCase() }, "PUT");
-        await refresh();
-      },
-      setEvm: async (v) => {
-        const latest = await api("/api/workspace", undefined, "GET");
-        const evmAddresses: Record<string, string> = {};
-        if (v.base) evmAddresses.base = v.base;
-        if (v.arb) evmAddresses.arb = v.arb;
-        await api("/api/workspace", { revision: latest.revision, evmAddresses, watchedAccounts: latest.workspace.watchedAccounts ?? [] }, "PUT");
-        await refresh();
-      },
       accounts: async (body) => {
         const r = await api("/api/accounts", body, "POST");
         await refresh();
         return r;
-      },
-      setWatched: async (list) => {
-        const latest = await api("/api/workspace", undefined, "GET");
-        await api("/api/workspace", { revision: latest.revision, evmAddresses: latest.workspace.evmAddresses ?? {}, watchedAccounts: list }, "PUT");
-        await refresh();
       },
       refresh,
       savePlan: async (changes) => {

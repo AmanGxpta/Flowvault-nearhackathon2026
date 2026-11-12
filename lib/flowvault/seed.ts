@@ -362,26 +362,6 @@ export function demoPortfolio(now = Date.now()): Portfolio {
         "arb",
         "2000",
       ),
-      row(
-        "watched-lp",
-        "Watched USDC/ETH LP · fictional",
-        "LP",
-        "1",
-        "supplied",
-        "base",
-        null,
-        { ownership: "watched" },
-      ),
-      row(
-        "watched-nft",
-        "Watched NFT collection · fictional",
-        "NFT",
-        "3",
-        "wallet",
-        "near",
-        null,
-        { ownership: "watched" },
-      ),
     ],
   };
 }

@@ -742,7 +742,7 @@ export class DesignApp extends Component<any, any> {
     const dismissWhy = Object.fromEntries(whyKeys.map((k: any) => [k, () => { const off: any = { ...s.whyOff, [k]: true }; try { sessionStorage.setItem('fv-why', JSON.stringify(off)); } catch (e) {} self.setState({ whyOff: off }); }]));
     const onbS = (done: any, active: any) => ({ bg: done ? '#F4F7EE' : '#fff', dotBg: done ? '#4E7A4A' : active ? '#2B4233' : '#EEF0E8', dotColor: done || active ? '#fff' : '#5B6458' });
     const d1 = s.connected || !!s.watchAddr, d2 = s.reserve > 0, d3 = s.obs.length > 0;
-    const onb: any = { s1: { ...onbS(d1, !d1), glyph: d1 ? '✓' : '1', sub: s.connected ? 'Connected ' + LIVE_ACC + ' · can approve' : s.watchAddr ? 'Watching ' + short(s.watchAddr) + ' · read only' : 'Connecting lets you approve later. Watching only reads.' },
+    const onb: any = { s1: { ...onbS(d1, !d1), glyph: d1 ? '✓' : '1', sub: s.connected ? 'Connected ' + LIVE_ACC + ' · can approve' : 'Connecting proves the account is yours. FlowVault reads only accounts you connect, and you approve every action.' },
       s2: { ...onbS(d2, d1 && !d2), glyph: d2 ? '✓' : '2' }, s3: { ...onbS(d3, d2 && !d3), glyph: d3 ? '✓' : '3', sub: d3 ? s.obs[0].name + ' · ' + num(s.obs[0].amount) + ' ' + AS(s.obs[0]) + ' · ' + dlabel(s.obs[0].due) : 'Amount the recipient receives, chain, address and due date.' },
       s4: { ...onbS(false, d1 && d2 && d3), glyph: '4', btnBg: d1 && d2 && d3 ? '#2A4034' : '#B9C0B2' }, notReady: !(d1 && d2 && d3) };
     const stmtDays: any = { a1: 9, a2: 10, a3: 15, a4: 22 };
@@ -800,7 +800,6 @@ export class DesignApp extends Component<any, any> {
         self.refocus(); },
       onb, watchDraft: s.watchDraft, onWatchDraft: (e: any) => self.setState({ watchDraft: e.target.value }),
       connectFirst: () => { if (s.ws === 'live') return self.liveCall(() => self.props.actions.connect());  const first = s.ds === 'empty' && s.ws === 'live' && s.wallet === 0; self.setState({ connected: true, ...(first ? { wallet: 4200 } : {}) }); self.toastMsg(first ? 'Connected ' + LIVE_ACC + '. Read 4,200.00 USDC (example read).' : 'Connected ' + LIVE_ACC + '.'); },
-      watchFirst: () => { const a = s.watchDraft.trim(); if (!(isNear(a) || isEvm(a))) return self.toastMsg('That isn’t a NEAR account or EVM address.'); if (s.ws === 'live') { self.setState({ watchDraft: '' }); if (!s.firstRun && isNear(a)) return self.toastMsg('Watching another NEAR account alongside yours isn’t supported by the API yet. EVM addresses can be added for Base and Arbitrum USDC.'); return isNear(a) ? self.liveCall(() => self.props.actions.watch(a), 'Watching ' + short(a) + '. Watching never lets anyone move its funds.') : self.liveCall(() => self.props.actions.setEvm({ ...((self.props.live && self.props.live.evm) || {}), base: a, arb: a }), 'Reading USDC for ' + short(a) + ' on Base and Arbitrum. Read only.'); } self.setState({ watchAddr: a, watchDraft: '' }); self.toastMsg('Watching ' + short(a) + '. Watching never lets anyone move its funds.'); },
       finishFirstRun: () => { if (onb.notReady) return; self.setState({ firstRun: false, screen: 'portfolio', pfDate: s.obs[0] ? s.obs[0].id : 'now' }); },
       goOverview: () => self.go('overview'),
       pfHas: HD.length > 0, pfEmpty: HD.length === 0, stratHas: total > 0, stratEmpty: total <= 0, creditHas: !fresh, creditEmpty: fresh,

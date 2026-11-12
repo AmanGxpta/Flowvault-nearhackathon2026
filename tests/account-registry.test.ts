@@ -1,106 +1,106 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  detectChain,
   ensureAccounts,
   applyAccountAction,
-  adoptLegacy,
   unreadAccounts,
   accountState,
+  mayRead,
   MAX_ACCOUNTS,
 } from "../lib/flowvault/account-registry.ts";
 import type { Workspace } from "../lib/flowvault/types.ts";
 
 const EVM = "0x32E54827dca55754ea9Cc1Cc8455B2b6A7BE004A";
-const EVM2 = "0x" + "ab".repeat(20);
-const SOL = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV";
 const NOW = "2026-11-12T10:00:00.000Z";
 
 function ws(over: Partial<Workspace> = {}): Workspace {
   return {
     mode: "live",
-    accountId: "datamastr3.near",
+    accountId: null,
     obligations: [],
     operations: [],
     mandate: { version: 1 } as Workspace["mandate"],
     ...over,
   } as Workspace;
 }
+const connect = (w: Workspace, chain: "near" | "evm" | "solana", address: string) => applyAccountAction(w, { action: "connect", chain, address }, NOW);
 
-test("detectChain tells NEAR, EVM and Solana apart", () => {
-  assert.equal(detectChain("datamastr3.near"), "near");
-  assert.equal(detectChain("a".repeat(64).replace(/a/g, "f")), "near");
-  assert.equal(detectChain(EVM), "evm");
-  assert.equal(detectChain(SOL), "solana");
-  assert.equal(detectChain("0x" + "0".repeat(40)), null);
-  assert.equal(detectChain("not an address!"), null);
-});
-
-test("migration: the primary is yours, a watched copy of your own EVM address becomes yours", () => {
-  const w = ws({
-    evmAddresses: { base: EVM, arb: EVM },
-    watchedAccounts: [
-      { id: "w1-base", chain: "base", address: EVM, label: "0x32E5…004A · Base" },
-      { id: "w1-arb", chain: "arb", address: EVM, label: "0x32E5…004A · Arbitrum" },
-      { id: "w2", chain: "near", address: "friend.near", label: "Friend" },
-    ],
-  });
-  assert.equal(ensureAccounts(w, NOW), true);
-  const byId = Object.fromEntries(w.accounts!.map((a) => [a.id, a]));
-  assert.equal(byId["near:datamastr3.near"].primary, true);
-  assert.equal(byId["near:datamastr3.near"].role, "owned");
-  assert.equal(byId["evm:" + EVM.toLowerCase()].role, "owned");
-  assert.equal(byId["near:friend.near"].role, "watched");
-  assert.equal(w.accounts!.length, 3);
-  // Derived fields: your address is read as yours and never also as watched.
-  assert.deepEqual(w.evmAddresses, { base: EVM.toLowerCase(), arb: EVM.toLowerCase() });
-  assert.deepEqual(w.watchedAccounts!.map((x) => x.address), ["friend.near"]);
-  assert.equal(ensureAccounts(w, NOW), false, "idempotent");
-});
-
-test("migration keeps a watched-only EVM address watched, as one account across networks", () => {
-  const w = ws({
-    watchedAccounts: [
-      { id: "a", chain: "base", address: EVM, label: "0x32E5…004A · Base" },
-      { id: "b", chain: "arb", address: EVM, label: "0x32E5…004A · Arbitrum" },
-    ],
-  });
-  ensureAccounts(w, NOW);
-  const evm = w.accounts!.filter((a) => a.chain === "evm");
-  assert.equal(evm.length, 1);
-  assert.equal(evm[0].role, "watched");
-  assert.equal(evm[0].label, "0x32E5…004A");
-  assert.deepEqual(w.watchedAccounts!.map((x) => x.chain), ["base", "arb"]);
-});
-
-test("marking a watched address as yours moves it into net worth and out of the watched list", () => {
-  const w = ws({ watchedAccounts: [{ id: "a", chain: "base", address: EVM, label: "x" }] });
-  ensureAccounts(w, NOW);
-  const r = applyAccountAction(w, { action: "set-role", id: "evm:" + EVM.toLowerCase(), role: "owned" }, NOW);
-  assert.equal(r.counted, true);
-  assert.equal(w.evmAddresses!.base, EVM.toLowerCase());
-  assert.equal(w.watchedAccounts!.length, 0);
-  assert.equal(w.accounts!.find((a) => a.chain === "evm")!.proof!.method, "declared");
-});
-
-test("several accounts per chain; extra ones are reported unread, never zero", () => {
+test("an account enters only through its wallet; a NEAR wallet becomes the main account", () => {
   const w = ws();
   ensureAccounts(w, NOW);
-  applyAccountAction(w, { action: "add", address: EVM, role: "owned" }, NOW);
-  applyAccountAction(w, { action: "add", address: EVM2, role: "owned" }, NOW);
-  applyAccountAction(w, { action: "add", address: SOL, role: "owned" }, NOW);
-  applyAccountAction(w, { action: "add", address: "second.near", role: "owned" }, NOW);
-  assert.equal(w.accounts!.length, 5);
-  assert.deepEqual(
-    unreadAccounts(w).map((a) => a.id).sort(),
-    ["evm:" + EVM2, "near:second.near", "solana:" + SOL].sort(),
-  );
-  assert.throws(() => applyAccountAction(w, { action: "add", address: EVM.toLowerCase(), role: "watched" }, NOW), /already/);
+  assert.equal(w.accounts!.length, 0);
+  const r = connect(w, "near", "datamastr3.near");
+  assert.equal(r.counted, true);
+  assert.equal(w.accountId, "datamastr3.near");
+  const a = w.accounts![0];
+  assert.equal(a.primary, true);
+  assert.equal(a.proof!.method, "wallet-session");
+  assert.equal(connect(w, "near", "datamastr3.near").counted, false, "reconnecting changes nothing");
 });
 
-test("forgetting the primary clears the main account; forgetting others leaves it", () => {
-  const w = ws({ evmAddresses: { base: EVM } });
+test("migration: watched addresses are dropped; typed-in ones are kept unproven and never read", () => {
+  const w = ws({
+    accountId: "typed.near",
+    evmAddresses: { base: EVM, arb: EVM },
+    watchedAccounts: [{ id: "w", chain: "near", address: "friend.near", label: "Friend" }],
+  });
+  assert.equal(ensureAccounts(w, NOW), true);
+  assert.deepEqual(w.accounts!.map((a) => [a.id, a.proof]), [
+    ["near:typed.near", null],
+    ["evm:" + EVM.toLowerCase(), null],
+  ]);
+  // Nothing unproven is read: no main account, no EVM address, no watched list.
+  assert.equal(w.accountId, null);
+  assert.deepEqual(w.evmAddresses, {});
+  assert.deepEqual(w.watchedAccounts, []);
+  assert.equal(mayRead(w, "near", "typed.near"), false);
+  assert.equal(mayRead(w, "near", "friend.near"), false);
+  assert.equal(ensureAccounts(w, NOW), false, "idempotent");
+  // Connecting its wallet proves it and makes it the main account again.
+  connect(w, "near", "typed.near");
+  assert.equal(w.accountId, "typed.near");
+  assert.equal(mayRead(w, "near", "typed.near"), true);
+});
+
+test("migration from the first registry: watched entries go, declared proof becomes unproven, wallet sessions stay", () => {
+  const w = ws({
+    accountId: "datamastr3.near",
+    accounts: [
+      { id: "near:datamastr3.near", chain: "near", address: "datamastr3.near", label: "datamastr3.near", role: "owned", proof: { method: "wallet-session", at: NOW }, networks: ["near"], primary: true, addedAt: NOW },
+      { id: "evm:" + EVM.toLowerCase(), chain: "evm", address: EVM.toLowerCase(), label: "0x32E5…004A", role: "owned", proof: { method: "declared", at: NOW }, networks: ["ethereum", "base", "arbitrum"], addedAt: NOW },
+      { id: "near:friend.near", chain: "near", address: "friend.near", label: "Friend", role: "watched", proof: null, networks: ["near"], addedAt: NOW },
+    ] as unknown as Workspace["accounts"],
+  });
   ensureAccounts(w, NOW);
+  assert.equal(w.accounts!.length, 2);
+  assert.ok(!JSON.stringify(w.accounts).includes("role"));
+  assert.equal(w.accountId, "datamastr3.near");
+  assert.equal(w.accounts![1].proof, null);
+  assert.deepEqual(w.evmAddresses, {});
+});
+
+test("several wallets per chain; proven ones no reader covers yet are reported unread, never zero", () => {
+  const w = ws();
+  connect(w, "near", "datamastr3.near");
+  connect(w, "evm", EVM);
+  connect(w, "evm", "0x" + "ab".repeat(20));
+  connect(w, "solana", "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV");
+  connect(w, "near", "second.near");
+  // The NEAR wallet connected last is the main account; the previous one stays yours.
+  assert.equal(w.accountId, "second.near");
+  assert.equal(w.accounts!.find((a) => a.address === "datamastr3.near")!.proof!.method, "wallet-session");
+  assert.deepEqual(w.evmAddresses, { base: EVM.toLowerCase(), arb: EVM.toLowerCase() });
+  assert.equal(w.accounts!.find((a) => a.chain === "evm")!.label, "0x32E5…004A", "label keeps checksum case");
+  assert.deepEqual(
+    unreadAccounts(w).map((a) => a.id).sort(),
+    ["evm:0x" + "ab".repeat(20), "near:datamastr3.near", "solana:7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV"].sort(),
+  );
+});
+
+test("forget: the main account clears it; others leave it; nothing else can add an account", () => {
+  const w = ws();
+  connect(w, "near", "datamastr3.near");
+  connect(w, "evm", EVM);
   applyAccountAction(w, { action: "forget", id: "evm:" + EVM.toLowerCase() }, NOW);
   assert.deepEqual(w.evmAddresses, {});
   assert.equal(w.accountId, "datamastr3.near");
@@ -108,65 +108,29 @@ test("forgetting the primary clears the main account; forgetting others leaves i
   assert.equal(r.counted, true);
   assert.equal(w.accountId, null);
   assert.equal(w.accounts!.length, 0);
+  // A main account set without its wallet is not kept.
+  w.accountId = "someone-else.near";
+  ensureAccounts(w, NOW);
+  assert.equal(w.accountId, null);
 });
 
-test("the primary can't be demoted to watched", () => {
+test("'connected' is never stored; state comes from live wallet sessions", () => {
   const w = ws();
+  connect(w, "near", "datamastr3.near");
   ensureAccounts(w, NOW);
-  assert.throws(() => applyAccountAction(w, { action: "set-role", id: "near:datamastr3.near", role: "watched" }, NOW), /always yours/);
-});
-
-test("switching the main account: a typed-in one becomes watched, a wallet-signed one stays yours", () => {
-  const w = ws();
-  ensureAccounts(w, NOW);
-  w.accountId = "other.near";
-  ensureAccounts(w, NOW);
-  assert.equal(w.accounts!.find((a) => a.address === "datamastr3.near")!.role, "watched");
-  assert.equal(w.accounts!.find((a) => a.address === "other.near")!.primary, true);
-
-  const v = ws();
-  ensureAccounts(v, NOW);
-  applyAccountAction(v, { action: "wallet-session", chain: "near", address: "datamastr3.near" }, NOW);
-  assert.equal(v.accounts![0].proof!.method, "wallet-session");
-  v.accountId = "other.near";
-  ensureAccounts(v, NOW);
-  const old = v.accounts!.find((a) => a.address === "datamastr3.near")!;
-  assert.equal(old.role, "owned");
-  assert.equal(old.primary, undefined);
-});
-
-test("wallet-session never upgrades a watched account and never stores 'connected'", () => {
-  const w = ws();
-  ensureAccounts(w, NOW);
-  applyAccountAction(w, { action: "add", address: "friend.near", role: "watched" }, NOW);
-  const r = applyAccountAction(w, { action: "wallet-session", chain: "near", address: "friend.near" }, NOW);
-  assert.equal(r.message, "");
-  assert.equal(w.accounts!.find((a) => a.address === "friend.near")!.role, "watched");
   assert.ok(!JSON.stringify(w.accounts).includes("connected"));
   const a = w.accounts![0];
   assert.equal(accountState(a, new Set([a.id])), "connected");
-  assert.equal(accountState(a, new Set()), "owned");
+  assert.equal(accountState(a, new Set()), "yours");
+  assert.equal(accountState({ ...a, proof: null }, new Set([a.id])), "unproven");
 });
 
-test("legacy writers update the registry and keep Solana accounts", () => {
+test("limits, invalid addresses and the example workspace", () => {
   const w = ws();
-  ensureAccounts(w, NOW);
-  applyAccountAction(w, { action: "add", address: SOL, role: "watched" }, NOW);
-  w.evmAddresses = { base: EVM, arb: EVM };
-  w.watchedAccounts = [];
-  adoptLegacy(w, NOW);
-  assert.ok(w.accounts!.some((a) => a.chain === "solana"));
-  assert.ok(w.accounts!.some((a) => a.chain === "evm" && a.role === "owned"));
-  assert.ok(w.accounts!.some((a) => a.primary));
-});
-
-test("limits and the example workspace", () => {
-  const w = ws();
-  ensureAccounts(w, NOW);
-  for (let i = 1; i < MAX_ACCOUNTS; i++)
-    applyAccountAction(w, { action: "add", address: "0xa" + i.toString(16).padStart(39, "0"), role: "watched" }, NOW);
-  assert.throws(() => applyAccountAction(w, { action: "add", address: EVM, role: "watched" }, NOW), /Up to/);
-  const ex = ws({ mode: "demo", accountId: null });
+  for (let i = 1; i <= MAX_ACCOUNTS; i++) connect(w, "evm", "0xa" + i.toString(16).padStart(39, "0"));
+  assert.throws(() => connect(w, "evm", EVM), /Up to/);
+  assert.throws(() => connect(ws(), "evm", "0x" + "0".repeat(40)), /valid/);
+  const ex = ws({ mode: "demo" });
   assert.equal(ensureAccounts(ex, NOW), false);
-  assert.throws(() => applyAccountAction(ex, { action: "add", address: EVM, role: "owned" }, NOW), /fictional/);
+  assert.throws(() => connect(ex, "near", "x.near"), /fictional/);
 });

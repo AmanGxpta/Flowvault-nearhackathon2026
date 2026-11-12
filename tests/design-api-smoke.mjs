@@ -24,26 +24,13 @@ async function call(
   return json;
 }
 const ex = "?workspace=example";
+// Accounts enter only through their wallet: the browser reports the connection (no typed-in or watched addresses).
+await call("/api/accounts", { action: "connect", chain: "near", address: "fixture-api-smoke.near" });
+await call("/api/accounts", { action: "connect", chain: "evm", address: "0x" + "99".repeat(20) });
 let personal = await call("/api/workspace");
-personal = await call(
-  "/api/workspace",
-  {
-    revision: personal.revision,
-    mode: "live",
-    accountId: "fixture-api-smoke.near",
-    evmAddresses: { base: "0x" + "99".repeat(20) },
-    watchedAccounts: [
-      {
-        id: "watch",
-        chain: "near",
-        address: "watch-fixture.near",
-        label: "Unowned watch",
-      },
-    ],
-  },
-  200,
-  "PUT",
-);
+assert.deepEqual(personal.workspace.watchedAccounts, []);
+await call("/api/workspace", { revision: personal.revision, watchedAccounts: [] }, 400, "PUT");
+await call("/api/portfolio?account=someone-else.near", undefined, 400);
 const before = JSON.stringify(personal.workspace);
 const rev = personal.revision;
 const toggled = await call(
@@ -65,7 +52,7 @@ const portfolio = await call("/api/portfolio" + ex);
 assert.equal(portfolio.source, "demo");
 assert.equal(portfolio.usable.netWorth.amount, "25526.48");
 assert.equal(portfolio.usable.cashNow.amount, "15190");
-assert.ok(portfolio.positions.some((p) => p.ownership === "watched"));
+assert.ok(!portfolio.positions.some((p) => p.ownership === "watched"));
 const policyBefore = await call("/api/policy" + ex);
 const risk = await call("/api/policy/test" + ex, {
   kind: "supply",
@@ -108,7 +95,8 @@ for (const q of [
     assert.ok(answer.evaluation.reasons.includes("PER_ACTION_CAP"));
   if (q.startsWith("Can")) {
     assert.equal(answer.evaluation.allowed, true);
-    assert.equal(answer.evaluation.executionSupported, false);
+    // BNB Chain USDT payouts became live routes (payoutSupported); the example answer stays unsignable.
+    assert.equal(answer.evaluation.executionSupported, true);
   }
 }
 assert.equal((await call("/api/market" + ex)).source, "demo");

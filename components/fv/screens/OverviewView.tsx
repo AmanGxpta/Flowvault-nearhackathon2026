@@ -118,7 +118,7 @@ export function OverviewView({ v }: { v: any }) {
                     {v.onb.s1.glyph}
                   </div>
                   <div style={{ flex: "1", minWidth: "200px" }}>
-                    <div style={{ fontWeight: "600", fontSize: "15.5px" }}>Connect or watch a wallet</div>
+                    <div style={{ fontWeight: "600", fontSize: "15.5px" }}>Connect your wallet</div>
                     <div style={{ fontSize: "13.5px", color: "var(--fvc-6F786B)", marginTop: "2px" }}>
                       {v.onb.s1.sub}
                     </div>
@@ -138,38 +138,6 @@ export function OverviewView({ v }: { v: any }) {
                   >
                     Connect wallet
                   </button>
-                  <div
-                    style={{ flexBasis: "100%", display: "flex", gap: "8px", flexWrap: "wrap", paddingLeft: "48px" }}
-                  >
-                    <input
-                      value={v.watchDraft ?? ""}
-                      onChange={v.onWatchDraft}
-                      placeholder="or watch name.near / 0x…"
-                      style={{
-                        flex: "1",
-                        minWidth: "180px",
-                        padding: "9px 12px",
-                        border: "1px solid var(--fvb-DDE1D4)",
-                        borderRadius: "10px",
-                        fontSize: "14px",
-                        fontFamily: "'DM Mono',monospace",
-                        outline: "none",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={v.watchFirst}
-                      style={{
-                        padding: "9px 14px",
-                        borderRadius: "10px",
-                        border: "1px solid var(--fvb-DDE1D4)",
-                        background: "var(--fvb-FFFFFF)",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Watch
-                    </button>
-                  </div>
                 </div>
                 <div
                   style={{

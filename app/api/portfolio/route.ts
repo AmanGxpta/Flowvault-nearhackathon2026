@@ -1,5 +1,6 @@
 import { session, json, failure } from "@/lib/flowvault/store";
 import { workspacePortfolio } from "@/lib/flowvault/portfolio-service";
+import { mayRead } from "@/lib/flowvault/account-registry";
 import { usableBalances } from "@/lib/flowvault/usable";
 import { portfolioCredit } from "@/lib/flowvault/credit-live";
 import { listActiveAttempts } from "@/lib/flowvault/attempts";
@@ -17,6 +18,12 @@ export async function GET(r: Request) {
       throw new Error("Invalid portfolio source.");
     if (mode !== s.workspace.mode)
       throw new Error("Example and live portfolio sources cannot be mixed.");
+    // Interface (account registry): only accounts proven yours can be read; anyone else's address is refused.
+    for (const [key, chain] of [["account", "near"], ["base", "evm"], ["arb", "evm"]] as const) {
+      const v = q.get(key);
+      if (v && s.workspace.mode !== "demo" && !mayRead(s.workspace, chain, v))
+        throw new Error("FlowVault reads only accounts you have connected.");
+    }
     const {
       portfolio: p,
       staking,

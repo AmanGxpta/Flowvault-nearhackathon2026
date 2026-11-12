@@ -7,7 +7,7 @@ import { z } from "zod";
 import { session, save, mutation, json, failure } from "@/lib/flowvault/store";
 import { mandateSchema } from "@/lib/flowvault/validation";
 import { validAccount } from "@/lib/flowvault/near";
-import { adoptLegacy, ensureAccounts } from "@/lib/flowvault/account-registry";
+import { ensureAccounts, mayRead } from "@/lib/flowvault/account-registry";
 export async function GET(request: Request) {
   try {
     const s = await session(request);
@@ -50,17 +50,12 @@ export async function PUT(request: Request) {
       );
     if (body.revision !== s.revision)
       throw new Error("Workspace changed. Refresh and try again.");
-    if (body.evmAddresses || body.watchedAccounts) {
-      s.workspace.evmAddresses = body.evmAddresses ?? s.workspace.evmAddresses;
-      s.workspace.watchedAccounts =
-        body.watchedAccounts ?? s.workspace.watchedAccounts;
-      // Interface: older writers update the account registry these fields are derived from.
-      adoptLegacy(s.workspace);
-      s.workspace.mandate.version++;
-      s.workspace.operations = s.workspace.operations.map((o) =>
-        o.state === "draft" ? { ...o, state: "superseded" } : o,
+    // Interface (account registry): accounts are added only by connecting their wallet (POST /api/accounts).
+    // Typed-in addresses and watched accounts are no longer accepted.
+    if (body.evmAddresses || body.watchedAccounts)
+      throw new Error(
+        "Accounts are added by connecting their wallet. Watching or typing in an address isn’t supported.",
       );
-    }
     if (body.mandate) {
       const m = mandateSchema.parse(body.mandate);
       s.workspace.mandate = {
@@ -77,6 +72,12 @@ export async function PUT(request: Request) {
         throw new Error("Invalid workspace mode.");
       if (body.mode === "live" && !validAccount(body.accountId ?? ""))
         throw new Error("Enter a valid public NEAR account.");
+      // Only an account its wallet has proven can become the main account.
+      if (
+        body.mode === "live" &&
+        !mayRead(s.workspace, "near", body.accountId ?? "")
+      )
+        throw new Error("Connect this account’s wallet to use it.");
       if (
         s.workspace.mode !== body.mode ||
         s.workspace.accountId !== (body.accountId ?? null)

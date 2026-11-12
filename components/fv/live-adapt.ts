@@ -4,7 +4,7 @@
 import { api, type LiveSnapshot, type Usable } from "./live";
 import { missingEntries, withEntries } from "@/lib/flowvault/plans-policy";
 import { startPlan, openPlan } from "./PlanDock";
-import { accountState, chainName as regChain, detectChain, shortAddress, unreadAccounts } from "@/lib/flowvault/account-registry";
+import { accountState, chainName as regChain, shortAddress, unreadAccounts } from "@/lib/flowvault/account-registry";
 import type { LinkedAccount } from "@/lib/flowvault/types";
 import { chainName, days, dlabel, f, hhmm, livePayoutSupported, LIVE_ROUTES_TEXT, money, num, short, usd, whenLabel, TODAY } from "./format";
 
@@ -286,8 +286,6 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   if (!example) {
   // Account registry: the main account is yours whether or not a wallet is connected right now; "connected"
   // is only whether a wallet can sign for it in this browser. Disconnecting never turns it into "watching".
-  const primary = ((snap.workspace as any)?.accounts ?? []).find((a: any) => a.primary);
-  const proven = primary?.proof && primary.proof.method !== "declared";
   out.acctLabel = connected ? acct : acct ? acct + " · not connected" : "Connect wallet";
   out.netLabel = connected ? "Mainnet · wallet connected" : acct ? "Mainnet · not connected, read only" : "Not connected · read only";
   out.netColor = connected ? "#4E7A4A" : "#8A9285";
@@ -295,7 +293,7 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   out.acctMenuNote = connected
     ? "Signed in on NEAR mainnet · " + (snap.walletName || "wallet")
     : acct
-      ? (proven ? "Yours · no wallet connected" : "Added by you · no wallet has signed in as it yet") + " · nothing can be approved"
+      ? "Yours · no wallet connected · nothing can be approved"
       : "No wallet connected";
   const forgetMain = { label: "Forget " + acct, color: "#9A3F32", onClick: () => askForgetMain(self, acct, connected) };
 
@@ -620,7 +618,7 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   const pt = s.polTest && s.polTest.key === key ? s.polTest : null;
   if (!canTest) {
     out.testRows = [];
-    out.testVerdict = { text: "Connect or watch an account to test actions against your policy", bg: "#F4F5EF", color: "#5B6458" };
+    out.testVerdict = { text: "Connect your wallet to test actions against your policy", bg: "#F4F5EF", color: "#5B6458" };
   } else if (!pt) {
     out.testRows = [];
     out.testVerdict = { text: "Checking with the engine…", bg: "#F4F5EF", color: "#5B6458" };
@@ -701,48 +699,47 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
     out.pfRows.push({ name: secName(sec.id) + (sec.status === "partial" ? " · partly read" : " · unavailable"), sub: (sec.reasons ?? []).map(readReason).join(" · ") || "read failed", chain: /base/.test(sec.id) ? "Base" : /arb/.test(sec.id) ? "Arbitrum" : "NEAR", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Not counted until it reads · affects " + (sec.affects ?? []).join(", "), tag: sec.status === "partial" ? "PARTIAL" : "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: sec.capturedAt ? "tried " + hhmm(sec.capturedAt) : "", opacity: 1 });
   const unset = sections.filter((x) => x.status === "not-configured").map((x) => secName(x.id));
   if (unset.length && !example)
-    out.pfRows.push({ name: unset.join(" and ") + " · not set up", sub: "No EVM account of yours yet. Add one under Accounts, or mark a watched one as yours. Nothing is assumed meanwhile.", chain: "—", value: "—", valColor: "#8A9285", by: "Not read", byColor: "#8A9285", path: "Not a zero balance", tag: "NOT SET UP", tagBg: "#EEF0E8", tagColor: "#5B6458", src: "", opacity: 0.85 });
+    out.pfRows.push({ name: unset.join(" and ") + " · not set up", sub: "No EVM wallet connected yet. Ethereum wallet connections are next. Nothing is assumed meanwhile.", chain: "—", value: "—", valColor: "#8A9285", by: "Not read", byColor: "#8A9285", path: "Not a zero balance", tag: "NOT SET UP", tagBg: "#EEF0E8", tagColor: "#5B6458", src: "", opacity: 0.85 });
   if (readErr.length)
     out.pfRows.push({ name: "Some reads failed", sub: readErr.join(" · "), chain: "—", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Nothing is assumed while a read fails", tag: "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: "", opacity: 1 });
   out.pfHas = out.pfRows.length > 0;
   out.pfEmpty = !out.pfHas;
-  // Account registry (any chain, any number per chain). Rows show watched / yours / connected; "connected" is
-  // computed here from live wallet sessions and never stored.
+  // Account registry (any chain, any number per chain). Accounts enter only through their wallet; rows show
+  // connected / yours / not proven. "Connected" is computed here from live wallet sessions and never stored.
   const W: any = snap.workspace ?? {};
   const reg: LinkedAccount[] = W.accounts ?? [];
   const live = new Set<string>(snap.walletAccount ? ["near:" + snap.walletAccount] : []);
   const unread = new Set(unreadAccounts(W).map((a) => a.id));
-  const evmOwn = reg.filter((a) => a.chain === "evm" && a.role === "owned").map((a) => a.address);
+  const evmOwn = reg.filter((a) => a.chain === "evm" && a.proof).map((a) => a.address);
   const NET: Record<string, string> = { near: "NEAR", ethereum: "Ethereum", base: "Base", arbitrum: "Arbitrum", solana: "Solana" };
   const READ_NOW: Record<string, string[]> = { near: ["near"], evm: ["base", "arbitrum"], solana: [] };
   const acctCall = (body: any, ok?: string) => self.liveCall(() => acts.accounts(body), ok);
-  const proofText = (a: LinkedAccount) =>
-    !a.proof ? "" : a.proof.method === "declared" ? "you said it’s yours, not proven yet" : a.proof.method === "wallet-session" ? "a wallet signed in as it" : "ownership proven by signature";
+  const proofText = (a: LinkedAccount) => (a.proof?.method === "wallet-session" ? "proven by a wallet connection" : "ownership proven by signature");
   out.pfAccounts = example
     ? [{ name: "Fictional example account", sub: "NEAR · no wallet · nothing can be approved", tag: "EXAMPLE", tagBg: "#F6EBDD", tagColor: "#8A5F25" }]
     : reg.map((a) => {
         const st = accountState(a, live);
         const nets = a.networks.map((n) => NET[n] ?? n).join(", ");
         const readNets = a.networks.filter((n) => READ_NOW[a.chain].includes(n)).map((n) => NET[n] ?? n);
-        const notRead = unread.has(a.id) ? "balances not read yet" : readNets.length < a.networks.length ? "reads " + (readNets.join(", ") || "nothing yet") + " for now" : "";
+        const notRead = st === "unproven" ? "" : unread.has(a.id) ? "balances not read yet" : readNets.length < a.networks.length ? "reads " + (readNets.join(", ") || "nothing yet") + " for now" : "";
         const sub = [
           regChain(a.chain) + (a.chain === "evm" ? " · " + nets : ""),
           ![a.address, shortAddress(a.address)].includes(a.label.toLowerCase()) && ![a.address, shortAddress(a.address)].includes(a.label) ? shortAddress(a.address) : "",
-          st === "watched" ? "someone else’s · read only · not counted" : st === "connected" ? (snap.walletName || "wallet") + " connected · can approve" : "yours · counted · " + proofText(a) + (a.primary ? " · connect its wallet to approve" : ""),
+          st === "unproven"
+            ? "added before wallet proof was required · not read or counted until its wallet connects" + (a.chain === "near" ? "" : " (" + regChain(a.chain) + " wallet connection is next)")
+            : st === "connected"
+              ? (snap.walletName || "wallet") + " connected · can approve"
+              : "yours · counted · " + proofText(a) + " · connect its wallet to approve",
           notRead,
         ].filter(Boolean).join(" · ");
-        const tagText = st === "connected" ? "CONNECTED" : st === "owned" ? (a.primary ? "MAIN · YOURS" : "YOURS") : "WATCHED";
-        const actions = [
-          ...(st === "watched" ? [{ label: "This is mine", onClick: () => acctCall({ action: "set-role", id: a.id, role: "owned" }) }] : []),
-          ...(st !== "watched" && !a.primary ? [{ label: "Watch only", onClick: () => acctCall({ action: "set-role", id: a.id, role: "watched" }) }] : []),
-          ...(a.primary && st === "owned" ? [{ label: "Connect wallet", onClick: () => self.liveCall(() => acts.connect()) }] : []),
-        ];
+        const tagText = st === "connected" ? "CONNECTED" : st === "yours" ? (a.primary ? "MAIN · YOURS" : "YOURS") : "NOT PROVEN";
+        const actions = st !== "connected" && a.chain === "near" ? [{ label: "Connect wallet", onClick: () => self.liveCall(() => acts.connect()) }] : [];
         return {
           name: a.label,
           sub,
           tag: tagText,
-          tagBg: st === "connected" ? "#E2EAD6" : st === "owned" ? "#E7ECF3" : "#EEF0E8",
-          tagColor: st === "connected" ? "#3F6B3C" : st === "owned" ? "#3F5A7A" : "#5B6458",
+          tagBg: st === "connected" ? "#E2EAD6" : st === "yours" ? "#E7ECF3" : "#F6EBDD",
+          tagColor: st === "connected" ? "#3F6B3C" : st === "yours" ? "#3F5A7A" : "#8A5F25",
           actions,
           removeLabel: "Forget " + a.label,
           onRemove: a.primary
@@ -750,21 +747,10 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
             : () => acctCall({ action: "forget", id: a.id }, "Forgot " + a.label + ". Nothing on-chain changed."),
         };
       });
-  out.watchMine = !!s.watchMine;
-  out.onWatchMine = (e: any) => self.setState({ watchMine: e.target.checked });
-  out.watchMineLabel = "This account is mine: count it toward net worth (you can prove it with a signature later)";
-  out.watchAddLabel = "+ Add an account";
-  out.watchPlaceholder = "name.near, 0x… or a Solana address";
-  out.watchFoot = "Watched accounts are someone else’s: read only and never counted. Yours count toward net worth. Only a connected wallet can approve anything, and FlowVault never signs for you.";
-  out.watchFirst = () => {
-    const a = String(s.watchDraft ?? "").trim();
-    const chain = detectChain(a);
-    if (!chain) return self.toastMsg("That isn’t a NEAR account, EVM address or Solana address.");
-    self.setState({ watchDraft: "" });
-    // No main account yet: a NEAR account typed here becomes the main one (read only until its wallet connects).
-    if (!example && !acct && chain === "near") return self.liveCall(() => acts.watch(a), "Reading " + shortAddress(a) + ". Nothing can be approved until you connect its wallet.");
-    acctCall({ action: "add", address: a, chain, role: s.watchMine ? "owned" : "watched" }, tag + (s.watchMine ? "Added " + shortAddress(a) + " as yours." : "Watching " + shortAddress(a) + ". Watching never lets anyone move its funds."));
-  };
+  // Adding an account always goes through its wallet: NEAR now; EVM and Solana wallet connections are next (A3).
+  out.acctAddLabel = example ? "" : "+ Connect another wallet";
+  out.acctAdd = () => (example ? undefined : self.liveCall(() => acts.connect()));
+  out.acctFoot = "FlowVault shows only accounts you’ve proven are yours by connecting their wallet. Only a connected wallet can approve anything, and FlowVault never signs for you. NEAR wallets connect now; Ethereum and Solana wallets are next.";
   // Staking from GET /api/portfolio (native pools) where the API returns them.
   const nat = pf?.staking?.native;
   if (!example) {
@@ -1279,7 +1265,7 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
     };
     out.opBack = () => self.setState({ op: { ...op, step: "review", prep: null, key: uuid() } });
     out.opToWallet = () => {
-      if (!connected) return self.toastMsg("Connect the wallet for " + (prep?.accountId ?? acct) + " to approve. A watched account can’t authorize this. Nothing was signed.");
+      if (!connected) return self.toastMsg("Connect the wallet for " + (prep?.accountId ?? acct) + " to approve. Nothing was signed.");
       if (!prep) return;
       if (Date.parse(prep.expiresAt) <= Date.now()) { self.setState({ op: { ...op, step: "review", prep: null, key: uuid() } }); return self.toastMsg("That preparation expired. Prepare again for a fresh review."); }
       self.setState({ op: { ...op, step: "tracking", signing: true } });

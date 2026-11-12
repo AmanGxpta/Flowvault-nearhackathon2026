@@ -4,6 +4,7 @@
 import { database, save } from "./store";
 import { migrateWorkspace } from "./obligations";
 import { advanceRecurrences } from "./recurrence";
+import { ensureAccounts } from "./account-registry";
 import { runMonitor } from "./monitor-service";
 
 export async function runScheduledMonitor(limit = 100) {
@@ -16,6 +17,8 @@ export async function runScheduledMonitor(limit = 100) {
   for (const row of rows.results) {
     try {
       const { workspace } = migrateWorkspace(JSON.parse(row.payload));
+      // Only accounts proven yours are read: an unproven main account (typed in before the rule) is not monitored.
+      const accountsChanged = ensureAccounts(workspace);
       // Example data and workspaces without a live account have nothing real to monitor.
       if (workspace.mode !== "live" || !workspace.accountId) {
         summary.skipped++;
@@ -23,7 +26,7 @@ export async function runScheduledMonitor(limit = 100) {
       }
       let revision = row.revision;
       const generated = advanceRecurrences(workspace);
-      if (generated.length) {
+      if (generated.length || accountsChanged) {
         revision = await save(row.id, workspace, revision); // a concurrent writer wins; the next run retries
         summary.generated += generated.length;
       }
