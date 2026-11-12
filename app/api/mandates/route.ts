@@ -1,3 +1,4 @@
+import {perpLimitTermsSchema,applyPerpLimitTerms} from "@/lib/flowvault/perps-limits";
 // Autonomous mandates (owner: Stream C). Create a draft, change its terms, approve it with the owner's NEP-413
 // signature over the terms digest, activate/pause/revoke, run it now, clear a freeze, and the account-wide kill
 // switch. FlowVault never signs: a run prepares an owner-signed plan at most.
@@ -54,6 +55,7 @@ export async function GET(r: Request) {
 const usdcText = z.string().regex(/^\d{1,12}(\.\d{1,6})?$/);
 const terms = z
   .object({
+    perps: perpLimitTermsSchema.optional(),
     title: z.string().min(1).max(80),
     validDays: z.number().int().min(1).max(90),
     capital: usdcText,
@@ -99,6 +101,7 @@ function applyTerms(m: AgentMandate, t: z.infer<typeof terms>, now: number): Age
   const bps = (v: number | undefined, prev: number) => (v === undefined ? prev : Math.round(v * 100));
   return {
     ...m,
+    perps: applyPerpLimitTerms(m,t.perps),
     title: t.title ?? m.title,
     validUntil: t.validDays ? new Date(Date.parse(m.validFrom) + t.validDays * 864e5).toISOString() : m.validUntil,
     limits: {

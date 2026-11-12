@@ -4,6 +4,8 @@
 // place or close orders that FlowVault's agent signs only after the mandate's checks pass. Unrealized gains are
 // shown but never counted as money you can spend. Withdrawals are signed by the master wallet.
 import { useCallback, useEffect, useState } from "react";
+import type {AgentMandate} from "@/lib/flowvault/contracts";
+import {perpLimitForm,perpLimitUpdate} from "@/lib/flowvault/perps-limits";
 import { api, type Scope } from "./live";
 import { evmChainId, signTypedData, useMultiWallets } from "@/lib/flowvault/wallets";
 
@@ -14,7 +16,7 @@ interface Link { master: string; agentAddress: string; status: string; validUnti
 interface Order { cloid: string; intent: { coin: string; isBuy: boolean; size: string; reduceOnly: boolean; kind: string }; state: string; error?: string; checks: Check[]; createdAt: string }
 interface Account { master: string; snapshot: Snapshot | null; link: Link | null; orders: Order[]; error: string | null }
 interface State { source: string; agentsAvailable: boolean; accounts: Account[]; deposit: { note: string } }
-interface MandateLite { id: string; state: string; title: string; frozen: unknown; authority: { kind: string }; scope: { accounts: string[] } }
+type MandateLite = AgentMandate;
 
 const u = (raw: string) => {
   const n = BigInt(raw);
@@ -163,6 +165,7 @@ export function PerpsCard({ scope }: { scope: Scope }) {
               ) : null}
               <button type="button" style={btn} disabled={!!busy} onClick={() => void run("sync", async () => { const r = await api("/api/perps", { action: "sync", master: a.master }, "POST", scope); return `${r.entries.length} ledger entries checked.`; })}>Book fills & funding</button>
             </div>
+            {m?.perps ? <PerpsLimitsEditor key={m.id+":"+m.version} mandate={m} scope={scope} changed={read} /> : null}
             {activeM ? (
               <form onSubmit={(e) => { e.preventDefault(); void order(activeM.id, a.master); }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: "6px", marginTop: "10px" }}>
                 <select aria-label="Market" style={input} value={form.coin} onChange={(e) => setForm({ ...form, coin: e.target.value })}><option>ETH</option><option>BTC</option></select>
@@ -188,4 +191,37 @@ export function PerpsCard({ scope }: { scope: Scope }) {
       {st ? <p style={{ ...muted, fontSize: "11.5px", marginTop: "8px" }}>{st.deposit.note}</p> : null}
     </section>
   );
+}
+
+function PerpsLimitsEditor({mandate:m,scope,changed}:{mandate:AgentMandate;scope:Scope;changed:()=>Promise<void>}) {
+  const [values,setValues]=useState(()=>perpLimitForm(m)),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
+  const editable=["draft","approved","paused","active"].includes(m.state);
+  async function save(){setBusy(true);setMessage("");try{
+    const terms=perpLimitUpdate(values);
+    if(m.state==="active")await api("/api/mandates",{action:"pause",id:m.id},"POST",scope);
+    await api("/api/mandates",{action:"update",id:m.id,terms},"POST",scope);
+    setMessage("Limits saved as draft. Sign the current terms, then explicitly activate. Trading stays paused until then.");await changed();
+  }catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}
+  async function sign(){setBusy(true);setMessage("");try{
+    const c=await api("/api/mandates",{action:"challenge",id:m.id},"POST",scope);
+    const {walletClient}=await import("@/lib/flowvault/wallet"),{selector}=await walletClient(),wallet=await selector.wallet(),{Buffer}=await import("buffer");
+    // The existing mandate challenge binds these limits, authority and version to the owner's NEP-413 signature.
+    const signed=await (wallet as unknown as {signMessage(p:unknown):Promise<{signature:string;publicKey:string;accountId:string}>}).signMessage({message:c.message,recipient:c.recipient,nonce:Buffer.from(c.nonce,"base64")});
+    if(!signed?.signature)throw new Error("The wallet did not return a signature.");
+    await api("/api/mandates",{action:"approve",id:m.id,challengeId:c.challengeId,signature:signed.signature,publicKey:signed.publicKey,accountId:signed.accountId},"POST",scope);
+    setMessage("Terms signed. Activate separately to resume trading under these limits.");await changed();
+  }catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}
+  async function activate(){setBusy(true);setMessage("");try{await api("/api/mandates",{action:"activate",id:m.id},"POST",scope);await changed();}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}
+  const labels:Record<keyof typeof values,string>={leverage:"Maximum leverage (1–20×)",notional:"Maximum order notional (USDC)",daily:"Daily notional limit (USDC)",margin:"Maximum margin capital (USDC)",loss:"Loss-stop limit (USDC)"};
+  return <details style={{marginTop:10,border:"1px solid var(--fvb-E3E6DB)",padding:12,borderRadius:10}}>
+    <summary style={{cursor:"pointer",fontWeight:600}}>Perpetual limits · mandate version {m.version} · {m.state}</summary>
+    <p style={muted}>These are FlowVault checks; Hyperliquid does not impose the mandate's size, leverage or loss limits. Changing any limit requires a new signature. Saving an active mandate pauses it first.</p>
+    <form onSubmit={e=>{e.preventDefault();void save();}} style={{display:"grid",gap:8,gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",marginTop:10}}>
+      {(Object.keys(labels) as (keyof typeof values)[]).map(k=><label key={k} style={muted}>{labels[k]}<input style={{...input,width:"100%"}} value={values[k]} inputMode={k==="leverage"?"numeric":"decimal"} disabled={busy||!editable} onChange={e=>setValues({...values,[k]:e.target.value.trim()})}/></label>)}
+      <button type="submit" style={btn} disabled={busy||!editable}>{m.state==="active"?"Pause and save new limits":"Save limits as draft"}</button>
+    </form>
+    {m.state==="draft"?<button type="button" style={{...btn,marginTop:8}} disabled={busy} onClick={()=>void sign()}>Sign current terms…</button>:null}
+    {m.state==="approved"?<button type="button" style={{...btn,marginTop:8}} disabled={busy} onClick={()=>void activate()}>Activate signed limits</button>:null}
+    {message?<p role="status" style={muted}>{message}</p>:null}
+  </details>;
 }

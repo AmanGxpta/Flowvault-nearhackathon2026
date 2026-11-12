@@ -72,6 +72,7 @@ export function mandateTerms(m: AgentMandate) {
     validUntil: m.validUntil,
     scope: m.scope,
     limits: m.limits,
+    ...(m.perps ? { perps: m.perps } : {}),
     borrowing: m.borrowing,
     spending: m.spending,
     protection: m.protection,
@@ -102,6 +103,7 @@ export function approvalMessage(m: AgentMandate) {
     `Capital limit: ${usdc(m.limits.capitalUsdcRaw)} USDC; per action ${usdc(m.limits.perActionUsdcRaw)}; per day ${usdc(m.limits.dailyUsdcRaw)}; lifetime ${usdc(m.limits.cumulativeUsdcRaw)}`,
     `Borrowing: ${m.borrowing.allowed ? "allowed up to " + usdc(m.borrowing.maxDebtUsdcRaw) + " USDC" : "not allowed"}. Spending to others: ${m.spending.allowed ? "allowed" : "not allowed"}.`,
     `Execution: ${m.authority.kind === "owner_signs_each" ? "FlowVault prepares; your wallet signs every transaction" : m.authority.kind}`,
+    ...(m.perps ? [`Perpetuals: maximum leverage ${m.perps.maxLeverage}x; maximum order ${usdc(m.perps.maxNotionalUsdcRaw)} USDC; loss stop ${usdc(m.limits.maxStrategyLossUsdcRaw)} USDC; liquidation cushion ${m.perps.minLiquidationDistanceBps} bps.`] : []),
     `Terms digest: ${d}`,
     "Signing is free, sends no transaction and moves no funds.",
   ].join("\n");
