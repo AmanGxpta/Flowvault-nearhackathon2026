@@ -49,7 +49,7 @@ fn vault() -> Vault {
     Vault::new(config())
 }
 fn report(v: &mut Vault, seq: u64, external: u128) {
-    context("curator.near", 1, 1_000 + seq);
+    context("owner.near", 1, 1_000 + seq);
     v.report_nav(NavReport {
         sequence: U64(seq),
         observed_at_ms: U64(1_000 + seq),
@@ -775,4 +775,53 @@ fn risk_reducing_exit_can_include_yield_without_replenishing_supply_authority() 
     assert_eq!(v.deployed, 10_000_000);
     assert_eq!(v.liquid, 90_000_000);
     assert_eq!(v.busy.as_ref().unwrap().amount_raw.0, 11_000_000);
+}
+
+#[test]
+fn curator_report_and_permissionless_settlement_cannot_mint_curator_fees() {
+    let mut v = funded();
+    let initial = v.token.total_supply;
+    let mut r = v.report.clone().unwrap();
+    r.sequence = U64(2);
+    r.observed_at_ms = U64(1_002);
+    r.positions = vec![Position {
+        id: "rhea".into(),
+        protocol: RHEA.into(),
+        chain: "near".into(),
+        assets_raw: U128(100_000_000),
+        liabilities_raw: U128(0),
+    }];
+    context("curator.near", 1, 1_002);
+    v.report_nav(r.clone());
+    assert_eq!(v.token.total_supply, initial);
+    assert_eq!(v.token.ft_balance_of(account("curator.near")).0, 0);
+    let id = deposit(&mut v, "owner.near", 1_000_000);
+    // Above the high-water mark after a curator-only report, a new deposit waits for an owner report.
+    fails(|| settle_deposit(&mut v, id));
+    let redemption = redemption(&mut v, E18, 0);
+    context("keeper.near", 0, 1_201);
+    assert_eq!(v.process_redemptions(1), 1);
+    assert_eq!(
+        v.get_request(redemption).unwrap().status,
+        RequestStatus::Claimable
+    );
+    assert_eq!(v.token.ft_balance_of(account("curator.near")).0, 0);
+    r.sequence = U64(3);
+    r.observed_at_ms = U64(1_202);
+    context("owner.near", 1, 1_202);
+    v.report_nav(r);
+    assert!(v.token.ft_balance_of(account("curator.near")).0 > 0);
+}
+
+#[test]
+fn deposits_settle_above_hwm_only_after_owner_crystallization() {
+    let mut v = funded();
+    report(&mut v, 2, 20_000_000);
+    let id = deposit(&mut v, "owner.near", 1_000_000);
+    settle_deposit(&mut v, id);
+    assert!(v.report_by_owner);
+    assert_eq!(
+        v.get_request(U64(id)).unwrap().status,
+        RequestStatus::Settled
+    );
 }

@@ -130,7 +130,6 @@ impl Vault {
         self.idle();
         assert!(limit > 0 && limit <= 20, "PROCESS_LIMIT");
         let mut nav = self.fresh_nav();
-        self.crystallize(nav);
         let mut processed = 0;
         for _ in 0..limit {
             let next = self

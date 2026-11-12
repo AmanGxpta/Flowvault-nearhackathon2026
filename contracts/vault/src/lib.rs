@@ -155,6 +155,8 @@ pub struct NavView {
     pub pps_e18: Option<U128>,
     pub hwm_e18: U128,
     pub report: Option<NavReport>,
+    /// Additive (v1.3): only owner-filed reports crystallize performance fees.
+    pub report_by_owner: bool,
     pub report_required: bool,
     pub status: Status,
     pub busy: Option<Operation>,
@@ -167,6 +169,8 @@ pub struct Vault {
     token: FungibleToken,
     status: Status,
     report: Option<NavReport>,
+    /// True when the current report was filed by the owner (the only reports that crystallize fees).
+    report_by_owner: bool,
     report_required: bool,
     sync_required: bool,
     escrow_shortfall: bool,
@@ -254,6 +258,7 @@ impl Vault {
             token,
             status: Status::Running,
             report: None,
+            report_by_owner: false,
             report_required: true,
             sync_required: false,
             escrow_shortfall: false,
@@ -294,7 +299,7 @@ impl Vault {
             json!(QUEUE_STORAGE.to_string()),
         );
         o.insert("upgrade_authority".into(),json!("owner + contract full-access keys (owner-disclosed; verify actual keys through NEAR RPC)"));
-        o.insert("nav_authority".into(),json!("Owner/curator trusted valuation attestation; not independent proof of external assets"));
+        o.insert("nav_authority".into(),json!("Owner/curator trusted valuation attestation; not independent proof of external assets. Only owner reports crystallize performance fees."));
         v
     }
     pub fn get_nav(&self) -> NavView {
@@ -337,6 +342,7 @@ impl Vault {
             pps_e18: nav.map(|n| U128(pps(n, self.token.total_supply, false))),
             hwm_e18: U128(self.hwm),
             report: self.report.clone(),
+            report_by_owner: self.report_by_owner,
             report_required: self.report_required,
             status: self.status.clone(),
             busy: self.busy.clone(),
@@ -392,31 +398,11 @@ impl Vault {
     }
     pub fn preview_deposit(&self, amount: U128) -> Option<U128> {
         let nav = self.get_nav().nav_raw?.0;
-        let (_, fees) = fee_shares(
-            nav,
-            self.token.total_supply,
-            self.hwm,
-            self.config.performance_fee_bps,
-        );
-        Some(U128(shares_for(
-            amount.0,
-            nav,
-            add(self.token.total_supply, fees),
-        )))
+        Some(U128(shares_for(amount.0, nav, self.token.total_supply)))
     }
     pub fn preview_redeem(&self, shares: U128) -> Option<U128> {
         let nav = self.get_nav().nav_raw?.0;
-        let (_, fees) = fee_shares(
-            nav,
-            self.token.total_supply,
-            self.hwm,
-            self.config.performance_fee_bps,
-        );
-        Some(U128(assets_for(
-            shares.0,
-            nav,
-            add(self.token.total_supply, fees),
-        )))
+        Some(U128(assets_for(shares.0, nav, self.token.total_supply)))
     }
     #[payable]
     pub fn report_nav(&mut self, report: NavReport) {
@@ -457,19 +443,21 @@ impl Vault {
                 "REPORT_REPLAY"
             );
         }
+        let by_owner = env::predecessor_account_id() == self.config.owner_id;
         self.report = Some(report.clone());
+        self.report_by_owner = by_owner;
         self.report_required = false;
         let (g, l) = self.gross_liabilities();
         // A valuation attestation cannot replenish a delegate's raw supply allowance.
         // This counter is conservative gross resolved supply, not a portfolio valuation.
         // Returning capital is observed in liquid/NAV; owner-approved policy changes
         // may raise future limits, while daily/lifetime consumption always persists.
-        if g >= l {
+        if g >= l && by_owner {
             self.crystallize(g - l);
         }
         emit(
             "nav_reported",
-            json!({"sequence":report.sequence,"observed_at_ms":report.observed_at_ms,"evidence_hash":report.evidence_hash,"gross_assets_raw":g.to_string(),"liabilities_raw":l.to_string()}),
+            json!({"sequence":report.sequence,"observed_at_ms":report.observed_at_ms,"evidence_hash":report.evidence_hash,"gross_assets_raw":g.to_string(),"liabilities_raw":l.to_string(),"fee_authorized":by_owner}),
         );
     }
     pub fn settle_deposit(&mut self, id: U64) {
@@ -480,7 +468,6 @@ impl Vault {
             self.token.total_supply == 0 || nav > 0,
             "ZERO_NAV_WITH_SHARES"
         );
-        self.crystallize(nav);
         let mut r = self
             .requests
             .get(&id.0)
@@ -491,6 +478,14 @@ impl Vault {
         assert!(
             add(nav, r.amount_raw.0) <= self.config.capacity_raw.0,
             "CAPACITY"
+        );
+        // A curator report cannot crystallize fees. Above the high-water mark, a new depositor would later pay
+        // a performance fee on gains made before it joined, so it settles only after an owner report.
+        assert!(
+            self.config.performance_fee_bps == 0
+                || self.report_by_owner
+                || pps(nav, self.token.total_supply, false) <= self.hwm,
+            "OWNER_REPORT_REQUIRED_ABOVE_HWM"
         );
         let shares = shares_for(r.amount_raw.0, nav, self.token.total_supply);
         assert!(shares > 0 && shares >= r.min_output_raw.0, "MIN_SHARES");
