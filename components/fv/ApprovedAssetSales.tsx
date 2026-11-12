@@ -1,6 +1,6 @@
 "use client";
 import {explainSaleError} from "@/lib/flowvault/sale-messages";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import type {LinkedAccount} from "@/lib/flowvault/types";
 import type {VenueAsset} from "@/lib/flowvault/contracts";
 import {AAVE_MARKETS,type AaveChain} from "@/lib/flowvault/aave-markets";
@@ -11,9 +11,12 @@ const NEAR:VenueAsset[]=[{id:"wrap.near",symbol:"wNEAR",decimals:24,chain:"near"
 /** Explicit asset policy approval. No sale is authorized by opening or saving this form. */
 export function ApprovedAssetSales({scope,accounts}:{scope:Scope;accounts:LinkedAccount[]}){
   const [chain,setChain]=useState<"near"|AaveChain>("near"),[token,setToken]=useState("wrap.near"),[qty,setQty]=useState(""),[maxValue,setMaxValue]=useState(""),[slippage,setSlippage]=useState("100"),[priority,setPriority]=useState("P2"),[net,setNet]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
+  const [canSave,setCanSave]=useState(false);
+  useEffect(()=>{let active=true;setCanSave(false);api("/api/policy",undefined,"GET",scope).then(r=>{if(active)setCanSave(r.salePermissionsWritable===true);}).catch(()=>{});return()=>{active=false;};},[scope,accounts]);
   const assets=chain==="near"?NEAR:AAVE_MARKETS[chain].collateral,asset=assets.find(a=>a.id===token)??assets[0];
   async function configure(){setBusy(true);setMessage("");try{
     const r=await api("/api/policy",undefined,"GET",scope),policy=r.policy;
+    if(!r.salePermissionsWritable){setCanSave(false);throw new Error("Connect and sign in to your workspace’s NEAR account before saving sale permissions.");}
     if(!asset||!qty||!maxValue)throw new Error("Choose an asset, maximum quantity and maximum USDC value.");
     const old=policy.assetRows?.find((x:any)=>x.asset===asset.symbol&&x.chain===chain);
     const sale={tokenId:asset.id,decimals:asset.decimals,maxQuantityRaw:units(qty,asset.decimals).toString(),maxValueUsdc:maxValue,maxSlippageBps:Number(slippage)};
@@ -29,7 +32,8 @@ export function ApprovedAssetSales({scope,accounts}:{scope:Scope;accounts:Linked
     <h3>Approved asset sales</h3>
     <p>Sell only explicitly approved assets for a net USDC amount. Unsupported or illiquid routes remain unavailable. Acquisition history missing: realized PnL is not computed.</p>
     {scope==="example"?<p>Example mode cannot create live sale permissions or transactions.</p>:<>
-      <fieldset disabled={busy}>
+      {!canSave&&<p>Connect and sign in to your workspace’s NEAR account before saving sale permissions.</p>}
+      <fieldset disabled={busy||!canSave}>
         <legend>Approve a sale limit</legend>
         <label>Network <select value={chain} onChange={e=>{const c=e.target.value as typeof chain;setChain(c);setToken((c==="near"?NEAR:AAVE_MARKETS[c].collateral)[0].id);}}><option value="near">NEAR</option><option value="eth">Ethereum</option><option value="base">Base</option><option value="arb">Arbitrum</option></select></label>
         <label>Asset <select value={token} onChange={e=>setToken(e.target.value)}>{assets.map(a=><option value={a.id} key={a.id}>{a.symbol}</option>)}</select></label>

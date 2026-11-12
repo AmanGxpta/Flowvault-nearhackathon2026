@@ -1,3 +1,4 @@
+import {canWriteSalePermissions,requireSalePermissionOwner} from "@/lib/flowvault/sale-policy-owner";
 import { workspaceLedger } from "@/lib/flowvault/policy-context";
 import { z } from "zod";
 import { session, save, mutation, json, failure } from "@/lib/flowvault/store";
@@ -10,6 +11,7 @@ export async function GET(r: Request) {
     return json(
       {
         source: s.workspace.mode,
+        salePermissionsWritable: canWriteSalePermissions(s),
         fictional: s.workspace.mode === "demo",
         policy: s.workspace.policy ?? defaultPolicy(),
         revision: s.revision,
@@ -26,10 +28,11 @@ export async function GET(r: Request) {
 export async function PUT(r: Request) {
   try {
     mutation(r);
+    const s = await session(r);
+    if(s.slot === "personal") requireSalePermissionOwner(s);
     const b = z
       .object({ revision: z.number().int(), policy: policySchema })
       .parse(await r.json());
-    const s = await session(r);
     if (s.revision !== b.revision)
       throw new Error("Workspace changed. Refresh and try again.");
     s.workspace.policy = {
