@@ -1,5 +1,6 @@
 "use client";
 import { ApprovedAssetSales } from "./ApprovedAssetSales";
+import { explainVenueReason } from "@/lib/flowvault/lending-venue-messages";
 import { useState } from "react";
 import type { LendingVenueSnapshot } from "@/lib/flowvault/contracts";
 import type { LinkedAccount } from "@/lib/flowvault/types";
@@ -25,8 +26,8 @@ export function LendingVenues({ scope, accounts = [] }: { scope: Scope; accounts
       const path = venue === "rhea" ? "/api/lending" : `/api/lending/venues?chain=${venue}&account=${encodeURIComponent(account)}`;
       const r = await api(path, undefined, "GET", scope);
       setSnapshot(r.venueSnapshot ?? r.snapshot ?? null);
-      setMessage(r.reasons?.join(" · ") ?? "");
-    } catch (e) { setMessage((e as Error).message); }
+      setMessage(r.reasons?.map(explainVenueReason).join(" · ") ?? "");
+    } catch (e) { setMessage(explainVenueReason((e as Error).message)); }
     finally { setBusy(false); }
   }
   async function plan() {
@@ -34,13 +35,14 @@ export function LendingVenues({ scope, accounts = [] }: { scope: Scope; accounts
     try {
       const r=await api("/api/lending/venues",{action:"plan",chain:venue,account,kind,asset,amount,key:crypto.randomUUID()},"POST",scope);
       openPlan({plan:r.plan});
-    } catch(e) {setMessage((e as Error).message);}
+    } catch(e) {setMessage(explainVenueReason((e as Error).message));}
     finally{setBusy(false);}
   }
   const chain = venue as AaveChain;
   const assets = AAVE_MARKETS[chain] ? [...AAVE_MARKETS[chain].collateral, AAVE_MARKETS[chain].debt] : [];
-  return <details style={{ position: "fixed", right: 24, top: 12, zIndex: 35, background: "#fafbf6", border: "1px solid #d9ddce", padding: 10, borderRadius: 12, maxWidth: 400, maxHeight: "70vh", overflow: "auto" }}>
-    <summary>Lending venues</summary>
+  return <details className="fv-lending-venues" style={{ marginTop: 24, background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", border: "1px solid var(--fvb-E3E6DB)", padding: 20, borderRadius: 18 }}>
+    <summary style={{cursor:"pointer",fontWeight:600}}>Lending venues and approved asset sales</summary>
+    <style>{`.fv-lending-venues label { display:block; margin:10px 0; } .fv-lending-venues input,.fv-lending-venues select,.fv-lending-venues button { background:var(--fvb-FFFFFF); color:var(--fvc-1E2A22); border:1px solid var(--fvb-E3E6DB); border-radius:8px; padding:7px 10px; max-width:100%; } .fv-lending-venues fieldset { border:1px solid var(--fvb-E3E6DB); border-radius:10px; margin-top:16px; } .fv-lending-venues p { color:var(--fvc-5B6458); line-height:1.5; }`}</style>
     <p>Health and capacity belong to each account and market. Posted collateral is not spendable cash.</p>
     <label>Market <select value={venue} onChange={e=>{setVenue(e.target.value);setSnapshot(null);setMessage("");}}><option value="rhea">Rhea · NEAR</option><option value="eth">Aave v3 · Ethereum Core</option><option value="base">Aave v3 · Base</option><option value="arb">Aave v3 · Arbitrum</option></select></label>
     {venue!=="rhea" && <label>Proven EVM account <select value={account} onChange={e=>{setAccount(e.target.value);setSnapshot(null);}}><option value="">Choose account</option>{evm.map(a=><option key={a.id} value={a.address}>{a.label} · {a.address}</option>)}</select></label>}
@@ -53,7 +55,7 @@ export function LendingVenues({ scope, accounts = [] }: { scope: Scope; accounts
       <p>Health: {snapshot.health ?? "Unknown"} · stressed: {snapshot.stressedHealth ?? "Unknown"} · minimum: {snapshot.minHealth}</p>
       <p>Variable APR: {snapshot.borrowApr ?? "Unknown"}. {snapshot.interest.basis}</p>
       <p>{snapshot.exit.reasons.join(" ")}</p>
-      {snapshot.reasons.length > 0 && <p>{snapshot.reasons.join(" · ")}</p>}
+      {snapshot.reasons.length > 0 && <p>{snapshot.reasons.map(explainVenueReason).join(" · ")}</p>}
     </section>}
     {venue!=="rhea" && scope==="personal" && <fieldset disabled={busy || !account}>
       <legend>Review an owner-signed operation</legend>

@@ -850,6 +850,7 @@ export class DesignApp extends Component<any, any> {
       openAssistant: () => { self.remember(); self.setState({ asst: { ...s.asst, open: true } }); }, closeAssistant: () => self.closeAsst(),
       onAsstInput: (e: any) => self.setState({ asst: { ...s.asst, input: e.target.value } }), asstSend: () => self.ask(s.asst.input), onAsstKey: (e: any) => { if (e.key === 'Enter') self.ask(s.asst.input); },
       crumb: crumbs[s.screen], planLabel: 'Plan v' + s.version + ' · updated today', version: s.version, nextVersion: s.version + 1, horizon: s.horizon, horizonEnd: dlabel(new Date(TODAY + s.horizon * 864e5).toISOString().slice(0, 10)),
+      lendingScope: LV?.scope ?? (judge ? 'example' : 'personal'), lendingAccounts: LV?.workspace?.accounts ?? [],
       isOverview: s.screen === 'overview', isCalendar: s.screen === 'calendar', isStrategies: s.screen === 'strategies', isActivity: s.screen === 'activity', isPortfolio: s.screen === 'portfolio', isCredit: s.screen === 'credit',
       showOnboarding: !!s.firstRun, showPlanView: !s.firstRun,
       ob1Bg: (s.reserveSet ?? s.reserve > 0) ? '#F4F7EE' : '#fff', ob1DotBg: (s.reserveSet ?? s.reserve > 0) ? '#4E7A4A' : '#EEF0E8', ob1DotColor: (s.reserveSet ?? s.reserve > 0) ? '#fff' : '#5B6458', ob1Glyph: (s.reserveSet ?? s.reserve > 0) ? '✓' : '1',

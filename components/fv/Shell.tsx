@@ -16,6 +16,7 @@ import { ReplaysView } from "./screens/ReplaysView";
 import { RoadmapView } from "./screens/RoadmapView";
 import { OpportunitiesView } from "./screens/OpportunitiesView";
 import { ProtectionView } from "./screens/ProtectionView";
+import { LendingVenues } from "./LendingVenues";
 import { CreditView } from "./screens/CreditView";
 import { AssistantView } from "./screens/AssistantView";
 import { WalletSheetView } from "./screens/WalletSheetView";
@@ -916,7 +917,7 @@ export function Shell({ v }: { v: any }) {
             {v.isRoadmap ? <RoadmapView v={v} /> : null}
             {v.isOpps ? <OpportunitiesView v={v} /> : null}
             {v.isProt ? <ProtectionView v={v} /> : null}
-            {v.isCredit ? <CreditView v={v} /> : null}
+            {v.isCredit ? <><CreditView v={v} /><LendingVenues key={v.lendingScope} scope={v.lendingScope} accounts={v.lendingAccounts} /></> : null}
           </div>
           <footer
             style={{
