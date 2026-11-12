@@ -10,6 +10,8 @@ import { units, decimal } from "./money.ts";
 import type { Mandate } from "./types.ts";
 import { isLendingKind, verifyLendingOutcome } from "./lending.ts";
 import type { LendingPreparation } from "./lending.ts";
+import { isNativeKind, verifyNativeOutcome } from "./staking-native.ts";
+import type { NativeStakingPreparation } from "./staking-native.ts";
 export function supplyHoldback(mandate: Mandate) {
   if (!mandate.approved.includes("rhea-usdc"))
     throw new Error("Approve Rhea Lending in your cash plan before supplying.");
@@ -27,13 +29,18 @@ export type PreparationKind =
   | "collateral_add"
   | "borrow"
   | "repay"
-  | "collateral_release";
+  | "collateral_release"
+  // P2 (Engines): native validator staking (staking-native.ts owns preparation and verification).
+  | "native_stake"
+  | "native_unstake"
+  | "native_withdraw";
 export type WalletPreparation =
   | SupplyPreparation
   | WithdrawPreparation
   | PayPreparation
   | LendingPreparation
-  | StakingPreparation;
+  | StakingPreparation
+  | NativeStakingPreparation;
 export interface WalletAttempt {
   timeline?: ExecutionStep[];
   retainedSignedQuote?: unknown;
@@ -192,6 +199,8 @@ export function verifyOutcome(
           : proof.reason,
     };
   }
+  if (isNativeKind(attempt.kind))
+    return verifyNativeOutcome(result, attempt.preparation as NativeStakingPreparation, index);
   if (attempt.kind === "withdraw")
     return verifyWithdrawReceipts(result, attempt, index);
   if (attempt.kind === "pay") return verifyPayDeposit(result, attempt, index);
@@ -259,6 +268,8 @@ export function summarizeOutcomes(
           ? "USDC withdrawal finalized. Exact wallet payout verified."
           : attempt.kind === "pay"
             ? "Source deposit finalized; destination payment remains unverified."
+            : isNativeKind(attempt.kind)
+              ? (outcomes.find((o) => o.state === "confirmed")?.message ?? "Native staking step finalized and verified.")
             : isLendingKind(attempt.kind)
               ? (outcomes.find(
                   (o) =>

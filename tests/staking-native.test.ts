@@ -186,3 +186,26 @@ test("ledger: native stake is a position entry with zero net-worth effect", () =
   assert.equal(e.netWorthEffectUsdcRaw, "0");
   assert.equal(e.positionId, "native:" + POOL);
 });
+
+test("journal: verifyOutcome dispatches native attempts and summarizes a verified withdraw", async () => {
+  const { verifyOutcome, summarizeOutcomes } = await import("../lib/flowvault/execution.ts");
+  const p: any = {
+    kind: "native_withdraw", accountId: "tsytsorin.near", pool: POOL, amountRaw: "4732025017114803090710002356", amount: "x",
+    transactions: [{ receiverId: POOL, actions: [{ type: "FunctionCall", params: { methodName: "withdraw", args: { amount: "4732025017114803090710002356" }, gas: "125000000000000", deposit: "0" } }] }],
+  };
+  const attempt: any = { id: "w1", accountId: "tsytsorin.near", kind: "native_withdraw", preparation: p, hashes: ["h"] };
+  const args = Buffer.from(JSON.stringify({ amount: "4732025017114803090710002356" })).toString("base64");
+  const result = {
+    final_execution_status: "FINAL",
+    status: { SuccessValue: "" },
+    transaction: { signer_id: "tsytsorin.near", receiver_id: POOL, actions: [{ FunctionCall: { method_name: "withdraw", args, gas: 125000000000000, deposit: "0" } }] },
+    transaction_outcome: { outcome: { status: { SuccessReceiptId: "r1" } } },
+    receipts_outcome: [{ id: "r1", outcome: { executor_id: POOL, status: { SuccessValue: "" }, logs: ["@tsytsorin.near withdrawing 4732025017114803090710002356. New unstaked balance is 0"] } }],
+  };
+  const o = verifyOutcome(result, attempt);
+  assert.equal(o.state, "confirmed", o.message);
+  assert.equal(summarizeOutcomes(attempt, [o]).state, "confirmed");
+  // A different amount in the signed payload is rejected before any receipt is trusted.
+  const other = { ...result, transaction: { ...result.transaction, actions: [{ FunctionCall: { method_name: "withdraw", args: Buffer.from('{"amount":"1"}').toString("base64"), gas: 125000000000000, deposit: "0" } }] } };
+  assert.throws(() => verifyOutcome(other, attempt), /does not match/);
+});

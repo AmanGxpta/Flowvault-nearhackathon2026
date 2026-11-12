@@ -120,6 +120,17 @@ export async function signLending(preparation: import("./lending").LendingPrepar
     throw new Error("New debt needs explicit approval before signing.");
   return signPrepared(preparation);
 }
+/** P2: owner-signed native validator staking step. Only after /api/transactions authorize; a stake needs
+ * the explicit owner approval recorded at preparation. */
+export async function signNativeStaking(preparation: import("./staking-native").NativeStakingPreparation) {
+  if (!["native_stake", "native_unstake", "native_withdraw"].includes(preparation.kind))
+    throw new Error("Use a native staking preparation for native staking signing.");
+  if (preparation.kind === "native_stake" && !preparation.ownerApproved)
+    throw new Error("Staking needs explicit approval before signing.");
+  if (preparation.transactions.length !== 1 || preparation.transactions[0].receiverId !== preparation.pool)
+    throw new Error("Native staking must call only the reviewed pool.");
+  return signPrepared(preparation);
+}
 async function signPrepared(preparation: WalletPreparation) {
   if (
     !Number.isFinite(Date.parse(preparation.expiresAt)) ||

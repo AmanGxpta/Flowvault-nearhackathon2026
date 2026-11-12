@@ -35,6 +35,15 @@ import { withCapitalEvidence } from "@/lib/flowvault/valuation-evidence";
 import { isLendingKind } from "@/lib/flowvault/lending";
 import type { LendingPreparation } from "@/lib/flowvault/lending";
 import { freshLendingAttempt } from "@/lib/flowvault/lending-live";
+import { isNativeKind } from "@/lib/flowvault/staking-native";
+import type { NativeStakingPreparation } from "@/lib/flowvault/staking-native";
+import { freshNativeAttempt, assertNativeContext } from "@/lib/flowvault/staking-native-live";
+import { policyContractId } from "@/lib/flowvault/policy-contract";
+import { env as workerEnv } from "cloudflare:workers";
+const workerSetting = (name: string) => {
+  const v = (workerEnv as unknown as Record<string, unknown>)[name];
+  return typeof v === "string" ? v : process.env[name];
+};
 import { holdback } from "@/lib/flowvault/obligations";
 export async function GET(request: Request) {
   try {
@@ -91,6 +100,13 @@ export async function POST(request: Request) {
                   s.workspace,
                   s.revision,
                 )
+              : isNativeKind(attempt.kind)
+                ? await freshNativeAttempt(
+                    attempt.preparation as NativeStakingPreparation,
+                    s.workspace,
+                    s.revision,
+                    policyContractId(workerSetting),
+                  )
               : isLendingKind(attempt.kind)
                 ? await freshLendingAttempt(
                     attempt.preparation as LendingPreparation,
@@ -116,6 +132,8 @@ export async function POST(request: Request) {
         current.workspace.mode,
         current.workspace.mandate.version,
       );
+      if (isNativeKind(attempt.kind))
+        assertNativeContext(attempt.preparation as NativeStakingPreparation, current.workspace, current.revision);
       if (isStakingKind(attempt.kind))
         assertStakingContext(
           attempt.preparation as StakingPreparation,
