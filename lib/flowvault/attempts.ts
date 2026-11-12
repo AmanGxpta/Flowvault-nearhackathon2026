@@ -1,3 +1,4 @@
+import { stakingHandoffGuard } from "./staking-guards";
 import {
   PAY_HANDOFF_GUARD,
   WORKSPACE_HANDOFF_GUARD,
@@ -112,11 +113,11 @@ export async function saveAttempt(
   if (handoff && authorizationRevision === undefined)
     throw new Error("Wallet handoff requires a workspace revision.");
   const payHandoff = handoff && attempt.kind === "pay";
-  const outgoing = handoff && attempt.kind !== "withdraw";
+  const outgoing = handoff;
   const r = await db
     .prepare(
       "UPDATE wallet_attempts SET payload=? WHERE id=? AND session_id=? AND payload=?" +
-        (outgoing ? OUTGOING_HANDOFF_GUARD : "") +
+        (outgoing ? stakingHandoffGuard(OUTGOING_HANDOFF_GUARD) : "") +
         (payHandoff ? PAY_HANDOFF_GUARD : "") +
         (handoff ? WORKSPACE_HANDOFF_GUARD : ""),
     )

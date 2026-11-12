@@ -1,4 +1,11 @@
 import {
+  isStakingKind,
+  freshStakingAttempt,
+  assertStakingContext,
+} from "@/lib/flowvault/staking-execution";
+import type { StakingPreparation } from "@/lib/flowvault/staking-execution";
+import { verifyLinearReceipts } from "@/lib/flowvault/staking-receipts";
+import {
   freshPaymentDeposit,
   assertPaymentContext,
 } from "@/lib/flowvault/payment-service";
@@ -78,17 +85,25 @@ export async function POST(request: Request) {
             )
           : attempt.kind === "withdraw"
             ? await freshWithdraw(attempt.accountId, attempt.amount)
-            : isLendingKind(attempt.kind)
-              ? await freshLendingAttempt(
-                  attempt.preparation as LendingPreparation,
-                  s.workspace.policy,
-                  attempt.kind === "repay" ? holdback(s.workspace.mandate) : undefined,
+            : isStakingKind(attempt.kind)
+              ? await freshStakingAttempt(
+                  attempt.preparation as StakingPreparation,
+                  s.workspace,
+                  s.revision,
                 )
-              : await freshSupply(
-                attempt.accountId,
-                supplyHoldback(s.workspace.mandate),
-                attempt.amount,
-              );
+              : isLendingKind(attempt.kind)
+                ? await freshLendingAttempt(
+                    attempt.preparation as LendingPreparation,
+                    s.workspace.policy,
+                    attempt.kind === "repay"
+                      ? holdback(s.workspace.mandate)
+                      : undefined,
+                  )
+                : await freshSupply(
+                    attempt.accountId,
+                    supplyHoldback(s.workspace.mandate),
+                    attempt.amount,
+                  );
       if (!sameTransactions(attempt.preparation, fresh))
         throw new Error(
           "Registration or transaction details changed. Prepare and review again.",
@@ -101,6 +116,12 @@ export async function POST(request: Request) {
         current.workspace.mode,
         current.workspace.mandate.version,
       );
+      if (isStakingKind(attempt.kind))
+        assertStakingContext(
+          attempt.preparation as StakingPreparation,
+          current.workspace,
+          current.revision,
+        );
       await checkPolicy(
         s.id,
         preparationAction(fresh, attempt.kind, attempt.id),
@@ -140,7 +161,28 @@ export async function POST(request: Request) {
         });
         if (result.transaction?.hash !== hash)
           throw new Error("RPC returned a different transaction hash.");
+        if (
+          isStakingKind(attempt.kind) &&
+          attempt.kind === "withdraw_unstaked" &&
+          result.final_execution_status === "FINAL"
+        ) {
+          result.stakingTransferReceipts = await Promise.all(
+            (result.receipts_outcome ?? [])
+              .filter((o: any) => o.outcome?.executor_id === attempt.accountId)
+              .map((o: any) =>
+                networkRpc("EXPERIMENTAL_receipt", { receipt_id: o.id }),
+              ),
+          );
+        }
         const outcome = verifyOutcome(result, attempt);
+        const stakingProof = isStakingKind(attempt.kind)
+          ? verifyLinearReceipts(
+              result,
+              (attempt.preparation as StakingPreparation).quote,
+              attempt.accountId,
+              result.stakingTransferReceipts ?? [],
+            )
+          : undefined;
         const block = await networkRpc("block", {
           block_id: result.transaction_outcome.block_hash,
         });
@@ -165,6 +207,7 @@ export async function POST(request: Request) {
           finality: result.final_execution_status,
           receiptIds: (result.receipts_outcome ?? []).map((x: any) => x.id),
           verifiedState: outcome.state,
+          ...(stakingProof ? { stakingEffect: stakingProof } : {}),
         };
         attempt.verificationEvidence = [
           ...(attempt.verificationEvidence ?? []).filter(

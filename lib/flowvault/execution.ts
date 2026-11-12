@@ -1,3 +1,6 @@
+import { isStakingKind } from "./staking-execution.ts";
+import type { StakingPreparation } from "./staking-execution.ts";
+import { verifyLinearReceipts } from "./staking-receipts.ts";
 import type { PayPreparation } from "./payments.ts";
 import type { ExecutionStep } from "./timeline.ts";
 import { holdback } from "./obligations.ts";
@@ -17,6 +20,9 @@ export type PreparationKind =
   | "supply"
   | "withdraw"
   | "pay"
+  | "stake"
+  | "unstake"
+  | "withdraw_unstaked"
   // Engines E2: Rhea credit (lending.ts owns their preparation and verification).
   | "collateral_add"
   | "borrow"
@@ -26,7 +32,8 @@ export type WalletPreparation =
   | SupplyPreparation
   | WithdrawPreparation
   | PayPreparation
-  | LendingPreparation;
+  | LendingPreparation
+  | StakingPreparation;
 export interface WalletAttempt {
   timeline?: ExecutionStep[];
   retainedSignedQuote?: unknown;
@@ -168,11 +175,32 @@ export function verifyOutcome(
       state: "pending",
       message: "Final outcome is unavailable.",
     };
+  if (isStakingKind(attempt.kind)) {
+    const p = attempt.preparation as StakingPreparation;
+    const proof = verifyLinearReceipts(
+      result,
+      p.quote,
+      attempt.accountId,
+      result.stakingTransferReceipts ?? [],
+    );
+    return {
+      index,
+      state: proof.state === "pending" ? "pending" : proof.state,
+      message:
+        proof.state === "confirmed"
+          ? "LiNEAR economic effect verified from finalized receipts."
+          : proof.reason,
+    };
+  }
   if (attempt.kind === "withdraw")
     return verifyWithdrawReceipts(result, attempt, index);
   if (attempt.kind === "pay") return verifyPayDeposit(result, attempt, index);
   if (isLendingKind(attempt.kind))
-    return verifyLendingOutcome(result, attempt.preparation as LendingPreparation, index);
+    return verifyLendingOutcome(
+      result,
+      attempt.preparation as LendingPreparation,
+      index,
+    );
   // NEP-141 ft_transfer_call resolves to the amount actually used, not merely transaction inclusion.
   if (tx.receiver_id === attempt.preparation.transactions.at(-1)?.receiverId) {
     try {
@@ -232,8 +260,10 @@ export function summarizeOutcomes(
           : attempt.kind === "pay"
             ? "Source deposit finalized; destination payment remains unverified."
             : isLendingKind(attempt.kind)
-              ? outcomes.find((o) => o.index === attempt.preparation.transactions.length - 1)?.message ??
-                "Lending step finalized and verified."
+              ? (outcomes.find(
+                  (o) =>
+                    o.index === attempt.preparation.transactions.length - 1,
+                )?.message ?? "Lending step finalized and verified.")
               : "USDC supply finalized. Refresh balances to see your position.",
     };
   if (outcomes.length && outcomes.every((o) => o.state === "confirmed"))
