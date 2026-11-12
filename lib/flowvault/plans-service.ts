@@ -18,7 +18,9 @@ import { otherObligationHoldback, paymentSources } from "./payments";
 import { payoutAsset, payoutSupported } from "./evm";
 import { movingCost } from "./payout-valuation";
 import { SUPPLY_USDC as USDC, SUPPLY_RHEA as RHEA } from "./supply";
-import { units } from "./money";
+import { units, decimal } from "./money";
+import { portfolioCredit } from "./credit-live";
+import { planList } from "./plans-store";
 import { newPlan, planContext, review, type StepSpec } from "./plans";
 import { adapterFor } from "./step-adapters";
 import { withCapitalEvidence } from "./valuation-evidence";
@@ -220,7 +222,7 @@ async function paySources(s: SessionLike, o: Obligation): Promise<PayEvaluation>
   };
 }
 
-async function payObligation(s: SessionLike, base: BaseInput, obligationId: string): Promise<StoredPlan> {
+async function payObligation(s: SessionLike, base: BaseInput, obligationId: string, objective: PlanObjective = "pay_obligation"): Promise<StoredPlan> {
   const w = s.workspace;
   const o = w.obligations.find((x) => x.id === obligationId);
   if (!o) throw new Error("Obligation not found.");
@@ -261,6 +263,7 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
       amountUsdcRaw: funding?.toString() ?? "0", costsUsdcRaw: null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null, availableAt: null, steps: ["borrow", ...idleSteps],
     },
   ];
+  for (const a of alternatives) a.reasons = [...new Set(a.reasons)];
   for (const a of alternatives.slice(0, 2)) a.eligible = a.reasons.length === 0;
   const protectedAssets = (w.policy ?? defaultPolicy(w.mandate.maxMoveCost)).protectedAssets ?? [];
   for (const asset of protectedAssets)
@@ -271,7 +274,7 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
   const pick = alternatives.find((a) => a.eligible);
   const plan = newPlan({
     ...base,
-    objective: "pay_obligation",
+    objective,
     request: {
       ...base.request, amountRaw: units(o.amount, decimals).toString(), asset: o.token, chain: o.destination,
       recipient: o.recipient, deadline: o.dueDate, obligationId: o.id,
@@ -298,6 +301,132 @@ async function payObligation(s: SessionLike, base: BaseInput, obligationId: stri
   return plan;
 }
 
+/* ───────────── borrow under stress limits ───────────── */
+
+async function borrowPlan(s: SessionLike, base: BaseInput): Promise<StoredPlan> {
+  const w = s.workspace;
+  const { portfolio } = await gather(s);
+  const policy = w.policy ?? defaultPolicy(w.mandate.maxMoveCost);
+  type CreditView = { capacity: string | null; capacityDisplay?: string | null; reason?: string; valuationEvidence?: string; markets?: { bindingConstraint?: string; rows?: unknown[] }[] };
+  let credit: CreditView | null = null;
+  let failure: string | null = null;
+  try {
+    credit = (await portfolioCredit(portfolio, policy)) as CreditView;
+  } catch (e) {
+    failure = e instanceof Error ? e.message : String(e);
+  }
+  const capacity = credit?.capacity ?? null;
+  const market = credit?.markets?.[0];
+  const rows = (market?.rows ?? []) as { assetId: string; healthCeiling?: string | null; policyCeiling?: string | null; eligible?: boolean }[];
+  const steps: StepKind[] = ["collateral_add", "borrow"];
+  const reasons = [
+    ...(failure ? ["CREDIT_READ_FAILED: " + failure] : []),
+    ...(credit?.reason ? ["CREDIT_UNAVAILABLE: " + credit.reason] : []),
+    ...(capacity === null ? ["CAPACITY_UNKNOWN"] : units(capacity) === 0n ? ["NO_STRESS_CAPACITY"] : []),
+    ...adapterReasons(steps),
+  ];
+  const alternatives: FundingChoice[] = [
+    {
+      id: "rhea-borrow", kind: "borrow", eligible: reasons.length === 0, reasons,
+      amountUsdcRaw: capacity ? units(capacity).toString() : "0", costsUsdcRaw: null, foregoneUsdcRaw: null,
+      interestUsdcRaw: null, healthAfter: rows.length ? "≥ " + ((policy.creditRows?.[0] as { minHealth?: string } | undefined)?.minHealth ?? "1.5") : null,
+      availableAt: null, steps,
+    },
+  ];
+  const plan = newPlan({
+    ...base, objective: "borrow",
+    request: { ...base.request, amountRaw: capacity ? units(capacity).toString() : undefined, asset: "USDC", chain: "near" },
+    alternatives, recommendedChoiceId: alternatives[0].eligible ? "rhea-borrow" : undefined,
+    effects: { reserveAfterUsdcRaw: raw(w.mandate.reserve), debtAfterUsdcRaw: capacity ? units(capacity).toString() : null, costsUsdcRaw: null, exposure: [] },
+  }) as StoredPlan;
+  plan.title = capacity === null ? "Borrowing capacity can't be established" : `Borrow up to ${credit?.capacityDisplay ?? capacity} USDC under your stress limits`;
+  plan.evidence = credit?.valuationEvidence ?? (w.mode === "demo" ? "Fictional example figures" : "Live reads");
+  plan.figures = [
+    { label: "Stress capacity", value: capacity, engine: "stressCapacity" },
+    { label: "Binding constraint", value: market?.bindingConstraint ?? null, engine: "stressCapacity" },
+    ...rows.map((r) => ({ label: r.assetId + " · health ceiling", value: r.healthCeiling ?? null, engine: "stressCapacity" })),
+    { label: "Protected assets (never collateral)", value: policy.protectedAssets.join(", ") || "none", engine: "policy" },
+  ];
+  return plan;
+}
+
+/* ───────────── repay a loan with available cash ───────────── */
+
+async function repayPlan(s: SessionLike, base: BaseInput): Promise<StoredPlan> {
+  const w = s.workspace;
+  const { portfolio, market } = await gather(s);
+  const owner = portfolio.positions.filter((x) => x.ownership !== "watched");
+  const debtRows = owner.filter((x) => x.kind === "debt" && x.asset === "USDC");
+  const debt = debtRows.reduce((n, x) => n + units(x.amount), 0n);
+  let surplus: bigint | null = null;
+  let holdback: string | null = null;
+  try {
+    const ranking = calendarRanking(w.mandate, market, portfolio, {}, Date.now());
+    surplus = units(ranking.surplus);
+    holdback = ranking.holdback;
+  } catch {
+    surplus = null;
+  }
+  const amount = surplus === null ? 0n : surplus < debt ? surplus : debt;
+  const repaySteps: StepKind[] = ["repay"];
+  const fullSteps: StepKind[] = ["repay", "collateral_release"];
+  const common = [...(debt === 0n ? ["NO_DEBT_FOUND"] : []), ...(surplus === null ? ["HOLDBACK_UNAVAILABLE"] : surplus === 0n ? ["NO_CASH_ABOVE_HOLDBACK"] : [])];
+  const alternatives: FundingChoice[] = [
+    { id: "repay-from-cash", kind: "idle_cash", eligible: false, reasons: [...common, ...adapterReasons(repaySteps)], amountUsdcRaw: amount.toString(), costsUsdcRaw: null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null, availableAt: null, steps: repaySteps },
+    { id: "repay-and-release", kind: "idle_cash", eligible: false, reasons: [...common, ...(debt > 0n && amount < debt ? ["PARTIAL_REPAY_ONLY"] : []), ...adapterReasons(fullSteps)], amountUsdcRaw: amount.toString(), costsUsdcRaw: null, foregoneUsdcRaw: null, interestUsdcRaw: null, healthAfter: null, availableAt: null, steps: fullSteps },
+  ];
+  for (const a of alternatives) a.eligible = a.reasons.length === 0;
+  const plan = newPlan({
+    ...base, objective: "repay",
+    request: { ...base.request, amountRaw: amount.toString(), asset: "USDC", chain: "near", positionId: debtRows[0]?.id },
+    alternatives, recommendedChoiceId: alternatives.find((a) => a.eligible)?.id,
+    effects: { reserveAfterUsdcRaw: raw(holdback), debtAfterUsdcRaw: (debt - amount).toString(), costsUsdcRaw: null, exposure: amount ? [{ asset: "USDC · NEAR wallet", deltaRaw: (-amount).toString(), decimals: 6 }] : [] },
+  }) as StoredPlan;
+  plan.title = debt === 0n ? "No loan to repay" : `Repay ${units(decimalText(amount)) === debt ? "the" : "part of the"} ${decimalText(debt)} USDC loan from cash above your holdback`;
+  plan.evidence = w.mode === "demo" ? "Fictional example figures" : "Live reads at " + portfolio.capturedAt;
+  plan.figures = [
+    { label: "USDC debt", value: decimalText(debt), engine: "portfolio" },
+    { label: "Held back for reserve and dated payments", value: holdback, engine: "calendarRanking" },
+    { label: "Cash above holdback", value: surplus === null ? null : decimalText(surplus), engine: "calendarRanking" },
+    { label: "Repay now", value: decimalText(amount), engine: "plan" },
+  ];
+  return plan;
+}
+
+/* ───────────── a payment moved: re-plan it ───────────── */
+
+async function changePlan(s: SessionLike, base: BaseInput, label?: string): Promise<StoredPlan> {
+  const w = s.workspace;
+  const pending = w.obligations.filter((o) => !["paid", "cancelled"].includes(o.status)).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  // A moved payment is visible where an earlier plan recorded a different deadline for the same obligation.
+  const earlier = (await planList(s.id, 50)).map((x) => x.plan).filter((p) => p.source === w.mode && p.request.obligationId && p.request.deadline);
+  const moved = pending.map((o) => ({ o, was: earlier.find((p) => p.request.obligationId === o.id && p.request.deadline !== o.dueDate)?.request.deadline })).filter((x) => x.was && x.was > x.o.dueDate);
+  const lower = label?.toLowerCase();
+  const target = (lower && pending.find((o) => o.label.toLowerCase().includes(lower))) || moved[0]?.o || pending[0];
+  if (!target) {
+    const plan = newPlan({ ...base, objective: "respond_to_change", alternatives: [], blockedReasons: ["NO_PENDING_PAYMENT"] }) as StoredPlan;
+    plan.title = "No pending payment to re-plan";
+    return plan;
+  }
+  const plan = await payObligation(s, base, target.id, "respond_to_change");
+  const was = moved.find((x) => x.o.id === target.id)?.was;
+  const superseded = earlier.filter((p) => p.state === "superseded").length;
+  plan.title = was
+    ? `${target.label} moved from ${was} to ${target.dueDate}: fund it in time`
+    : `${target.label} is your next payment (${target.dueDate}): fund it in time`;
+  plan.figures = [
+    { label: "Payment", value: `${target.amount} ${target.token} · ${target.label} · due ${target.dueDate}`, engine: "calendar" },
+    { label: "Previously planned for", value: was ?? (lower ? null : "not recorded; showing your nearest payment"), engine: "plans" },
+    ...(plan.figures ?? []),
+    { label: "Earlier plans superseded by changes", value: String(superseded), engine: "plans" },
+  ];
+  return plan;
+}
+
+function decimalText(v: bigint) {
+  return decimal(v);
+}
+
 /* ───────────── entry points ───────────── */
 
 interface BaseInput {
@@ -315,6 +444,8 @@ export interface PlanRequest {
   key: string;
   obligationId?: string;
   text?: string;
+  /** Free-text payment label from the question (changed-payment intent). */
+  label?: string;
   createdBy?: ActionPlan["createdBy"];
 }
 
@@ -335,6 +466,9 @@ export async function evaluatePlan(s: SessionLike, id: string, req: PlanRequest)
     if (!req.obligationId) throw new Error("Choose the payment to plan.");
     return payObligation(s, base, req.obligationId);
   }
+  if (req.objective === "borrow") return borrowPlan(s, base);
+  if (req.objective === "repay") return repayPlan(s, base);
+  if (req.objective === "respond_to_change") return changePlan(s, base, req.label);
   throw new Error(`Plans for ${req.objective} are not available yet.`);
 }
 

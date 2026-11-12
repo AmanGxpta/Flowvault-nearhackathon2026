@@ -33,6 +33,9 @@ export const proposalSchema = z
       "stress",
       "explain_block",
       "clarify",
+      "borrow",
+      "repay",
+      "respond_to_change",
     ]),
     amount: amount.nullable(),
     recipientLabel: z.string().trim().min(1).max(100).nullable().default(null),
@@ -54,6 +57,9 @@ export const proposalSchema = z
           "STRESS_SCENARIO",
           "POLICY_EXPLANATION",
           "MISSING_DETAILS",
+          "BORROW_REQUEST",
+          "REPAY_REQUEST",
+          "SCHEDULE_CHANGE",
         ]),
       )
       .max(5),
@@ -119,7 +125,28 @@ export function parseIntent(
 ): AssistantProposal {
   const p = base();
   const q = question.toLowerCase();
-  if (/why|blocked|refused/.test(q)) {
+  if (/moved (?:forward|up|earlier)|brought forward|now due (?:earlier|sooner)|due date (?:moved|changed)|rescheduled/.test(q)) {
+    p.kind = "respond_to_change";
+    p.recipientLabel =
+      question.match(/\bmy\s+([A-Za-z][A-Za-z .'-]{0,40}?)\s+payment\b/i)?.[1]?.trim() ?? null;
+    p.dueDate = questionDate(question, now);
+    p.sources = ["wallet-usdc", "rhea-usdc"];
+    p.reasons = ["SCHEDULE_CHANGE"];
+  } else if (/\brepay\b|pay (?:off|back|down) (?:the|my|this) (?:loan|debt)/.test(q)) {
+    p.kind = "repay";
+    p.amount = question.match(/([\d,]+(?:\.\d+)?)\s*usdc/i)?.[1]?.replaceAll(",", "") ?? null;
+    p.asset = "USDC";
+    p.chain = "near";
+    p.sources = ["wallet-usdc"];
+    p.reasons = ["REPAY_REQUEST"];
+  } else if (/\bborrow\b/.test(q) && !/why|blocked|refused/.test(q)) {
+    p.kind = "borrow";
+    p.amount = question.match(/([\d,]+(?:\.\d+)?)\s*usdc/i)?.[1]?.replaceAll(",", "") ?? null;
+    p.asset = "USDC";
+    p.chain = "near";
+    p.sources = ["LiNEAR", "rNEAR"];
+    p.reasons = ["BORROW_REQUEST"];
+  } else if (/why|blocked|refused/.test(q)) {
     p.kind = "explain_block";
     p.action = /withdraw/.test(q)
       ? "withdraw"
@@ -493,6 +520,55 @@ export function evaluateAssistant(
         : proposal.asset !== "USDC"
           ? "That native-asset amount has no verified USDC valuation for the policy caps. No approval can be inferred."
           : `The tested amount is ${evaluation.amount} ${proposal.asset ?? "USDC"} against a per-action limit of ${evaluation.limits.perAction} USDC and daily limit of ${evaluation.limits.daily} USDC. ${checked?.allowed ? "These policy checks pass; full preparation guards still apply." : "Blocked checks: " + evaluation.reasons.join(", ") + "."}`;
+  } else if (proposal.kind === "borrow") {
+    const capacity = c.creditCapacity;
+    evaluation = {
+      kind: "borrow",
+      capacity,
+      allowed: false,
+      reasons: capacity === null ? ["CAPACITY_UNKNOWN"] : units(capacity) === 0n ? ["NO_STRESS_CAPACITY"] : [],
+      readOnly: true,
+    };
+    answer =
+      capacity === null
+        ? "The credit engine can't establish stress capacity from verified valuations, so no borrowing amount is offered."
+        : `The credit engine's stress capacity under your rules is ${capacity} USDC. New debt always needs your explicit approval and a wallet signature; nothing is prepared here.`;
+  } else if (proposal.kind === "repay") {
+    const debt = p.positions
+      .filter((x) => x.kind === "debt" && x.asset === "USDC")
+      .reduce((n, x) => n + units(x.amount), 0n);
+    evaluation = {
+      kind: "repay",
+      debt: decimal(debt),
+      cashNow: usable.cashNow.amount,
+      holdback: ranking.holdback,
+      allowed: false,
+      reasons: debt === 0n ? ["NO_DEBT_FOUND"] : [],
+      readOnly: true,
+    };
+    answer =
+      debt === 0n
+        ? "The portfolio read shows no USDC debt to repay. Nothing to plan."
+        : `The portfolio shows ${decimal(debt)} USDC of debt. Repayment can only use cash above your reserve and dated payments (${ranking.holdback ?? "unknown"} USDC held back).`;
+  } else if (proposal.kind === "respond_to_change") {
+    const pending = w.obligations
+      .filter((o) => !["paid", "cancelled"].includes(o.status))
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const label = proposal.recipientLabel?.toLowerCase();
+    const o = (label && pending.find((x) => x.label.toLowerCase().includes(label))) || pending[0];
+    evaluation = {
+      kind: "respond_to_change",
+      obligationId: o?.id ?? null,
+      dueDate: o?.dueDate ?? null,
+      holdback: ranking.holdback,
+      surplus: ranking.surplus,
+      allowed: !!o,
+      reasons: o ? [] : ["NO_PENDING_PAYMENT"],
+      readOnly: true,
+    };
+    answer = o
+      ? `The engine re-ran your cash plan with the current dates: ${ranking.holdback ?? "an unknown amount of"} USDC is now held back and ${ranking.surplus} USDC is surplus. The plan below names the payment and compares how to fund it in time.`
+      : "There is no pending payment to re-plan.";
   } else {
     evaluation = {
       kind: "clarify",

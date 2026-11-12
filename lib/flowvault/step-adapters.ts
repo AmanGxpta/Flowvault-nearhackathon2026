@@ -155,7 +155,7 @@ export const withdrawAdapter: StepAdapter = {
   kinds: ["withdraw"],
   async prepare(step, plan) {
     const ctx = stepContext(plan);
-    if (plan.objective === "pay_obligation") {
+    if (plan.request.obligationId) {
       const payment = await ensurePayment(plan);
       const r = await journalCall(ctx, "payment", paymentPath(payment.id), { action: "prepare-withdraw" });
       return { paymentPlanId: payment.id, attemptId: r.attempt?.id ?? r.payment.withdrawAttemptId, expiresAt: r.attempt?.expiresAt, state: "prepared" };

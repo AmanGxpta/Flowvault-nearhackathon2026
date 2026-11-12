@@ -3,6 +3,9 @@ import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { session, mutation, json, failure } from "@/lib/flowvault/store";
 import { assistantIntent } from "@/lib/flowvault/assistant-provider";
+import { planGet, planIdFor, planInsert } from "@/lib/flowvault/plans-store";
+import { evaluatePlan } from "@/lib/flowvault/plans-service";
+import type { PlanObjective } from "@/lib/flowvault/contracts";
 import { evaluateAssistant } from "@/lib/flowvault/assistant";
 import { workspacePortfolio } from "@/lib/flowvault/portfolio-service";
 import { demoMarket } from "@/lib/flowvault/seed";
@@ -14,6 +17,55 @@ function setting(name: string) {
   const binding = (env as unknown as Record<string, unknown>)[name];
   return typeof binding === "string" ? binding : process.env[name];
 }
+const STAGES = [
+  { id: "understand", label: "Understand", by: "Intent parser or NEAR AI Cloud model (intent fields only)" },
+  { id: "evaluate", label: "Evaluate alternatives", by: "FlowVault engines" },
+  { id: "review", label: "Review", by: "You, in FlowVault" },
+  { id: "authorize", label: "Authorize", by: "Your policy, checked again at preparation and wallet handoff" },
+  { id: "sign", label: "Sign", by: "You, in your wallet" },
+  { id: "confirm", label: "Confirm the economic result", by: "Finalized on-chain evidence" },
+];
+
+const OBJECTIVE: Partial<Record<string, PlanObjective>> = {
+  allocate_surplus: "deploy_surplus",
+  pay: "pay_obligation",
+  borrow: "borrow",
+  repay: "repay",
+  respond_to_change: "respond_to_change",
+};
+
+async function savePlan(
+  s: Awaited<ReturnType<typeof session>>,
+  key: string,
+  question: string,
+  result: ReturnType<typeof evaluateAssistant>,
+) {
+  const objective = OBJECTIVE[result.proposal.kind];
+  if (!objective) return null;
+  const obligationId = (result.evaluation as { obligationId?: string | null }).obligationId ?? undefined;
+  if (objective === "pay_obligation" && !obligationId)
+    return { plan: null, note: "No single calendar payment matches, so no plan was saved. Add it in Calendar or name it exactly." };
+  const id = await planIdFor(s.id, key);
+  const existing = await planGet(s.id, id);
+  if (existing) return { plan: existing.plan, note: "Same question key: showing the plan saved earlier." };
+  const plan = await evaluatePlan(s, id, {
+    objective,
+    key,
+    obligationId: objective === "respond_to_change" ? undefined : obligationId,
+    label: result.proposal.recipientLabel ?? undefined,
+    text: question,
+    createdBy: "assistant",
+  });
+  try {
+    return { plan: await planInsert(s.id, plan), note: null };
+  } catch (e) {
+    const activePlanId = (e as { activePlanId?: string }).activePlanId;
+    if (!activePlanId) throw e;
+    const active = await planGet(s.id, activePlanId);
+    return { plan: active?.plan ?? null, note: "You already have an active plan for this. Continue or cancel it before asking for a new one." };
+  }
+}
+
 export async function POST(r: Request) {
   try {
     mutation(r);
@@ -21,6 +73,8 @@ export async function POST(r: Request) {
       .object({
         question: z.string().trim().min(1).max(2000),
         useModel: z.boolean().default(true),
+        /** Idempotency key for the plan this question saves; the same key returns the same plan. */
+        planKey: z.string().uuid().optional(),
       })
       .strict()
       .parse(await r.json());
@@ -71,9 +125,15 @@ export async function POST(r: Request) {
       },
       now,
     );
+    // Stage 2 of 6: the engines' evaluation is saved as an ActionPlan. Model prose never authorizes; the
+    // plan still needs the owner's review, policy authorization, a wallet signature and verified results.
+    const saved = b.planKey ? await savePlan(s, b.planKey, b.question, result) : null;
     return json(
       {
         ...result,
+        plan: saved?.plan ?? null,
+        planNote: saved?.note ?? null,
+        stages: STAGES,
         provider: intent.provider,
         dataSent: intent.dataSent,
         warning: intent.warning,

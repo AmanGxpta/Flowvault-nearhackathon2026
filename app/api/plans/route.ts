@@ -34,8 +34,9 @@ export async function GET(r: Request) {
 const createSchema = z
   .object({
     key: z.string().uuid(),
-    objective: z.enum(["deploy_surplus", "pay_obligation"]),
+    objective: z.enum(["deploy_surplus", "pay_obligation", "borrow", "repay", "respond_to_change"]),
     obligationId: z.string().min(1).max(100).optional(),
+    label: z.string().max(100).optional(),
     text: z.string().max(2000).optional(),
   })
   .strict();

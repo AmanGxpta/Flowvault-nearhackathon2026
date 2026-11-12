@@ -2,7 +2,7 @@
 import { database } from "./store";
 import { keyedAttemptId } from "./preparation-key";
 import { PLAN_TABLES, PLAN_LOCK, PLAN_INSERT, PLAN_SAVE, PLAN_UNLOCK, LEDGER_OUTBOX } from "./plans-sql";
-import { isTerminal, planTarget } from "./plans";
+import { applyExpiry, applyFence, isTerminal, planTarget, settle, type PlanContext } from "./plans";
 import type { ActionPlan, LedgerEntry } from "./contracts";
 
 async function db() {
@@ -36,6 +36,7 @@ export async function planList(sessionId: string, limit = 30) {
 
 /** Inserts under the target lock. A stale lock held by a finished plan is released and retried once. */
 export async function planInsert(sessionId: string, plan: ActionPlan) {
+  const ctx: PlanContext = plan.context;
   const d = await db();
   const target = planTarget(plan.objective, plan.request);
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -49,6 +50,14 @@ export async function planInsert(sessionId: string, plan: ActionPlan) {
       .first<{ plan_id: string }>();
     if (lock?.plan_id === plan.id) return (await planGet(sessionId, plan.id))!.plan;
     const holder = lock ? await planGet(sessionId, lock.plan_id) : null;
+    if (holder) {
+      // The holder may predate a workspace change: fence it against the new plan's context first.
+      const before = holder.previous;
+      applyExpiry(holder.plan);
+      applyFence(holder.plan, ctx);
+      settle(holder.plan);
+      if (JSON.stringify(holder.plan) !== before) await planSave(sessionId, holder.plan, before).catch(() => undefined);
+    }
     if (holder && !isTerminal(holder.plan))
       throw Object.assign(
         new Error("An active plan already exists for this request. Continue or cancel it first."),
