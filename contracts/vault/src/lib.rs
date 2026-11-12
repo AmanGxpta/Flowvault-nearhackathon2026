@@ -1,10 +1,11 @@
 //! FlowVault custody/share vault. Undeployed. NAV is a trusted, stale-bounded curator attestation;
 //! it is NOT cryptographic evidence of external assets. Never route arbitrary delegate calldata.
 mod math;
+mod operations;
 mod redemptions;
-use math::{
-    E18, VIRTUAL_ASSETS, VIRTUAL_SHARES, add, assets_for, fee_shares, mul_div, pps, shares_for,
-};
+#[cfg(test)]
+use math::E18;
+use math::{VIRTUAL_ASSETS, VIRTUAL_SHARES, add, assets_for, fee_shares, mul_div, pps, shares_for};
 use near_contract_standards::fungible_token::events::{FtBurn, FtMint};
 use near_contract_standards::fungible_token::{
     FungibleToken,
@@ -16,11 +17,12 @@ use near_contract_standards::fungible_token::{
 use near_contract_standards::storage_management::{
     StorageBalance, StorageBalanceBounds, StorageManagement,
 };
+#[cfg(test)]
+use near_sdk::PromiseResult;
 use near_sdk::json_types::{Base64VecU8, U64, U128};
 use near_sdk::serde_json::{self, Value, json};
 use near_sdk::{
-    AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseOrValue, PromiseResult,
-    assert_one_yocto, env, near,
+    AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseOrValue, assert_one_yocto, env, near,
 };
 use std::collections::{BTreeMap, BTreeSet};
 const QUEUE_STORAGE: u128 = 20_000_000_000_000_000_000_000;
@@ -166,6 +168,9 @@ pub struct Vault {
     status: Status,
     report: Option<NavReport>,
     report_required: bool,
+    sync_required: bool,
+    escrow_shortfall: bool,
+    operator_version: u64,
     liquid: u128,
     pending_deposits: u128,
     claimable: u128,
@@ -250,6 +255,9 @@ impl Vault {
             status: Status::Running,
             report: None,
             report_required: true,
+            sync_required: false,
+            escrow_shortfall: false,
+            operator_version: 0,
             liquid: 0,
             pending_deposits: 0,
             claimable: 0,
@@ -292,6 +300,12 @@ impl Vault {
     pub fn get_nav(&self) -> NavView {
         let (gross, liabilities) = self.gross_liabilities();
         let mut reasons = vec![];
+        if self.sync_required {
+            reasons.push("LIQUID_SYNC_REQUIRED".into());
+        }
+        if self.escrow_shortfall {
+            reasons.push("ESCROW_UNDERCOLLATERALIZED".into());
+        }
         if self.report_required {
             reasons.push("NAV_REPORT_REQUIRED".into());
         }
@@ -409,6 +423,10 @@ impl Vault {
         self.reporter();
         assert_one_yocto();
         self.idle();
+        assert!(
+            !self.sync_required && !self.escrow_shortfall,
+            "LIQUID_SYNC_REQUIRED"
+        );
         assert!(report.positions.len() <= MAX_POSITIONS, "POSITION_LIMIT");
         assert!(
             report.observed_at_ms.0 <= now()
@@ -442,10 +460,10 @@ impl Vault {
         self.report = Some(report.clone());
         self.report_required = false;
         let (g, l) = self.gross_liabilities();
-        self.deployed = report
-            .positions
-            .iter()
-            .fold(0, |n, p| add(n, p.assets_raw.0));
+        // A valuation attestation cannot replenish a delegate's raw supply allowance.
+        // This counter is conservative gross resolved supply, not a portfolio valuation.
+        // Returning capital is observed in liquid/NAV; owner-approved policy changes
+        // may raise future limits, while daily/lifetime consumption always persists.
         if g >= l {
             self.crystallize(g - l);
         }

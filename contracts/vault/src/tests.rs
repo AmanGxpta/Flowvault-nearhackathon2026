@@ -43,6 +43,9 @@ fn config() -> Config {
 }
 fn vault() -> Vault {
     context("vault.near", 0, 1_000);
+    near_sdk::mock::with_mocked_blockchain(|b| {
+        b.take_storage();
+    });
     Vault::new(config())
 }
 fn report(v: &mut Vault, seq: u64, external: u128) {
@@ -140,7 +143,7 @@ fn only_underlying_can_create_deposit() {
     report(&mut v, 1, 0);
     context("attacker.near", 0, 1_100);
     fails(|| {
-        v.ft_on_transfer(account("owner.near"), U128(1), "{}".into());
+        let _ = v.ft_on_transfer(account("owner.near"), U128(1), "{}".into());
     });
 }
 #[test]
@@ -387,4 +390,389 @@ fn escrowed_shares_still_count_toward_personal_deposit_cap() {
         PromiseOrValue::Value(U128(1_000_000))
     ));
     assert_eq!(v.pending_deposits, 0);
+}
+
+fn policy() -> OperatorPolicy {
+    OperatorPolicy {
+        account_id: account("operator.near"),
+        valid_until_ms: U64(200_000_000),
+        max_per_action_raw: U128(10_000_000),
+        max_daily_raw: U128(20_000_000),
+        max_cumulative_raw: U128(50_000_000),
+        max_deployed_raw: U128(80_000_000),
+        min_idle_raw: U128(10_000_000),
+        paused: false,
+    }
+}
+fn authorize(v: &mut Vault) {
+    context("owner.near", 1, 1_200);
+    v.set_operator(policy());
+}
+fn supply(v: &mut Vault, amount: u128) -> U64 {
+    context("operator.near", 0, 1_201);
+    let _ = v.curator_supply(U128(amount));
+    v.busy.as_ref().unwrap().id
+}
+fn resolve_supply(v: &mut Vault, op: U64, used: u128) {
+    callback_context(PromiseResult::Successful(
+        serde_json::to_vec(&U128(used)).unwrap(),
+    ));
+    assert!(v.on_supply(op));
+}
+fn report_at(v: &mut Vault, seq: u64, external: u128, at: u64) {
+    context("curator.near", 1, at);
+    v.report_nav(NavReport {
+        sequence: U64(seq),
+        observed_at_ms: U64(at),
+        positions: vec![Position {
+            id: "rhea".into(),
+            protocol: RHEA.into(),
+            chain: "near".into(),
+            assets_raw: U128(external),
+            liabilities_raw: U128(0),
+        }],
+        evidence_hash: format!("proof-{seq}"),
+    });
+}
+#[test]
+fn supply_builds_only_the_typed_exact_rhea_deposit() {
+    let mut v = funded();
+    authorize(&mut v);
+    let op = supply(&mut v, 10_000_000);
+    assert_eq!(v.liquid, 90_000_000);
+    assert_eq!(v.deployed, 10_000_000);
+    assert!(v.get_nav().nav_raw.is_none());
+    let receipts = near_sdk::test_utils::get_created_receipts();
+    let token = receipts
+        .iter()
+        .find(|r| r.receiver_id == account(USDC))
+        .unwrap();
+    let call = token
+        .actions
+        .iter()
+        .find_map(|a| {
+            if let near_sdk::mock::MockAction::FunctionCallWeight {
+                method_name,
+                args,
+                attached_deposit,
+                ..
+            } = a
+            {
+                Some((method_name, args, attached_deposit))
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(call.0, b"ft_transfer_call");
+    assert_eq!(call.2.as_yoctonear(), 1);
+    let args: Value = serde_json::from_slice(call.1).unwrap();
+    assert_eq!(
+        args,
+        json!({"receiver_id":RHEA,"amount":"10000000","msg":""})
+    );
+    resolve_supply(&mut v, op, 10_000_000);
+    assert!(v.report_required);
+    assert!(v.busy.is_none());
+    report_at(&mut v, 2, 10_000_000, 2_001);
+    assert_eq!(v.get_nav().nav_raw.unwrap().0, 100_000_000);
+}
+#[test]
+fn actual_used_amount_restores_only_proven_unused_capital_and_preserves_usage() {
+    let mut v = funded();
+    authorize(&mut v);
+    let op = supply(&mut v, 10_000_000);
+    resolve_supply(&mut v, op, 4_000_000);
+    assert_eq!(v.liquid, 96_000_000);
+    assert_eq!(v.deployed, 4_000_000);
+    assert_eq!(v.usage_daily, 10_000_000);
+    assert_eq!(v.usage_cumulative, 10_000_000);
+    context("owner.near", 1, 2_001);
+    let mut p = policy();
+    p.account_id = account("replacement.near");
+    v.set_operator(p);
+    assert_eq!(v.usage_daily, 10_000_000);
+    assert_eq!(v.usage_cumulative, 10_000_000);
+    assert_eq!(v.operator_version, 2);
+}
+#[test]
+fn malformed_external_result_never_unlocks_or_invents_refund() {
+    let mut v = funded();
+    authorize(&mut v);
+    let op = supply(&mut v, 10_000_000);
+    callback_context(PromiseResult::Successful(b"not-a-quantity".to_vec()));
+    assert!(!v.on_supply(op));
+    assert_eq!(v.liquid, 90_000_000);
+    assert_eq!(v.deployed, 10_000_000);
+    assert!(v.busy.is_some());
+    assert!(v.get_nav().nav_raw.is_none());
+    context("operator.near", 0, 2_001);
+    fails(|| {
+        let _ = v.curator_supply(U128(1));
+    });
+    assert_eq!(v.usage_cumulative, 10_000_000);
+}
+#[test]
+fn delegate_cannot_exceed_action_daily_or_lifetime_caps_and_day_roll_does_not_reset_lifetime() {
+    let mut v = funded();
+    authorize(&mut v);
+    context("operator.near", 0, 1_201);
+    fails(|| {
+        let _ = v.curator_supply(U128(10_000_001));
+    });
+    let op = supply(&mut v, 10_000_000);
+    resolve_supply(&mut v, op, 10_000_000);
+    report_at(&mut v, 2, 10_000_000, 2_001);
+    context("owner.near", 1, 2_002);
+    let mut p = policy();
+    p.max_daily_raw = U128(10_000_000);
+    v.set_operator(p);
+    context("operator.near", 0, 2_003);
+    fails(|| {
+        let _ = v.curator_supply(U128(1));
+    });
+    report_at(&mut v, 3, 10_000_000, 86_402_000);
+    context("operator.near", 0, 86_402_001);
+    let _ = v.curator_supply(U128(1_000_000));
+    assert_eq!(v.usage_daily, 1_000_000);
+    assert_eq!(v.usage_cumulative, 11_000_000);
+}
+#[test]
+fn queued_redemptions_and_liquidity_floor_are_protected_before_deployment() {
+    let mut v = funded();
+    let _ = redemption(&mut v, 85 * E18, 0);
+    authorize(&mut v);
+    context("operator.near", 0, 1_201);
+    fails(|| {
+        let _ = v.curator_supply(U128(1));
+    });
+    assert_eq!(v.liquid, 100_000_000);
+    assert_eq!(v.usage_daily, 0);
+}
+#[test]
+fn position_protocol_and_chain_concentration_are_independent_guards() {
+    for (which, label) in [(0, "POSITION"), (1, "PROTOCOL"), (2, "CHAIN")] {
+        let mut v = funded();
+        authorize(&mut v);
+        if which == 0 {
+            v.config.max_position_bps = 500;
+        } else if which == 1 {
+            v.config.max_protocol_bps = 500;
+        } else {
+            v.config.max_chain_bps = 500;
+        }
+        context("operator.near", 0, 1_201);
+        let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = v.curator_supply(U128(10_000_000));
+        }));
+        assert!(error.is_err(), "{label} cap must block");
+        assert_eq!(v.liquid, 100_000_000);
+        assert_eq!(v.usage_cumulative, 0);
+    }
+}
+#[test]
+fn operator_expiry_pause_unauthorized_caller_and_vault_shutdown_refuse_deployment() {
+    let mut v = funded();
+    authorize(&mut v);
+    context("attacker.near", 0, 1_201);
+    fails(|| {
+        let _ = v.curator_supply(U128(1));
+    });
+    report_at(&mut v, 2, 0, 200_000_001);
+    context("operator.near", 0, 200_000_002);
+    fails(|| {
+        let _ = v.curator_supply(U128(1));
+    });
+    context("owner.near", 1, 2_000);
+    v.set_status(Status::Shutdown);
+    context("operator.near", 0, 2_001);
+    fails(|| {
+        let _ = v.curator_supply(U128(1));
+    });
+}
+#[test]
+fn withdrawal_never_becomes_cash_before_sync_and_fresh_report() {
+    let mut v = funded();
+    authorize(&mut v);
+    let op = supply(&mut v, 10_000_000);
+    resolve_supply(&mut v, op, 10_000_000);
+    report_at(&mut v, 2, 10_000_000, 2_001);
+    context("owner.near", 1, 2_002);
+    v.set_status(Status::Shutdown);
+    context("operator.near", 0, 2_003);
+    let _ = v.curator_withdraw(U128(4_000_000));
+    let withdraw_op = v.busy.as_ref().unwrap().id;
+    let receipts = near_sdk::test_utils::get_created_receipts();
+    let rhea = receipts
+        .iter()
+        .find(|r| r.receiver_id == account(RHEA))
+        .unwrap();
+    let args = rhea
+        .actions
+        .iter()
+        .find_map(|a| {
+            if let near_sdk::mock::MockAction::FunctionCallWeight {
+                method_name, args, ..
+            } = a
+            {
+                assert_eq!(method_name, b"execute");
+                Some(serde_json::from_slice::<Value>(args).unwrap())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(
+        args,
+        json!({"actions":[{"Withdraw":{"token_id":USDC,"max_amount":"4000000000000000000"}}]})
+    );
+    callback_context(PromiseResult::Successful(vec![]));
+    assert!(v.on_withdraw(withdraw_op));
+    assert_eq!(v.liquid, 90_000_000);
+    assert!(v.sync_required);
+    assert!(v.get_nav().nav_raw.is_none());
+    context("curator.near", 1, 2_100);
+    let _ = v.sync_liquid();
+    let sync = v.busy.as_ref().unwrap().id;
+    callback_context(PromiseResult::Successful(
+        serde_json::to_vec(&U128(94_000_000)).unwrap(),
+    ));
+    assert!(v.on_sync_liquid(sync));
+    assert_eq!(v.liquid, 94_000_000);
+    assert!(v.get_nav().nav_raw.is_none());
+    report_at(&mut v, 3, 6_000_000, 2_101);
+    assert_eq!(v.get_nav().nav_raw.unwrap().0, 100_000_000);
+}
+#[test]
+fn balance_sync_excludes_pending_deposits_and_fixed_claims() {
+    let mut v = funded();
+    let id = redemption(&mut v, 10 * E18, 0);
+    context("keeper.near", 0, 1_201);
+    v.process_redemptions(1);
+    let _ = deposit(&mut v, "owner.near", 5_000_000);
+    context("curator.near", 1, 1_300);
+    let _ = v.sync_liquid();
+    let sync = v.busy.as_ref().unwrap().id;
+    callback_context(PromiseResult::Successful(
+        serde_json::to_vec(&U128(105_000_000)).unwrap(),
+    ));
+    assert!(v.on_sync_liquid(sync));
+    assert_eq!(v.liquid, 90_000_000);
+    assert_eq!(v.pending_deposits, 5_000_000);
+    assert_eq!(v.claimable, 10_000_000);
+    assert_eq!(v.get_request(id).unwrap().claimable_raw.0, 10_000_000);
+    assert!(v.get_nav().nav_raw.is_none());
+}
+#[test]
+fn concurrent_flow_or_bad_read_cannot_publish_liquid_balance() {
+    let mut v = funded();
+    context("curator.near", 1, 1_300);
+    let _ = v.sync_liquid();
+    let sync = v.busy.as_ref().unwrap().id;
+    v.flow();
+    callback_context(PromiseResult::Successful(
+        serde_json::to_vec(&U128(200_000_000)).unwrap(),
+    ));
+    assert!(!v.on_sync_liquid(sync));
+    assert_eq!(v.liquid, 100_000_000);
+    assert!(v.sync_required);
+    assert!(v.busy.is_none());
+    context("curator.near", 1, 2_001);
+    let _ = v.sync_liquid();
+    let next = v.busy.as_ref().unwrap().id;
+    callback_context(PromiseResult::Failed);
+    assert!(!v.on_sync_liquid(next));
+    assert_eq!(v.liquid, 100_000_000);
+    assert!(v.get_nav().nav_raw.is_none());
+}
+#[test]
+fn sync_detects_missing_escrow_and_freezes_claims() {
+    let mut v = funded();
+    let id = redemption(&mut v, 10 * E18, 0);
+    context("keeper.near", 0, 1_201);
+    v.process_redemptions(1);
+    context("curator.near", 1, 1_300);
+    let _ = v.sync_liquid();
+    let sync = v.busy.as_ref().unwrap().id;
+    callback_context(PromiseResult::Successful(
+        serde_json::to_vec(&U128(1)).unwrap(),
+    ));
+    assert!(!v.on_sync_liquid(sync));
+    assert!(v.escrow_shortfall);
+    context("keeper.near", 0, 2_001);
+    fails(|| {
+        let _ = v.claim(id);
+    });
+    assert_eq!(v.claimable, 10_000_000);
+}
+#[test]
+fn operator_cannot_report_sync_change_policy_or_upgrade() {
+    let mut v = funded();
+    authorize(&mut v);
+    context("operator.near", 1, 1_201);
+    fails(|| {
+        let _ = v.sync_liquid();
+    });
+    fails(|| v.set_operator(policy()));
+    fails(|| {
+        let _ = v.upgrade(Base64VecU8(vec![0, 97, 115, 109]));
+    });
+    let mut r = v.report.clone().unwrap();
+    r.sequence = U64(2);
+    fails(|| v.report_nav(r));
+}
+
+#[test]
+fn nav_reports_cannot_replenish_raw_delegated_capital_allowance() {
+    let mut v = funded();
+    authorize(&mut v);
+    let op = supply(&mut v, 10_000_000);
+    resolve_supply(&mut v, op, 10_000_000);
+    report_at(&mut v, 2, 0, 2_001);
+    assert_eq!(v.deployed, 10_000_000);
+    context("owner.near", 1, 2_002);
+    let mut p = policy();
+    p.max_deployed_raw = U128(10_000_000);
+    v.set_operator(p);
+    context("operator.near", 0, 2_003);
+    fails(|| {
+        let _ = v.curator_supply(U128(1));
+    });
+    assert_eq!(v.liquid, 90_000_000);
+}
+#[test]
+fn lifetime_usage_survives_a_day_roll_and_new_policy() {
+    let mut v = funded();
+    context("owner.near", 1, 1_200);
+    let mut p = policy();
+    p.max_daily_raw = U128(10_000_000);
+    p.max_cumulative_raw = U128(10_000_000);
+    v.set_operator(p.clone());
+    let op = supply(&mut v, 10_000_000);
+    resolve_supply(&mut v, op, 10_000_000);
+    report_at(&mut v, 2, 10_000_000, 86_402_000);
+    context("owner.near", 1, 86_402_001);
+    v.set_operator(p);
+    context("operator.near", 0, 86_402_002);
+    fails(|| {
+        let _ = v.curator_supply(U128(1));
+    });
+    assert_eq!(v.usage_cumulative, 10_000_000);
+    assert_eq!(v.liquid, 90_000_000);
+}
+
+#[test]
+fn risk_reducing_exit_can_include_yield_without_replenishing_supply_authority() {
+    let mut v = funded();
+    authorize(&mut v);
+    let op = supply(&mut v, 10_000_000);
+    resolve_supply(&mut v, op, 10_000_000);
+    report_at(&mut v, 2, 11_000_000, 2_001);
+    context("owner.near", 1, 2_002);
+    v.set_status(Status::Shutdown);
+    context("curator.near", 0, 2_003);
+    let _ = v.curator_withdraw(U128(11_000_000));
+    assert_eq!(v.deployed, 10_000_000);
+    assert_eq!(v.liquid, 90_000_000);
+    assert_eq!(v.busy.as_ref().unwrap().amount_raw.0, 11_000_000);
 }

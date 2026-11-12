@@ -174,6 +174,7 @@ impl Vault {
     }
     pub fn claim(&mut self, id: U64) -> Promise {
         self.idle();
+        assert!(!self.escrow_shortfall, "ESCROW_UNDERCOLLATERALIZED");
         assert!(
             env::prepaid_gas().as_gas() >= 60_000_000_000_000,
             "CLAIM_GAS_REQUIRED"

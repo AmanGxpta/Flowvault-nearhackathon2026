@@ -1,3 +1,5 @@
+// uint 0.9.5 emits legacy macro compatibility lints; pinned arithmetic is covered below.
+#![allow(deprecated, semicolon_in_expressions_from_non_local_macros)]
 use uint::construct_uint;
 construct_uint! { pub struct U256(4); }
 pub const E18: u128 = 1_000_000_000_000_000_000;
@@ -92,5 +94,19 @@ mod tests {
         assert!(fee > 1_499_900 && fee <= 1_500_000);
         assert!(mint > 0);
         assert!(pps(110_000_000, add(supply, mint), true) > high);
+    }
+}
+
+#[cfg(test)]
+mod inflation_test {
+    use super::*;
+    #[test]
+    fn virtual_offset_donation_does_not_profit_first_holder() {
+        let first = shares_for(1, 0, 0);
+        let donation = 1_000_000;
+        let victim = shares_for(1_000_000, 1 + donation, first);
+        assert!(victim > 0);
+        let attacker_out = assets_for(first, 1 + donation + 1_000_000, add(first, victim));
+        assert!(attacker_out < 1 + donation);
     }
 }
