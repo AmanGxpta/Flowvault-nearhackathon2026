@@ -5,6 +5,7 @@ import { PlanCta } from "../PlanDock";
 import { Skel } from "../Skel";
 import { tc } from "../theme";
 import { PerpsCard } from "../Perps";
+import { VaultsCard } from "../Vaults";
 
 // Design section: STRATEGIES
 export function StrategiesView({ v }: { v: any }) {
@@ -676,6 +677,7 @@ export function StrategiesView({ v }: { v: any }) {
         </>
       ) : null}
       {v.scope ? <PerpsCard key={v.scope + ":perps"} scope={v.scope} /> : null}
+      {v.scope ? <VaultsCard key={v.scope + ":vaults"} scope={v.scope} /> : null}
     </>
   );
 }

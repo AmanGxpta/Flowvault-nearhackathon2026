@@ -5,6 +5,10 @@
 //
 // Units: assets are USDC base units (6 dp); shares are integer base units of the vault's NEP-141 share token.
 // Share price uses a virtual offset (ERC-4626 style) so the first depositor can't be diluted by a donation.
+// The arithmetic mirrors contracts/vault v1 (docs/handoff/vault-interface.md) exactly, so a holder view computed
+// here equals the contract's share balances: no management fee, performance fee rounded up in assets and in shares,
+// high-water mark rounded up, fees crystallized only when the owner reports NAV (a curator report never mints fees),
+// deposits that fail a cap wait in the queue, and redemptions settle whole requests strictly first in, first out.
 // Every conversion rounds against the person acting (deposits get fewer shares, redemptions get fewer assets), so
 // rounding dust always stays with the remaining holders. Unknown values block: a NAV with any unvalued position or
 // unknown liability is null, and nothing is priced against a null NAV.
@@ -14,6 +18,9 @@ export const YEAR_SECONDS = 365n * 86_400n;
 export const E18 = 10n ** 18n;
 const BPS = 10_000n;
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
+
+/** Constants of the v1 vault contract (contracts/vault/src/math.rs and get_config). */
+export const CONTRACT_V1 = { virtualShares: 1_000_000_000_000n, virtualAssets: 1n, shareDecimals: 18, managementBps: 0, maxPerformanceBps: 3000 } as const;
 
 export interface VaultTerms {
   id: string;
@@ -28,7 +35,7 @@ export interface VaultTerms {
   /** "single_depositor": one owner's own funds in custody (the mandate's bounded execution authority). */
   mode: "pooled" | "single_depositor";
   fees: {
-    /** Annual management fee on NAV, accrued per second, minted as shares. */
+    /** Annual management fee. Must be 0 while the vault contract (v1) has none. */
     managementBps: number;
     /** On gains above the high-water mark per share; losses must be recovered before it is charged again. */
     performanceBps: number;
@@ -52,6 +59,8 @@ export interface VaultRequest {
   requestedAt: number;
   /** Redemptions: earliest settlement (notice period). */
   notBefore?: number;
+  /** Deposit: minimum shares; redemption: minimum USDC. The request waits (never settles below it). */
+  minOutputRaw?: bigint;
 }
 
 export interface VaultBook {
@@ -72,12 +81,16 @@ export interface VaultBook {
   lastFeeAt: number;
   paused: boolean;
   shutdown: boolean;
+  /** Whether the current NAV report was filed by the owner (only those crystallize fees; contract v1.3). */
+  reportByOwner?: boolean;
+  /** Set when the contract itself reports NAV unavailable (stale or missing report, unresolved operation, sync needed). */
+  navUnavailable?: string[];
 }
 
 export function emptyBook(terms: VaultTerms, now: number): VaultBook {
   return {
     totalShares: 0n, holders: {}, idleRaw: 0n, positions: [], liabilitiesRaw: 0n, pendingDeposits: [], pendingRedemptions: [], claimable: {},
-    hwmE18: ppsE18(terms, 0n, 0n), lastFeeAt: now, paused: false, shutdown: false,
+    hwmE18: ppsCeilE18(terms, 0n, 0n), lastFeeAt: now, paused: false, shutdown: false,
   };
 }
 
@@ -98,7 +111,7 @@ export interface Nav {
   reasons: string[];
 }
 export function nav(book: VaultBook): Nav {
-  const reasons: string[] = [];
+  const reasons: string[] = [...(book.navUnavailable ?? [])];
   let gross = book.idleRaw;
   for (const p of book.positions) {
     if (p.usdcRaw === null) reasons.push(`POSITION_UNVALUED: ${p.positionId} (${p.basis})`);
@@ -112,6 +125,8 @@ export function nav(book: VaultBook): Nav {
 }
 
 export const ppsE18 = (t: VaultTerms, navRaw: bigint, shares: bigint) => ((navRaw + t.virtualAssets) * E18) / (shares + t.virtualShares);
+/** Price rounded up: the contract's high-water mark is never rounded down. */
+export const ppsCeilE18 = (t: VaultTerms, navRaw: bigint, shares: bigint) => ceilDiv((navRaw + t.virtualAssets) * E18, shares + t.virtualShares);
 /** Shares for a deposit (rounded down: the depositor never gets more than they paid for). */
 export const sharesFor = (t: VaultTerms, assetsRaw: bigint, navRaw: bigint, shares: bigint) => (assetsRaw * (shares + t.virtualShares)) / (navRaw + t.virtualAssets);
 /** Assets for shares (rounded down: the redeemer never takes more than their share). */
@@ -120,9 +135,13 @@ export const assetsFor = (t: VaultTerms, sharesRaw: bigint, navRaw: bigint, shar
 export function validateTerms(t: VaultTerms): string[] {
   const p: string[] = [];
   if (t.fees.curatorShareBps + t.fees.platformShareBps !== 10_000) p.push("Fee split must add up to 100%.");
-  if (t.fees.managementBps < 0 || t.fees.managementBps > 500) p.push("Management fee must be 0–5% a year.");
-  if (t.fees.performanceBps < 0 || t.fees.performanceBps > 3000) p.push("Performance fee must be 0–30%.");
+  if (t.fees.managementBps !== CONTRACT_V1.managementBps) p.push("The vault contract (v1) charges no management fee: set it to 0.");
+  if (t.fees.performanceBps < 0 || t.fees.performanceBps > CONTRACT_V1.maxPerformanceBps) p.push("Performance fee must be 0–30%.");
   if (t.virtualShares <= 0n || t.virtualAssets <= 0n) p.push("A virtual share offset is required (protects the first depositor).");
+  else if (t.virtualShares !== CONTRACT_V1.virtualShares || t.virtualAssets !== CONTRACT_V1.virtualAssets) p.push(`The share offset must match the vault contract (${CONTRACT_V1.virtualShares} virtual shares, ${CONTRACT_V1.virtualAssets} virtual asset).`);
+  if (t.shareDecimals !== CONTRACT_V1.shareDecimals) p.push(`Vault shares have ${CONTRACT_V1.shareDecimals} decimals.`);
+  if (t.admin.feeRecipients.curator !== t.admin.curator) p.push("The contract mints the curator's fee shares to the curator account itself.");
+  if (t.redemption.liquidityTargetBps < 0 || t.redemption.liquidityTargetBps > 10_000) p.push("Liquidity target must be 0–100%.");
   if (t.capacityRaw <= 0n) p.push("Capacity must be above zero.");
   if (t.maxPositionBps <= 0 || t.maxPositionBps > 10_000) p.push("Position concentration cap must be 1–100%.");
   if (t.redemption.noticeSeconds < 0) p.push("Notice period can't be negative.");
@@ -146,44 +165,55 @@ export interface FeeCrystallization {
   basis: string;
 }
 
-/** Shares that dilute holders by exactly `feeRaw` of value at `navRaw` (rounded down: fees never over-mint). */
-function feeShares(feeRaw: bigint, navRaw: bigint, shares: bigint, t: VaultTerms) {
-  const rest = navRaw - feeRaw + t.virtualAssets;
-  return rest <= 0n ? 0n : (feeRaw * (shares + t.virtualShares)) / rest;
-}
-
 /**
- * Accrues the management fee since lastFeeAt and the performance fee above the high-water mark, mints both as
- * shares to the curator and platform, and moves the mark up only to the post-fee price (never down: losses are
- * recovered before a performance fee is charged again). No-op with no shares or for a single-depositor vault.
+ * The contract's performance fee (math.rs fee_shares): profit = floor((price − mark) × shares / 1e18) at the floored
+ * price, fee = ceil(profit × bps / 10,000) in assets, minted as ceil(fee × (shares + virtual) / (NAV − fee + virtual))
+ * shares. Curator gets floor(minted × curator bps / 10,000), the platform the rest. The mark moves only up, to the
+ * post-fee price rounded up; losses below it are recovered before any new fee. No management fee (contract v1).
  */
 export function crystallize(t: VaultTerms, book: VaultBook, navRaw: bigint, now: number): { book: VaultBook; record: FeeCrystallization | null } {
-  if (book.totalShares === 0n || now <= book.lastFeeAt) return { book: { ...book, lastFeeAt: Math.max(now, book.lastFeeAt) }, record: null };
-  const dt = BigInt(Math.floor((now - book.lastFeeAt) / 1000));
-  const ppsBefore = ppsE18(t, navRaw, book.totalShares);
-  const mgmt = (navRaw * BigInt(t.fees.managementBps) * dt) / (BPS * YEAR_SECONDS);
-  const ppsAfterMgmt = ppsE18(t, navRaw - mgmt, book.totalShares);
-  const gainPerShare = ppsAfterMgmt > book.hwmE18 ? ppsAfterMgmt - book.hwmE18 : 0n;
-  const perf = (gainPerShare * book.totalShares * BigInt(t.fees.performanceBps)) / (BPS * E18);
-  const fee = mgmt + perf;
-  if (fee === 0n) return { book: { ...book, lastFeeAt: now }, record: null };
-  const minted = feeShares(fee, navRaw, book.totalShares, t);
+  const at = Math.max(now, book.lastFeeAt);
+  const supply = book.totalShares;
+  const ppsBefore = ppsE18(t, navRaw, supply);
+  if (supply === 0n || t.fees.performanceBps === 0 || ppsBefore <= book.hwmE18) return { book: { ...book, lastFeeAt: at }, record: null };
+  const profit = ((ppsBefore - book.hwmE18) * supply) / E18;
+  const fee = ceilDiv(profit * BigInt(t.fees.performanceBps), BPS);
+  if (fee >= navRaw) throw new Error("FEE_EXCEEDS_NAV");
+  const minted = ceilDiv(fee * (supply + t.virtualShares), navRaw - fee + t.virtualAssets);
+  if (minted === 0n) return { book: { ...book, lastFeeAt: at }, record: null };
   const toCurator = (minted * BigInt(t.fees.curatorShareBps)) / BPS;
   const toPlatform = minted - toCurator;
   const holders = { ...book.holders };
-  holders[t.admin.feeRecipients.curator] = (holders[t.admin.feeRecipients.curator] ?? 0n) + toCurator;
+  holders[t.admin.curator] = (holders[t.admin.curator] ?? 0n) + toCurator;
   holders[t.admin.feeRecipients.platform] = (holders[t.admin.feeRecipients.platform] ?? 0n) + toPlatform;
-  const total = book.totalShares + minted;
+  const total = supply + minted;
   const ppsAfter = ppsE18(t, navRaw, total);
-  const hwm = ppsAfter > book.hwmE18 ? ppsAfter : book.hwmE18;
+  const mark = ppsCeilE18(t, navRaw, total);
+  const hwm = mark > book.hwmE18 ? mark : book.hwmE18;
   return {
-    book: { ...book, holders, totalShares: total, hwmE18: hwm, lastFeeAt: now },
+    book: { ...book, holders, totalShares: total, hwmE18: hwm, lastFeeAt: at },
     record: {
-      at: now, navBeforeRaw: navRaw.toString(), ppsBeforeE18: ppsBefore.toString(), hwmBeforeE18: book.hwmE18.toString(), managementFeeRaw: mgmt.toString(), performanceFeeRaw: perf.toString(),
+      at, navBeforeRaw: navRaw.toString(), ppsBeforeE18: ppsBefore.toString(), hwmBeforeE18: book.hwmE18.toString(), managementFeeRaw: "0", performanceFeeRaw: fee.toString(),
       sharesMinted: { curator: toCurator.toString(), platform: toPlatform.toString() }, ppsAfterE18: ppsAfter.toString(), hwmAfterE18: hwm.toString(),
-      basis: `management ${t.fees.managementBps} bps/yr for ${dt}s; performance ${t.fees.performanceBps} bps above the high-water mark`,
+      basis: `performance ${t.fees.performanceBps} bps on the gain above the high-water mark, crystallized on the owner's NAV report`,
     },
   };
+}
+
+export interface NavReportInput {
+  positions: VaultBook["positions"];
+  liabilitiesRaw: bigint | null;
+  /** Who attested the values. Only an owner report crystallizes fees (contract rule); a curator report can't mint its own fee. */
+  by: "owner" | "curator";
+  at: number;
+}
+/** Applies a trusted NAV report (positions and liabilities) and, for an owner report, crystallizes the performance fee. */
+export function applyReport(t: VaultTerms, book: VaultBook, r: NavReportInput): { book: VaultBook; fees: FeeCrystallization | null } {
+  const b: VaultBook = { ...book, positions: r.positions, liabilitiesRaw: r.liabilitiesRaw, reportByOwner: r.by === "owner" };
+  const n = nav(b);
+  if (r.by !== "owner" || n.navRaw === null) return { book: b, fees: null };
+  const c = crystallize(t, b, n.navRaw, r.at);
+  return { book: c.book, fees: c.record };
 }
 
 /* ───────────── requests and settlement ───────────── */
@@ -203,7 +233,7 @@ export function requestRedemption(t: VaultTerms, book: VaultBook, r: VaultReques
 }
 
 export interface SettlementEvent {
-  kind: "deposit_settled" | "deposit_refused" | "redemption_settled" | "redemption_partial";
+  kind: "deposit_settled" | "deposit_waiting" | "redemption_settled" | "redemption_waiting";
   requestId: string;
   account: string;
   assetsRaw: string;
@@ -212,61 +242,73 @@ export interface SettlementEvent {
   reason?: string;
 }
 
+/** Cancelling a queued deposit turns it into a fixed refundable claim (outside NAV); no admin can redirect it. */
+export function cancelDeposit(book: VaultBook, id: string, account: string): VaultBook {
+  const d = book.pendingDeposits.find((x) => x.id === id);
+  if (!d || d.account !== account) throw new Error("Only the depositor can cancel a queued deposit.");
+  return { ...book, pendingDeposits: book.pendingDeposits.filter((x) => x !== d), claimable: { ...book.claimable, [account]: (book.claimable[account] ?? 0n) + d.amountRaw } };
+}
+
 /**
- * One settlement epoch at a single price: fees crystallize first, then deposits mint at the post-fee price
- * (refused above capacity or a depositor cap), then due redemptions pay FIFO from idle USDC (partially when
- * liquidity is short; the rest stays queued). Refuses entirely when NAV is unknown.
+ * Settles what the contract would settle now (settle_deposit per request, then process_redemptions), without
+ * crystallizing fees (only an owner NAV report does). Deposits mint at the current price; one that would exceed
+ * capacity or the depositor cap, mint zero or below its minimum, or arrive above the high-water mark while the
+ * current report is a curator's, waits in the queue (its owner may cancel it).
+ * Redemptions settle whole requests strictly first in, first out: the head waits for its notice, its minimum and
+ * enough idle USDC, and nothing behind it skips ahead. Settled redemptions become fixed claims. Refuses when NAV is
+ * unknown.
  */
 export function settle(t: VaultTerms, book0: VaultBook, now: number): { book: VaultBook; events: SettlementEvent[]; fees: FeeCrystallization | null; reasons: string[] } {
   const n = nav(book0);
   if (n.navRaw === null) return { book: book0, events: [], fees: null, reasons: ["NAV_UNKNOWN", ...n.reasons] };
-  const { book: b1, record } = crystallize(t, book0, n.navRaw, now);
-  const book = { ...b1, holders: { ...b1.holders }, claimable: { ...b1.claimable } };
+  const book = { ...book0, holders: { ...book0.holders }, claimable: { ...book0.claimable } };
   let navRaw = n.navRaw;
-  const price = ppsE18(t, navRaw, book.totalShares);
   const events: SettlementEvent[] = [];
-  const left: VaultRequest[] = [];
+  const waiting: VaultRequest[] = [];
   for (const d of book.pendingDeposits) {
-    const room = t.capacityRaw - navRaw;
-    const mine = assetsFor(t, book.holders[d.account] ?? 0n, navRaw, book.totalShares);
-    const capped = t.perDepositorCapRaw !== null && mine + d.amountRaw > t.perDepositorCapRaw;
-    if (d.amountRaw > room || capped || book.shutdown) {
-      events.push({ kind: "deposit_refused", requestId: d.id, account: d.account, assetsRaw: d.amountRaw.toString(), sharesRaw: "0", ppsE18: price.toString(), reason: book.shutdown ? "VAULT_SHUTDOWN" : capped ? "DEPOSITOR_CAP" : "CAPACITY" });
-      book.claimable[d.account] = (book.claimable[d.account] ?? 0n) + d.amountRaw; // returned, claimable
-      continue;
-    }
+    const price = ppsE18(t, navRaw, book.totalShares).toString();
     const s = sharesFor(t, d.amountRaw, navRaw, book.totalShares);
-    if (s === 0n) {
-      events.push({ kind: "deposit_refused", requestId: d.id, account: d.account, assetsRaw: d.amountRaw.toString(), sharesRaw: "0", ppsE18: price.toString(), reason: "TOO_SMALL" });
-      book.claimable[d.account] = (book.claimable[d.account] ?? 0n) + d.amountRaw;
+    const held = assetsFor(t, book.holders[d.account] ?? 0n, navRaw, book.totalShares);
+    const reason =
+      book.paused || book.shutdown ? "DEPOSITS_PAUSED"
+      : book.totalShares > 0n && navRaw === 0n ? "ZERO_NAV_WITH_SHARES"
+      // Above the mark on a curator's report the depositor would later pay a fee on gains made before it joined.
+      : t.fees.performanceBps > 0 && !book.reportByOwner && ppsE18(t, navRaw, book.totalShares) > book.hwmE18 ? "OWNER_REPORT_REQUIRED_ABOVE_HWM"
+      : navRaw + d.amountRaw > t.capacityRaw ? "CAPACITY"
+      : s === 0n || s < (d.minOutputRaw ?? 0n) ? "MIN_SHARES"
+      : t.perDepositorCapRaw !== null && held + d.amountRaw > t.perDepositorCapRaw ? "DEPOSITOR_CAP"
+      : null;
+    if (reason) {
+      events.push({ kind: "deposit_waiting", requestId: d.id, account: d.account, assetsRaw: d.amountRaw.toString(), sharesRaw: "0", ppsE18: price, reason });
+      waiting.push(d);
       continue;
     }
     book.holders[d.account] = (book.holders[d.account] ?? 0n) + s;
     book.totalShares += s;
     book.idleRaw += d.amountRaw;
     navRaw += d.amountRaw;
-    events.push({ kind: "deposit_settled", requestId: d.id, account: d.account, assetsRaw: d.amountRaw.toString(), sharesRaw: s.toString(), ppsE18: price.toString() });
+    events.push({ kind: "deposit_settled", requestId: d.id, account: d.account, assetsRaw: d.amountRaw.toString(), sharesRaw: s.toString(), ppsE18: price });
   }
-  book.pendingDeposits = [];
-  for (const r of book.pendingRedemptions) {
-    if ((r.notBefore ?? 0) > now || book.idleRaw === 0n) {
-      left.push(r);
-      continue;
+  book.pendingDeposits = waiting;
+  let i = 0;
+  for (; i < book.pendingRedemptions.length; i++) {
+    const r = book.pendingRedemptions[i];
+    const price = ppsE18(t, navRaw, book.totalShares).toString();
+    const assets = assetsFor(t, r.amountRaw, navRaw, book.totalShares);
+    const reason = (r.notBefore ?? 0) > now ? "NOTICE" : assets === 0n ? "ZERO_ASSETS" : assets < (r.minOutputRaw ?? 0n) ? "BELOW_MINIMUM" : assets > book.idleRaw ? "LIQUIDITY" : null;
+    if (reason) {
+      events.push({ kind: "redemption_waiting", requestId: r.id, account: r.account, assetsRaw: assets.toString(), sharesRaw: r.amountRaw.toString(), ppsE18: price, reason });
+      break;
     }
-    const want = assetsFor(t, r.amountRaw, navRaw, book.totalShares);
-    const pay = want <= book.idleRaw ? want : book.idleRaw;
-    // Burn only the shares the paid assets correspond to (rounded up, so the remaining holders never lose).
-    const burn = pay === want ? r.amountRaw : ceilDiv(pay * (book.totalShares + t.virtualShares), navRaw + t.virtualAssets);
-    book.holders[r.account] -= burn;
-    book.totalShares -= burn;
-    book.idleRaw -= pay;
-    navRaw -= pay;
-    book.claimable[r.account] = (book.claimable[r.account] ?? 0n) + pay;
-    events.push({ kind: pay === want ? "redemption_settled" : "redemption_partial", requestId: r.id, account: r.account, assetsRaw: pay.toString(), sharesRaw: burn.toString(), ppsE18: price.toString() });
-    if (burn < r.amountRaw) left.push({ ...r, amountRaw: r.amountRaw - burn });
+    book.holders[r.account] -= r.amountRaw;
+    book.totalShares -= r.amountRaw;
+    book.idleRaw -= assets;
+    navRaw -= assets;
+    book.claimable[r.account] = (book.claimable[r.account] ?? 0n) + assets;
+    events.push({ kind: "redemption_settled", requestId: r.id, account: r.account, assetsRaw: assets.toString(), sharesRaw: r.amountRaw.toString(), ppsE18: price });
   }
-  book.pendingRedemptions = left;
-  return { book, events, fees: record, reasons: [] };
+  book.pendingRedemptions = book.pendingRedemptions.slice(i);
+  return { book, events, fees: null, reasons: [] };
 }
 
 /* ───────────── holder view, monitoring, ledger ───────────── */
@@ -310,7 +352,7 @@ export function holderView(t: VaultTerms, book: VaultBook, account: string, now:
       noticeSeconds: t.redemption.noticeSeconds,
       idleRaw: book.idleRaw.toString(),
       liquidityShortRaw: queuedAssets === null ? null : (queuedAssets > book.idleRaw ? queuedAssets - book.idleRaw : 0n).toString(),
-      terms: `Redemptions settle at the next epoch after ${Math.round(t.redemption.noticeSeconds / 3600)} h notice, first in, first out, paid from USDC the vault holds; when it holds too little, the rest stays queued until the curator exits positions.${book.shutdown ? " The vault is shutting down: positions are being exited and every holder is paid pro rata." : ""}`,
+      terms: `A redemption escrows your shares and settles after ${t.redemption.noticeSeconds >= 3600 ? Math.round(t.redemption.noticeSeconds / 3600) + " h" : t.redemption.noticeSeconds + " s"} notice, whole requests only, first in, first out, at the price when it settles; it then becomes a fixed USDC claim you collect with claim. It is paid only from USDC the vault holds: when that is too little for the request at the head of the queue, every request behind it waits until the curator exits positions or the head is cancelled or its minimum lowered.${book.shutdown ? " The vault is shut down: no new deposits, positions are being exited and exits stay open." : ""}`,
     },
   };
 }
@@ -346,7 +388,7 @@ export function vaultAlerts(t: VaultTerms, book: VaultBook, now: number): VaultA
 export function holderLedger(t: VaultTerms, account: string, events: SettlementEvent[], fees: FeeCrystallization | null, holderSharesBefore: bigint, totalSharesBefore: bigint, at: string): LedgerEntry[] {
   const out: LedgerEntry[] = [];
   const common = { at, asset: "USDC", decimals: 6, liabilityEffectUsdcRaw: "0", realized: true, status: "confirmed" as const, txHashes: [], source: "live" as const, positionId: "vault:" + t.id };
-  for (const e of events.filter((x) => x.account === account && x.kind !== "deposit_refused"))
+  for (const e of events.filter((x) => x.account === account && (x.kind === "deposit_settled" || x.kind === "redemption_settled")))
     out.push({
       ...common, id: `vault:${t.id}:${e.requestId}:${e.kind}`, kind: e.kind === "deposit_settled" ? "position_entry" : "position_exit", amountRaw: e.assetsRaw, usdcRaw: e.assetsRaw, netWorthEffectUsdcRaw: "0",
       basis: `${e.kind === "deposit_settled" ? "Deposited into" : "Redeemed from"} vault ${t.id}: ${e.sharesRaw} shares at ${e.ppsE18} assets per 1e18 shares`,

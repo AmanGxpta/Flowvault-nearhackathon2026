@@ -31,9 +31,11 @@ export interface VaultReadiness {
   redemption: boolean;
   evidence: Partial<Record<"custody" | "shares" | "nav" | "fees" | "redemption", string>>;
 }
+/** Contract methods custody depends on (docs/handoff/vault-interface.md v1); a deployed vault's wasm must export all. */
+export const CUSTODY_METHODS = ["ft_on_transfer", "settle_deposit", "cancel_deposit", "request_redeem", "cancel_redemption", "process_redemptions", "claim", "ft_balance_of", "ft_transfer", "get_config", "get_nav", "get_account", "get_requests", "report_nav", "set_status"];
 /** The off-chain side (lib/flowvault/vault.ts) provides share accounting, NAV, fee crystallization and the queue. */
 export function readiness(contract: { interfaceDoc: string; verifiedMethods: string[] } | null): VaultReadiness {
-  const need = ["deposit", "request_redeem", "settle", "claim", "share_balance_of", "vault_config", "pause", "shutdown"];
+  const need = CUSTODY_METHODS;
   const custody = !!contract && need.every((m) => contract.verifiedMethods.includes(m));
   return {
     custody, shares: true, nav: true, fees: true, redemption: true,
@@ -113,14 +115,47 @@ export function specProblems(spec: StrategySpec | null, terms: Record<string, un
   return p;
 }
 
-/** Compares the deployed contract's configuration view with the reviewed terms; any difference blocks opening. */
-export function configMismatches(terms: VaultTerms, view: Record<string, unknown>): string[] {
-  const want: Record<string, string> = {
-    mode: terms.mode, capacity_raw: terms.capacityRaw.toString(), management_bps: String(terms.fees.managementBps), performance_bps: String(terms.fees.performanceBps),
-    curator_share_bps: String(terms.fees.curatorShareBps), notice_seconds: String(terms.redemption.noticeSeconds), owner: terms.admin.owner, curator: terms.admin.curator,
-    virtual_shares: terms.virtualShares.toString(), virtual_assets: terms.virtualAssets.toString(),
+export const NEAR_USDC_ID = "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
+/** The contract's get_config keys and units for each reviewed term (null = JSON null; notice is in milliseconds). */
+export function expectedConfig(terms: VaultTerms): Record<string, string | null> {
+  return {
+    single_depositor: terms.mode === "single_depositor" ? terms.admin.owner : null,
+    owner_id: terms.admin.owner,
+    curator_id: terms.admin.curator,
+    platform_id: terms.admin.feeRecipients.platform,
+    asset_id: NEAR_USDC_ID,
+    asset_decimals: String(terms.assetDecimals),
+    share_decimals: String(terms.shareDecimals),
+    management_fee_bps: String(terms.fees.managementBps),
+    performance_fee_bps: String(terms.fees.performanceBps),
+    curator_fee_share_bps: String(terms.fees.curatorShareBps),
+    capacity_raw: terms.capacityRaw.toString(),
+    // The contract always has a per-depositor cap; "no cap" in the terms means a cap equal to capacity.
+    per_depositor_cap_raw: (terms.perDepositorCapRaw ?? terms.capacityRaw).toString(),
+    max_position_bps: String(terms.maxPositionBps),
+    liquidity_target_bps: String(terms.redemption.liquidityTargetBps),
+    redemption_notice_ms: String(terms.redemption.noticeSeconds * 1000),
+    virtual_shares_raw: terms.virtualShares.toString(),
+    virtual_assets_raw: terms.virtualAssets.toString(),
   };
-  return Object.entries(want).filter(([k, v]) => String(view[k] ?? "") !== v).map(([k, v]) => `${k}: deployed ${String(view[k] ?? "missing")}, reviewed ${v}`);
+}
+const shown = (v: unknown) => (v === undefined ? "missing" : v === null ? "null" : String(v));
+/** Compares the deployed contract's get_config view with the reviewed terms; any difference blocks opening. */
+export function configMismatches(terms: VaultTerms, view: Record<string, unknown>): string[] {
+  return Object.entries(expectedConfig(terms))
+    .filter(([k, v]) => (v === null ? view[k] !== null : view[k] === undefined || view[k] === null || String(view[k]) !== v))
+    .map(([k, v]) => `${k}: deployed ${shown(view[k])}, reviewed ${v ?? "null"}`);
+}
+
+/** The wasm must export every custody method, and every actual full-access key must be disclosed in the config. */
+export function deploymentProblems(d: { configView: Record<string, unknown>; exports: string[]; fullAccessKeys: string[] }): string[] {
+  const p: string[] = [];
+  const missing = CUSTODY_METHODS.filter((m) => !d.exports.includes(m));
+  if (missing.length) p.push(`contract code doesn't export: ${missing.join(", ")}`);
+  const disclosed = Array.isArray(d.configView.disclosed_upgrade_keys) ? (d.configView.disclosed_upgrade_keys as unknown[]).map(String) : [];
+  const hidden = d.fullAccessKeys.filter((k) => !disclosed.includes(k));
+  if (hidden.length) p.push(`undisclosed full-access keys (they can replace the code): ${hidden.join(", ")}`);
+  return p;
 }
 
 export interface AdvanceInput {
@@ -132,7 +167,8 @@ export interface AdvanceInput {
   readiness?: VaultReadiness;
   /** Already verified NEP-413 signature (account-proof.ts) over authorizationMessage(). */
   authorization?: VaultListing["authorization"];
-  deployment?: { contractId: string; configView: Record<string, unknown> };
+  /** Read from NEAR RPC: get_config, the deployed wasm's exported methods, and the account's actual full-access keys. */
+  deployment?: { contractId: string; configView: Record<string, unknown>; exports: string[]; fullAccessKeys: string[] };
   book?: { totalShares: bigint; pendingRedemptions: number; settledDeposits: number };
   note?: string;
 }
@@ -165,7 +201,11 @@ export function advance(l0: VaultListing, to: VaultStage, i: AdvanceInput, now =
   }
   if (to === "deployed") {
     if (!i.deployment) throw new Error("Deployment evidence is required (the owner deploys).");
-    const mismatches = configMismatches(termsFromJson(l.terms!), i.deployment.configView);
+    const d = i.deployment;
+    const mismatches = [
+      ...configMismatches(termsFromJson(l.terms!), d.configView),
+      ...deploymentProblems(d),
+    ];
     l.deployment = { contractId: i.deployment.contractId, verifiedAt: now, mismatches };
     if (mismatches.length) throw new Error("The deployed vault doesn't match the reviewed terms: " + mismatches.join("; "));
   }

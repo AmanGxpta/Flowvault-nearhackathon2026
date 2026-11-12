@@ -1,0 +1,194 @@
+{
+ "config": {
+  "owner_id": "owner.near",
+  "curator_id": "curator.near",
+  "platform_id": "platform.near",
+  "asset_id": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+  "asset_decimals": 6,
+  "share_name": "Vault USDC",
+  "share_symbol": "fvUSDC",
+  "performance_fee_bps": 1500,
+  "curator_fee_share_bps": 7000,
+  "capacity_raw": "1000000000000",
+  "per_depositor_cap_raw": "100000000000",
+  "max_position_bps": 8000,
+  "max_protocol_bps": 8000,
+  "max_chain_bps": 10000,
+  "liquidity_target_bps": 2000,
+  "redemption_notice_ms": "0",
+  "max_nav_age_ms": "180000",
+  "single_depositor": null,
+  "rhea_id": "contract.main.burrow.near",
+  "rhea_extra_decimals": 12,
+  "disclosed_upgrade_keys": [],
+  "share_decimals": 18,
+  "virtual_assets_raw": "1",
+  "virtual_shares_raw": "1000000000000",
+  "management_fee_bps": 0,
+  "queue_storage_yocto": "20000000000000000000000",
+  "upgrade_authority": "owner + contract full-access keys (owner-disclosed; verify actual keys through NEAR RPC)",
+  "nav_authority": "Owner/curator trusted valuation attestation; not independent proof of external assets. Only owner reports crystallize performance fees."
+ },
+ "nav": {
+  "nav_raw": "45575001",
+  "gross_assets_raw": "45575001",
+  "external_liabilities_raw": "0",
+  "liquid_assets_raw": "41575001",
+  "pending_deposits_raw": "0",
+  "claimable_raw": "5425000",
+  "total_shares": "42004602731976402676",
+  "queued_shares": "0",
+  "pps_e18": "1085000",
+  "hwm_e18": "1085001",
+  "report": {
+   "sequence": "2",
+   "observed_at_ms": "1002",
+   "positions": [
+    {
+     "id": "rhea",
+     "protocol": "contract.main.burrow.near",
+     "chain": "near",
+     "assets_raw": "4000000",
+     "liabilities_raw": "0"
+    }
+   ],
+   "evidence_hash": "finalized-evidence-2"
+  },
+  "report_by_owner": true,
+  "report_required": false,
+  "status": "running",
+  "busy": null,
+  "reasons": []
+ },
+ "requests": [
+  {
+   "id": "0",
+   "owner_id": "alice.near",
+   "kind": "deposit",
+   "amount_raw": "30000000",
+   "min_output_raw": "1",
+   "created_at_ms": "1101",
+   "not_before_ms": "1101",
+   "status": "settled",
+   "claimable_raw": "0",
+   "shares_minted_raw": "30000000000000000000",
+   "shares_burned_raw": "0"
+  },
+  {
+   "id": "1",
+   "owner_id": "bob.near",
+   "kind": "deposit",
+   "amount_raw": "10000000",
+   "min_output_raw": "1",
+   "created_at_ms": "1101",
+   "not_before_ms": "1101",
+   "status": "settled",
+   "claimable_raw": "0",
+   "shares_minted_raw": "10000000000000000000",
+   "shares_burned_raw": "0"
+  },
+  {
+   "id": "2",
+   "owner_id": "carol.near",
+   "kind": "deposit",
+   "amount_raw": "7000001",
+   "min_output_raw": "1",
+   "created_at_ms": "1101",
+   "not_before_ms": "1101",
+   "status": "settled",
+   "claimable_raw": "0",
+   "shares_minted_raw": "6451612945592405088",
+   "shares_burned_raw": "0"
+  },
+  {
+   "id": "3",
+   "owner_id": "bob.near",
+   "kind": "redemption",
+   "amount_raw": "5000000000000000000",
+   "min_output_raw": "0",
+   "created_at_ms": "1200",
+   "not_before_ms": "1200",
+   "status": "claimable",
+   "claimable_raw": "5425000",
+   "shares_minted_raw": "0",
+   "shares_burned_raw": "5000000000000000000"
+  }
+ ],
+ "accounts": [
+  {
+   "id": "alice.near",
+   "view": {
+    "account_id": "alice.near",
+    "shares": "30000000000000000000",
+    "queued_shares_raw": "0",
+    "pending_deposits_raw": "0",
+    "claimable_raw": "0",
+    "request_storage_credit_yocto": "0"
+   },
+   "ft": "30000000000000000000"
+  },
+  {
+   "id": "bob.near",
+   "view": {
+    "account_id": "bob.near",
+    "shares": "5000000000000000000",
+    "queued_shares_raw": "0",
+    "pending_deposits_raw": "0",
+    "claimable_raw": "5425000",
+    "request_storage_credit_yocto": "0"
+   },
+   "ft": "5000000000000000000"
+  },
+  {
+   "id": "carol.near",
+   "view": {
+    "account_id": "carol.near",
+    "shares": "6451612945592405088",
+    "queued_shares_raw": "0",
+    "pending_deposits_raw": "0",
+    "claimable_raw": "0",
+    "request_storage_credit_yocto": "0"
+   },
+   "ft": "6451612945592405088"
+  },
+  {
+   "id": "curator.near",
+   "view": {
+    "account_id": "curator.near",
+    "shares": "387092850468798311",
+    "queued_shares_raw": "0",
+    "pending_deposits_raw": "0",
+    "claimable_raw": "0",
+    "request_storage_credit_yocto": "0"
+   },
+   "ft": "387092850468798311"
+  },
+  {
+   "id": "platform.near",
+   "view": {
+    "account_id": "platform.near",
+    "shares": "165896935915199277",
+    "queued_shares_raw": "0",
+    "pending_deposits_raw": "0",
+    "claimable_raw": "0",
+    "request_storage_credit_yocto": "0"
+   },
+   "ft": "165896935915199277"
+  }
+ ],
+ "fee_log": [
+  "EVENT_JSON:{\"standard\":\"flowvault_vault\",\"version\":\"1.0.0\",\"event\":\"fee_minted\",\"data\":[{\"fee_assets_raw\":\"599994\",\"curator_shares_raw\":\"387092850468798311\",\"platform_shares_raw\":\"165896935915199277\",\"hwm_e18\":\"1085001\"}]}"
+ ],
+ "redeem_id": "3",
+ "operator": {
+  "policy": null,
+  "version": "0",
+  "usage_day": "0",
+  "daily_used_raw": "0",
+  "cumulative_used_raw": "0",
+  "deployed_raw": "0",
+  "deployed_basis": "gross_resolved_supply_raw_without_withdrawal_recredit",
+  "liquid_sync_required": false
+ },
+ "_source": "Generated 13 Nov 2026 by running contracts/vault at ab8c866 (interface v1.3, owner-only fee crystallization) in near-sdk unit-test context: alice 30 USDC, bob 10 USDC, owner report +4 USDC Rhea (fee mint), carol 7.000001 USDC, bob redeems half. Regenerate if the contract changes."
+}
