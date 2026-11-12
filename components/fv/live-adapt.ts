@@ -269,9 +269,9 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
     out.acctLabel = "Example workspace";
     out.netLabel = "Fictional data · no wallet · read only";
     out.netColor = "#8A5F25";
-    out.wsRole = "Judge mode · nothing can be approved";
+    out.wsRole = "Demo Mode · nothing can be approved";
     out.acctMenuNote = "Fictional example account · it has no wallet and nothing here can be signed";
-    out.acctItems = [{ label: "Leave Judge mode", color: "#3F6B3C", onClick: () => { self.setState({ menu: null }); self.setWorkspace("live"); } }];
+    out.acctItems = [{ label: "Leave Demo Mode", color: "#3F6B3C", onClick: () => { self.setState({ menu: null }); self.setWorkspace("live"); } }];
     out.acc = "fictional example account";
     out.resetLabel = s.resetting ? "Resetting…" : "Reset example";
     out.resetExample = () => {
@@ -281,7 +281,7 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
         .then(() => { self.setState({ resetting: false }); self.toastMsg("Example workspace reset to its fictional seed, with dates relative to today."); })
         .catch((e: Error) => { self.setState({ resetting: false }); self.toastMsg(e.message); });
     };
-    out.connectFirst = () => self.toastMsg("The example workspace has no wallet. Leave Judge mode to connect yours.");
+    out.connectFirst = () => self.toastMsg("The example workspace has no wallet. Leave Demo Mode to connect yours.");
     out.walletApprove = () => self.toastMsg("Example workspace: nothing can be signed.");
   }
   out.planLabel = "Plan v" + s.version;

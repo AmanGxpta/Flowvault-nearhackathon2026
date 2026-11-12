@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from "react";
 import { tc } from "./theme";
+import { ThemeToggle } from "./ThemeToggle";
 import { OverviewView } from "./screens/OverviewView";
 import { CalendarView } from "./screens/CalendarView";
 import { StrategiesView } from "./screens/StrategiesView";
@@ -174,8 +175,9 @@ export function Shell({ v }: { v: any }) {
                             color: "var(--fvc-A0A79A)",
                             fontFamily: "'DM Mono',monospace",
                           }}
+                          aria-hidden
                         >
-                          {g.n}
+                          •
                         </span>
                         <span
                           style={{
@@ -325,8 +327,9 @@ export function Shell({ v }: { v: any }) {
                     background: "var(--fvb-6E9A5E)",
                   }}
                 ></span>
-                <span style={{ display: v.lblDisp, flex: "1" }}>Hackathon build · Nov 14</span>
+                <span style={{ display: v.lblDisp, flex: "1", minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Hackathon build · Nov 14</span>
                 <span style={{ display: v.lblDisp, color: "var(--fvc-8A9285)" }}>v0.3</span>
+                <ThemeToggle size={28} />
               </div>
             </aside>
           </>
@@ -390,6 +393,7 @@ export function Shell({ v }: { v: any }) {
                 >
                   {v.wsName} ▾
                 </button>
+                <ThemeToggle size={36} />
               </div>
               <nav aria-label="Main" style={{ display: "flex", gap: "6px", overflowX: "auto", padding: "0 12px 10px" }}>
                 {(v.navFlat || []).map((n: any, i_n_0: number) => (
@@ -494,7 +498,7 @@ export function Shell({ v }: { v: any }) {
                   EXAMPLE WORKSPACE
                 </span>
                 <span style={{ flex: "1", minWidth: "200px" }}>
-                  Judge mode. Separate example data and no wallet. Nothing here touches your personal workspace.
+                  Demo Mode. Separate example data and no wallet. Nothing here touches your personal workspace.
                 </span>
                 <button
                   type="button"
@@ -639,7 +643,7 @@ export function Shell({ v }: { v: any }) {
                   }}
                 ></span>
               </span>
-              Judge mode
+              Demo Mode
             </button>
             <div
               title={v.netLabel}

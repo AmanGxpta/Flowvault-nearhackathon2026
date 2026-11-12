@@ -93,7 +93,7 @@ export class DesignApp extends Component<any, any> {
     ACC = ws === 'demo' ? DEMO_ACC : LIVE_ACC;
     this.setState({ ...this.wsData(ws), ws, judge: ws === 'demo', modal: null, replay: null, menu: null, pay: null, op: null, polTest: null, creditRes: null, cmpRes: null, stakeQuote: null, asst: { ...s.asst, msgs: [] } });
     if (this.props.actions) this.liveCall(() => this.props.actions.setMode(ws));
-    this.toastMsg(ws === 'demo' ? 'Judge mode: the fictional example workspace. Your personal workspace is untouched.' : 'Back in your personal workspace.');
+    this.toastMsg(ws === 'demo' ? 'Demo Mode: the fictional example workspace. Your personal workspace is untouched.' : 'Back in your personal workspace.');
   }
   startReplay(fn: any) { const s = this.state; const snap: any = {}; WS_KEYS.forEach((k: any) => { snap[k] = clone(s[k]); }); this.setState({ replay: snap }, fn); }
   endModal(extra: any = {}) {
@@ -812,10 +812,10 @@ export class DesignApp extends Component<any, any> {
       toggleJudge: () => self.setWorkspace(judge ? 'live' : 'demo'), leaveDemo: () => self.setWorkspace('live'), replayOn: !!s.replay, acc: ACC, todayLabel: dlabel(iso(0)), goPolicy: () => self.go('policy'), judgeBg: judge ? '#F6EBDD' : '#fff', judgeBorder: judge ? '#EBD9BF' : '#E3E6DB', judgeTrack: judge ? '#8A5F25' : '#CDD3C2', judgeKnob: judge ? '14px' : '2px',
       netLabel: judge ? 'Example workspace · no wallet' : s.connected ? 'Mainnet · wallet connected' : 'Not connected · read only', netColor: judge ? '#8A5F25' : s.connected ? '#4E7A4A' : '#8A9285',
       navFlat: NG.flatMap((g: any) => g.items).filter((n: any) => n.isLink), isMobile: L === 'm', notMobile: L !== 'm', shellDir: L === 'm' ? 'column' : 'row', asideW: L === 'r' ? '76px' : '264px', asidePadX: L === 'r' ? '12px' : '18px', lblDisp: L === 'r' ? 'none' : 'block', fullFlex: L === 'r' ? 'none' : 'flex', railDivider: L === 'r' ? 'block' : 'none', navJustify: L === 'r' ? 'center' : 'flex-start', padX: L === 'm' ? '16px' : L === 'r' ? '24px' : '44px', padTop: L === 'm' ? '24px' : '40px',
-      wsName: s.ws === 'demo' ? 'Example workspace' : 'Personal workspace', wsRole: s.ws === 'demo' ? 'Judge mode · no wallet' : s.connected ? 'Owner · can approve' : 'Read only · not connected', wsInitial: s.ws === 'demo' ? 'E' : 'P', wsInitBg: s.ws === 'demo' ? '#F6EBDD' : '#E2EAD6',
+      wsName: s.ws === 'demo' ? 'Example workspace' : 'Personal workspace', wsRole: s.ws === 'demo' ? 'Demo Mode · no wallet' : s.connected ? 'Owner · can approve' : 'Read only · not connected', wsInitial: s.ws === 'demo' ? 'E' : 'P', wsInitBg: s.ws === 'demo' ? '#F6EBDD' : '#E2EAD6',
       wsMenuOpen: s.menu === 'ws', wsMenuLeft: L === 'm' ? '16px' : L === 'r' ? '84px' : '18px', wsMenuTop: L === 'm' ? '58px' : L === 'r' ? '64px' : '136px',
       toggleWsMenu: () => { self.remember(); self.setState({ menu: s.menu === 'ws' ? null : 'ws' }); }, closeMenu: () => self.closeMenu(),
-      wsItems: [['live', 'Personal workspace', 'Your wallet · live reads'], ['demo', 'Example workspace', 'Judge mode · example data, no wallet']].map(([id, t, d]: any) => ({ t, d, check: s.ws === id ? '✓' : '', onClick: () => self.setWorkspace(id) })),
+      wsItems: [['live', 'Personal workspace', 'Your wallet · live reads'], ['demo', 'Example workspace', 'Demo Mode · example data, no wallet']].map(([id, t, d]: any) => ({ t, d, check: s.ws === id ? '✓' : '', onClick: () => self.setWorkspace(id) })),
       acctLabel: s.ws === 'demo' ? DEMO_ACC : s.connected ? LIVE_ACC : 'Connect wallet', acctMenuOpen: s.menu === 'acct', toggleAcct: () => { self.remember(); self.setState({ menu: s.menu === 'acct' ? null : 'acct' }); },
       acctMenuNote: s.ws === 'demo' ? 'Example account · no real wallet' : s.connected ? 'Signed in on NEAR mainnet' : 'No wallet connected',
       acctItems: s.ws === 'demo' ? [{ label: 'Copy example address', color: '#1E2A22', onClick: () => { try { navigator.clipboard.writeText(DEMO_ACC); } catch (e) {} self.closeMenu(); self.toastMsg('Copied ' + DEMO_ACC + '. It is an example account.'); } }, { label: 'Leave example workspace', color: '#1E2A22', onClick: () => self.setWorkspace('live') }]
