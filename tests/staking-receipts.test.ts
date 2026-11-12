@@ -171,3 +171,16 @@ test("Staking proof rejects identity, payload, duplicate and malformed economic 
   );
   assert.equal(verifyLinearReceipts(r, q, owner).state, "pending");
 });
+
+test("shared journal verification dispatch cannot confirm a staking attempt without economic proof", async () => {
+  const { verifyOutcome } = await import("../lib/flowvault/execution.ts");
+  const { q, r } = fixture("stake");
+  const attempt: any = {
+    kind: "stake",
+    accountId: owner,
+    preparation: { kind: "stake", quote: q, transactions: q.transactions },
+  };
+  assert.equal(verifyOutcome(r, attempt).state, "confirmed");
+  r.receipts_outcome[0].outcome.logs = [];
+  assert.equal(verifyOutcome(r, attempt).state, "pending");
+});

@@ -232,6 +232,8 @@ test("staking and every outgoing journal kind mutually fence in-flight handoffs,
       "withdraw_unstaked",
       "borrow",
       "repay",
+      "native_stake",
+      "future_journal_kind",
     ]) {
       db.prepare("UPDATE wallet_attempts SET payload=? WHERE id=?").run(
         JSON.stringify({

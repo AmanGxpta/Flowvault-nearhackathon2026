@@ -1,4 +1,5 @@
 "use client";
+import { assertStakingWalletHandoff } from "./staking-wallet-guard";
 import type { PayPreparation } from "./payments";
 import type { WithdrawPreparation } from "./withdraw";
 import { useEffect, useState } from "react";
@@ -157,4 +158,29 @@ async function signPrepared(preparation: WalletPreparation) {
       ),
     })),
   });
+}
+
+/** Owner-only: journal authorization must succeed first; previews cannot reach the signer. */
+export async function signStaking(
+  preparation: import("./staking-execution").StakingPreparation & {
+    attemptId: string;
+  },
+) {
+  const r = await fetch("/api/staking/handoff", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ preparation }),
+  });
+  const body = (await r.json()) as {
+    attempt?: import("./execution").WalletAttempt;
+    error?: string;
+  };
+  if (!r.ok || !body.attempt)
+    throw new Error(
+      body.error ??
+        "Read and consume the authorized LiNEAR handoff before signing.",
+    );
+  assertStakingWalletHandoff(preparation, body.attempt);
+  return signPrepared(preparation);
 }

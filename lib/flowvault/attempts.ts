@@ -119,7 +119,7 @@ export async function saveAttempt(
       "UPDATE wallet_attempts SET payload=? WHERE id=? AND session_id=? AND payload=?" +
         (outgoing ? stakingHandoffGuard(OUTGOING_HANDOFF_GUARD) : "") +
         (payHandoff ? PAY_HANDOFF_GUARD : "") +
-        (handoff ? WORKSPACE_HANDOFF_GUARD : ""),
+        (authorizationRevision !== undefined ? WORKSPACE_HANDOFF_GUARD : ""),
     )
     .bind(
       JSON.stringify(attempt),
@@ -135,7 +135,9 @@ export async function saveAttempt(
             attempt.id,
           ]
         : []),
-      ...(handoff ? [sessionId, authorizationRevision] : []),
+      ...(authorizationRevision !== undefined
+        ? [sessionId, authorizationRevision]
+        : []),
     )
     .run();
   if (r.meta.changes !== 1)

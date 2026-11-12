@@ -42,6 +42,8 @@ export type WalletPreparation =
   | StakingPreparation
   | NativeStakingPreparation;
 export interface WalletAttempt {
+  /** LiNEAR client wallet handoff consumed once, durably before requesting the wallet. */
+  stakingWalletHandoffAt?: string;
   timeline?: ExecutionStep[];
   retainedSignedQuote?: unknown;
   verificationEvidence?: unknown[];

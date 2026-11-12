@@ -154,7 +154,8 @@ export function verifyLinearReceipts(
       (near > BigInt(quote.nearAmountRaw) ||
         shares < BigInt(quote.sharesRaw!))) ||
     (quote.kind === "unstake" &&
-      (shares > BigInt(quote.sharesRaw!) || near < BigInt(quote.nearAmountRaw)))
+      (shares !== BigInt(quote.sharesRaw!) ||
+        near < BigInt(quote.nearAmountRaw)))
   )
     return { state: "pending" as const, reason: "ECONOMIC_BOUNDS_CHANGED" };
   let unlockEpoch: string | undefined;

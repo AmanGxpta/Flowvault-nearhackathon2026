@@ -1,3 +1,4 @@
+import {stakingStepAdapter} from "./adapters/staking-step";
 // Step-adapter registry and plan executor (owner: Interface). The executor ONLY orchestrates: every signed
 // step is prepared, authorized, signed and verified by an existing journal. The built-in adapters call the
 // existing journal route handlers in-process, so their guards (policy, fences, idempotency, handoff locks,
@@ -53,6 +54,7 @@ const ROUTES: Record<string, () => Promise<{ POST?: Handler; GET?: Handler }>> =
   transactions: () => import("@/app/api/transactions/route"),
   payments: () => import("@/app/api/payments/route"),
   payment: () => import("@/app/api/payments/[id]/route"),
+  staking: () => import("@/app/api/staking/actions/route"), // Positions P1c
   lending: () => import("@/app/api/lending/route"), // Engines E2
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- journal responses are route JSON
@@ -337,4 +339,4 @@ registerStepAdapter(payDepositAdapter);
 registerStepAdapter(verifyPayoutAdapter);
 registerStepAdapter(waitAdapter);
 registerStepAdapter(rheaCreditAdapter); // Engines: collateral_add, borrow, repay, collateral_release
-// Positions: registerStepAdapter(stakingStepAdapter); // stake, unstake, withdraw_unstaked
+registerStepAdapter(stakingStepAdapter); // Positions: LiNEAR stake, unstake, withdraw_unstaked
