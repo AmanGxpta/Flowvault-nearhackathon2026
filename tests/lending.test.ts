@@ -260,3 +260,22 @@ test("Borrowing is a payment funding choice with interest to the due date, never
   assert.equal(ok.eligible, true);
   assert.equal(borrowFundingChoice(cap, 5000_000000n, "2026-12-12", true, now).eligible, false);
 });
+
+test("venue contract preserves Rhea payload, capacity and funding behavior", async () => {
+  const { rheaLendingVenue } = await import("../lib/flowvault/lending-venue-rhea.ts");
+  const st = state(); const pol = policy();
+  const req = { kind: "borrow" as const, asset: "USDC", amountRaw: 100_000000n, approveNewDebt: true };
+  assert.deepEqual(rheaLendingVenue.prepareOperation(st, pol, req, now), prepareLending(st, pol, req, now));
+  assert.deepEqual(rheaLendingVenue.fundingChoice(st, pol, 100_000000n, "2026-11-20", true, now), borrowFundingChoice(borrowCapacity(st, pol, now), 100_000000n, "2026-11-20", true, now));
+  const s = rheaLendingVenue.inspect(st, pol, now);
+  assert.equal(s.stressedCapacityUsdcRaw, borrowCapacity(st, pol, now).capacityUsdcRaw);
+  assert.equal(s.accountId, st.accountId);
+  assert.equal(s.positions.find(p => p.asset.id === LINEAR)?.collateralRaw, (1000n * E24).toString());
+  assert.equal(s.debtUsdcRaw, "0");
+  assert.ok(BigInt(s.currentCapacityUsdcRaw!) >= BigInt(s.stressedCapacityUsdcRaw!));
+  assert.deepEqual(rheaLendingVenue.monitor(s), []);
+  assert.doesNotThrow(() => JSON.stringify(s));
+  const stale = rheaLendingVenue.inspect(st, pol, now + 200000);
+  assert.equal(stale.stressedCapacityUsdcRaw, null);
+  assert.equal(rheaLendingVenue.monitor(stale)[0].severity, "warn");
+});

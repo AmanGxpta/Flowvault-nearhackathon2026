@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any -- adapters between untyped design view-model data and API JSON */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { LendingVenues } from "./LendingVenues";
 import { PlanDock } from "./PlanDock";
 import { DesignApp } from "./design-logic";
 import { api, clearLegacyEvm, emptySnapshot, getScope, loadSnapshot, setScope, takeLegacyEvm, type LiveSnapshot, type Scope } from "./live";
@@ -367,6 +368,7 @@ export function FlowVaultRoot() {
   return (
     <>
       <DesignApp live={snap} actions={actions} />
+      <LendingVenues key={snap.scope + ":venues"} scope={snap.scope} />
       <PlanDock key={snap.scope} scope={snap.scope} sign={actions.sign} canSign={snap.scope === "personal" && !!snap.walletAccount && snap.walletAccount === snap.workspace?.accountId} />
     </>
   );

@@ -1,3 +1,4 @@
+import { rheaLendingVenue } from "@/lib/flowvault/lending-venue-rhea";
 import { z } from "zod";
 import { session, mutation, json, failure } from "@/lib/flowvault/store";
 import { checkPolicy } from "@/lib/flowvault/policy-store";
@@ -32,6 +33,7 @@ export async function GET(r: Request) {
         collateralFamily: Object.keys(COLLATERAL_FAMILY),
         executable: capacity.capacityUsdcRaw !== null,
         capacity: serializeLending(capacity),
+        venueSnapshot: rheaLendingVenue.inspect(state, s.workspace.policy),
         state: serializeLending({ ...state, prices: state.prices ? { basis: state.prices.basis, freshUntil: state.prices.freshUntil } : null }),
         revision: s.revision,
       },

@@ -269,3 +269,48 @@ export interface Alert {
 }
 
 export type { Obligation, Position };
+
+/* Phase 4 — venue-local credit (Stream B). A snapshot is ONE account × chain × pool;
+ * neither capacity nor health may be combined across snapshots. */
+export interface VenueAsset {
+  id: string;
+  symbol: string;
+  decimals: number;
+  chain: Chain;
+}
+export interface LendingVenueSnapshot {
+  venueId: string;
+  accountId: string;
+  source: Source;
+  capturedAt: string;
+  freshUntil: string;
+  collateralAssets: VenueAsset[];
+  debtAssets: VenueAsset[];
+  positions: { asset: VenueAsset; suppliedRaw: string; collateralRaw: string; liabilityRaw: string; walletRaw: string | null; valueUsdcRaw: string | null }[];
+  pricesAndRisk: { assetId: string; priceUsdcRaw: string | null; ltvBps: number | null; liquidationThresholdBps: number | null; liquidationBonusBps: number | null }[];
+  liquidityUsdcRaw: string | null;
+  currentCapacityUsdcRaw: string | null;
+  stressedCapacityUsdcRaw: string | null;
+  debtUsdcRaw: string | null;
+  health: string | null;
+  stressedHealth: string | null;
+  minHealth: string;
+  borrowApr: string | null;
+  interest: { variable: boolean; accruedIncludedInLiability: boolean; basis: string };
+  liquidation: { exposed: boolean; thresholdHealth: string; reasons: string[] };
+  exit: { instant: boolean; reasons: string[] };
+  reasons: string[];
+}
+export interface LendingVenueAdapter<State, Request, Preparation, Policy> {
+  id: string;
+  chain: Chain;
+  supportedCollateral: readonly VenueAsset[];
+  supportedDebt: readonly VenueAsset[];
+  read(accountId: string): Promise<State>;
+  inspect(state: State, policy?: Policy, now?: number): LendingVenueSnapshot;
+  /** Build only. Caller MUST persist in a fenced journal before owner wallet handoff. */
+  prepareOperation(state: State, policy: Policy | undefined, request: Request, now?: number): Preparation;
+  fundingChoice(state: State, policy: Policy | undefined, amountUsdcRaw: bigint, dueDate: string | null, approved: boolean, now?: number): FundingChoice;
+  /** Monitoring observes risk; it cannot authorize or send operations. */
+  monitor(snapshot: LendingVenueSnapshot): { severity: "info" | "warn" | "urgent"; reason: string }[];
+}

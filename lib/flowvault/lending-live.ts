@@ -1,5 +1,6 @@
 // Engines E2: finalized public reads for Rhea credit. Read-only; no keys or send capability. Used at
 // preview, at prepare, and again at wallet handoff (authorize re-prepares and compares payloads).
+import { rheaLendingVenue } from "./lending-venue-rhea.ts";
 import { rpc, view, validAccount } from "./near.ts";
 import { readPriceEvidence } from "./valuation-evidence.ts";
 import { COLLATERAL_FAMILY, LENDING_USDC, RHEA, prepareLending, borrowCapacity } from "./lending.ts";
@@ -125,7 +126,7 @@ export async function lendingPreview(accountId: string, policy?: Policy) {
 
 /** Re-reads everything and rebuilds the payload (prepare and wallet handoff both use this). */
 export async function freshLending(accountId: string, policy: Policy | undefined, req: PrepareRequest) {
-  return prepareLending(await readLendingState(accountId), policy, req);
+  return rheaLendingVenue.prepareOperation(await rheaLendingVenue.read(accountId), policy, req);
 }
 
 /** JSON-safe view of the state (bigints as strings). */
