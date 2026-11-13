@@ -31,6 +31,7 @@ const SEV: Record<Alert["severity"], [string, string, string]> = {
   info: ["FOR YOUR RECORD", "var(--fvb-EEF3F9)", "var(--fvc-3F5A7A)"],
 };
 const KIND: Record<Alert["kind"], string> = {
+  vault_attention: "Vault",
   obligation_window: "Payment window",
   exit_threatens_payment: "Exit timing",
   reserve_shortfall: "Reserve",

@@ -1,3 +1,4 @@
+import {monitoredHolderVaults} from "./holder-vault-alerts-live";
 // Monitoring service (owner: Interface). Gathers the SAME engine outputs the screens use (capitalView via
 // the valuation inputs, the Rhea credit capacity, plans and journals), runs the deterministic conditions in
 // monitor.ts, persists deduplicated alerts and, where possible, proposes a plan (createdBy "monitor").
@@ -65,15 +66,17 @@ async function gatherCredit(w: Workspace): Promise<CreditInput | undefined> {
 export async function monitorInput(s: MonitorSession, now = Date.now()) {
   const w = s.workspace;
   const skipped: RunSummary["skipped"] = [];
-  const [cap, market, credit, stored] = await Promise.allSettled([
+  const [cap, market, credit, stored, vaults] = await Promise.allSettled([
     within(gatherCapital(s), READ_MS, "Capital read"),
     within(w.mode === "demo" ? Promise.resolve(demoMarket()) : liveMarket(), READ_MS, "Market read"),
     within(gatherCredit(w), READ_MS, "Rhea credit read"),
     planList(s.id),
+    within(monitoredHolderVaults(s.id,w),READ_MS,"Vault read"),
   ]);
   if (cap.status === "rejected") skipped.push({ group: "capital", reason: msg(cap.reason) });
   if (credit.status === "rejected") skipped.push({ group: "credit", reason: msg(credit.reason) });
   if (stored.status === "rejected") skipped.push({ group: "plans", reason: msg(stored.reason) });
+  if(vaults.status==="rejected")skipped.push({group:"vaults",reason:msg(vaults.reason)});
   const ctx = planContext(w, s.revision);
   const plans: ActionPlan[] | null =
     stored.status === "fulfilled"
@@ -95,6 +98,7 @@ export async function monitorInput(s: MonitorSession, now = Date.now()) {
   }
   const input: MonitorInput = {
     now,
+    vaults: vaults.status==="fulfilled"?vaults.value:null,
     source: w.mode,
     obligations: w.obligations,
     leadDays: w.mandate.leadDays ?? 3,

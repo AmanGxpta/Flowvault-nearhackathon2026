@@ -270,7 +270,8 @@ export interface Alert {
     | "reserve_shortfall"
     | "operation_attention"
     | "debt_risk"
-    | "recurrence_due";
+    | "recurrence_due"
+    | "vault_attention";
   severity: "info" | "warn" | "urgent";
   message: string;
   obligationId?: string;

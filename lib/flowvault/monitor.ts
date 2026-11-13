@@ -1,3 +1,4 @@
+import {holderVaultAlerts,type MonitoredVault} from "./holder-vault-alerts.ts";
 // Monitoring conditions (owner: Interface). Pure and deterministic: given the SAME engine outputs every
 // screen uses (Engines' capitalView/reserveFor, the Rhea credit capacity, plans and journals) it returns
 // the alerts that hold right now. It never computes a balance, a reservation or a health figure itself,
@@ -7,8 +8,9 @@ import type { Obligation, Position, Source } from "./types.ts";
 import { seriesOf } from "./recurrence.ts";
 
 const DAY = 86400000;
-export type AlertGroup = "dates" | "capital" | "credit" | "plans";
+export type AlertGroup = "dates" | "capital" | "credit" | "plans" | "vaults";
 export const GROUP: Record<Alert["kind"], AlertGroup> = {
+  vault_attention: "vaults",
   obligation_window: "dates",
   recurrence_due: "dates",
   reserve_shortfall: "capital",
@@ -54,6 +56,7 @@ export interface CreditInput {
   minHealth: string;
 }
 export interface MonitorInput {
+  vaults?: MonitoredVault[] | null;
   now: number;
   source: Source;
   obligations: Obligation[];
@@ -335,5 +338,7 @@ export function detect(input: MonitorInput): { candidates: Candidate[]; evaluate
     }
   }
 
+  if(input.vaults){evaluated.push("vaults");out.push(...holderVaultAlerts(input.vaults,input.now));}
+  else if(input.vaults===null)skipped.push("vaults");
   return { candidates: out, evaluated, skipped };
 }
