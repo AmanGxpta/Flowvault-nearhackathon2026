@@ -19,3 +19,10 @@ test("out-of-order books and malformed frames preserve the last good read",()=>{
   assert.equal(mergeMarketFrame(m,{channel:"l2Book",data:"broken"}),m);
   const next=mergeMarketFrame(m,{channel:"allMids",data:{mids:{ETH:"2050"}}});assert.equal(next.mid,"2050");assert.equal(next.bids[0].price,"2000");
 });
+test("trades drive the last price and the forming candle; books refresh the mid",()=>{
+  let m=mergeMarketFrame(empty(),{channel:"candle",data:{s:"ETH",i:"15m",t:1000,o:2000,h:2100,l:1900,c:2010,v:3}},100);
+  m=mergeMarketFrame(m,{channel:"trades",data:[{coin:"ETH",side:"B",px:"2015.5",sz:"1",time:1500,tid:1},{coin:"BTC",side:"A",px:"9",sz:"1",time:1600,tid:2}]});
+  assert.deepEqual(m.last,{price:"2015.5",side:"buy",time:1500});assert.equal(m.candles.at(-1)!.close,2015.5);assert.ok(m.candles.at(-1)!.high>=2015.5);
+  assert.equal(mergeMarketFrame(m,{channel:"trades",data:[{coin:"ETH",side:"A",px:"1",sz:"1",time:1400,tid:3}]}),m,"older prints are ignored");
+  const b=mergeMarketFrame(m,{channel:"l2Book",data:{coin:"ETH",time:5000,levels:[[{px:"2014",sz:"1",n:1}],[{px:"2016",sz:"1",n:1}]]}});assert.equal(b.mid,"2015");
+});

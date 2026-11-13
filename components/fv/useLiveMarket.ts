@@ -24,7 +24,7 @@ export function useLiveMarket(coin: string, interval: string, refresh: number) {
         if (current) {
           const stream = current;
           const book = (stream.bookAt ?? 0) > (data.bookAt ?? 0) ? stream : data;
-          current = { ...data, bids: book.bids, asks: book.asks, bookAt: book.bookAt,
+          current = { ...data, bids: book.bids, asks: book.asks, bookAt: book.bookAt, last: stream.last ?? null,
             mid: Date.now()-lastFrame < 15000 ? stream.mid ?? data.mid : data.mid,
             candles: [...new Map([...data.candles, ...(Date.now()-lastFrame < 15000 ? stream.candles : [])].map(c => [c.time,c])).values()].sort((a,b)=>a.time-b.time).slice(-96) };
         } else current = data;
@@ -41,7 +41,7 @@ export function useLiveMarket(coin: string, interval: string, refresh: number) {
       ws.onopen = () => {
         if (!active || socket !== ws) return;
         failures = 0; openedAt = Date.now();
-        for (const subscription of [{ type: "allMids" }, { type: "l2Book", coin }, { type: "candle", coin, interval }]) ws.send(JSON.stringify({ method: "subscribe", subscription }));
+        for (const subscription of [{ type: "allMids" }, { type: "l2Book", coin }, { type: "candle", coin, interval }, { type: "trades", coin }]) ws.send(JSON.stringify({ method: "subscribe", subscription }));
       };
       ws.onmessage = event => {
         if (!active || document.hidden || socket !== ws) return;

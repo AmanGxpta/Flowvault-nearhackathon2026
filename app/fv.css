@@ -621,3 +621,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 @media(prefers-reduced-motion:reduce){.fv-askpanel,.fv-askpanel *{animation:none!important;transition:none!important}}
 .fv-chat-moved{font-size:12px;color:var(--fvc-8A9285);padding:6px 10px;border:1px dashed var(--fvb-E3E6DB);border-radius:10px}.fv-chat-moved:empty{display:none}
 .fv-chat-card-lend .fv-review-inline.is-form>h2{display:none}
+/* Live price tick: the last trade flashes green (buy) or red (sell). */
+.fv-tick.is-buy{animation:fv-tick-up .9s ease-out}.fv-tick.is-sell{animation:fv-tick-down .9s ease-out}
+@keyframes fv-tick-up{0%{color:#3f9b6b}100%{color:inherit}}@keyframes fv-tick-down{0%{color:#c0574a}100%{color:inherit}}
+@media(prefers-reduced-motion:reduce){.fv-tick{animation:none!important}}
