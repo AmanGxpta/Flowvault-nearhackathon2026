@@ -9,15 +9,14 @@ import { TradePanel } from "./TradePanel";
 import { fmtUsd, fmtPct, ago } from "./swap-format";
 import type { Candle } from "@/lib/flowvault/market-display";
 
-interface Detail { row: ScreenRow; candles: Candle[]; signals: { label: string; tone: "good" | "warn" | "bad"; detail: string }[]; swapId: string | null; pairs: number; source: string; capturedAt: string }
+export interface Detail { row: ScreenRow; candles: Candle[]; signals: { label: string; tone: "good" | "warn" | "bad"; detail: string }[]; swapId: string | null; pairs: number; source: string; capturedAt: string }
 interface PolicyView { policy?: { protectedAssets: string[]; venues: string[]; assetRows?: { asset: string; uses: string[] }[]; perActionCap: string; dailyCap: string; version: number } }
 const priceFmt = (n: number) => n >= 1 ? n.toLocaleString("en-US", { maximumFractionDigits: 4 }) : n.toPrecision(4);
 
-export function TokenPage({ token, back, buy, watched, toggleWatch, share }: { token: { chain: string; address: string; symbol?: string }; back: () => void; buy: (swapId: string) => void; watched: boolean; toggleWatch: () => void; share?: (card: { title: string; subtitle: string; lines: string[] }) => void }) {
-  const [tf, setTf] = useState("1h");
+/** Live token detail (DexScreener pair stats, GeckoTerminal candles, safety signals), re-read every 15 seconds
+ * while the page is visible and on return to the tab. Shared by the token page and the Trade screen's spot view. */
+export function useTokenDetail(token: { chain: string; address: string }, tf: string) {
   const [detail, setDetail] = useState<Detail | null>(null), [error, setError] = useState("");
-  const [policy, setPolicy] = useState<PolicyView["policy"] | null>(null);
-  // Live: price, stats and candles re-read every 15 seconds while the page is visible (and on return to the tab).
   useEffect(() => {
     let abort = new AbortController();
     const read = () => {
@@ -32,6 +31,13 @@ export function TokenPage({ token, back, buy, watched, toggleWatch, share }: { t
     document.addEventListener("visibilitychange", read);
     return () => { abort.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", read); };
   }, [token.chain, token.address, tf]);
+  return { detail, error };
+}
+
+export function TokenPage({ token, back, buy, watched, toggleWatch, share }: { token: { chain: string; address: string; symbol?: string }; back: () => void; buy: (swapId: string) => void; watched: boolean; toggleWatch: () => void; share?: (card: { title: string; subtitle: string; lines: string[] }) => void }) {
+  const [tf, setTf] = useState("1h");
+  const { detail, error } = useTokenDetail(token, tf);
+  const [policy, setPolicy] = useState<PolicyView["policy"] | null>(null);
   useEffect(() => { api("/api/policy", undefined, "GET").then((b: PolicyView) => setPolicy(b.policy ?? null)).catch(() => setPolicy(null)); }, []);
 
   const r = detail?.row;

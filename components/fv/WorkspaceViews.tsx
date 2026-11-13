@@ -1,5 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any -- presentation adapters consume the existing view model */
+import { PairPicker, type Pair } from "./PairPicker";
+import { SpotDesk } from "./SpotDesk";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import { ArrowDownUp, ArrowUpRight, BarChart3, Wallet, Search, SlidersHorizontal, Plus, X, ChevronRight, Send, Sprout, Activity, Share2, Download, Landmark, TrendingUp } from "lucide-react";
 import { MarketPanel } from "./MarketPanel";
@@ -122,11 +124,23 @@ export function BorrowDesk({ v }: { v: any }) {
   const [tab, setTab] = useState("Markets");
   return <><PageHeading title="Borrow" description="Understand your collateral, manage debt and review the cost of borrowing." /><Tabs values={["Markets", "Simulate"]} value={tab} set={setTab} />{tab === "Markets" ? <><RatesTable mode="borrow" usdcNote="Borrow against your collateral · simulate first" onUsdc={() => setTab("Simulate")} /><LendingVenues key={v.lendingScope} scope={v.lendingScope} accounts={v.lendingAccounts} hideSales /></> : <div className="fv-legacy-content"><CreditView v={v} /></div>}</>;
 }
+/** ?pair=perp:ETH or ?pair=spot:<chain>:<address>:<symbol> keeps the chosen market across reloads and links. */
+function readPair(): Pair {
+  const raw = typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("pair");
+  const [kind, a, b, c] = (raw ?? "").split(":");
+  if (kind === "spot" && a && b) return { kind: "spot", chain: a, address: b, symbol: c || "Token" };
+  return { kind: "perp", coin: kind === "perp" && /^[A-Za-z0-9]{1,20}$/.test(a ?? "") ? a : "ETH" };
+}
 export function TradeDesk({ v }: { v: any }) {
-  const [market,setMarket] = useState('ETH');
+  const [pair, setPairState] = useState<Pair>(readPair);
+  const setPair = (p: Pair) => { setPairState(p); const u = new URL(window.location.href); u.searchParams.set("pair", p.kind === "perp" ? "perp:" + p.coin : `spot:${p.chain}:${p.address}:${p.symbol}`); history.replaceState(null, "", u); };
+  const market = pair.kind === "perp" ? pair.coin : "ETH";
+  const setMarket = (coin: string) => setPair({ kind: "perp", coin });
+  const picker = <PairPicker value={pair} onChange={setPair} />;
   const [shared,setShared] = useState<{title:string;subtitle:string;lines:string[];amount?:string} | null>(null);
   const [draft,setDraft] = useState<OrderDraft | null>(null);
-  return <><PageHeading title="Trade" description="Manage your Hyperliquid positions and orders." action={<Button onClick={v.goPolicy}><SlidersHorizontal size={16} /> Trading permissions</Button>} />{v.judge && <p className="fv-notice">The chart shows public mainnet market data. Example mode cannot place orders.</p>}<div className="fv-trade-layout"><MarketPanel initialCoin={market} onCoin={setMarket}/><OrderTicket coin={market} scope={v.lendingScope} example={!!v.judge} onDraft={setDraft}/></div><div id="fv-perps-review"><PerpsCard key={v.lendingScope} scope={v.lendingScope} onNavigate={v.navigate} onShare={setShared} selectedMarket={market} onMarket={setMarket} draft={draft} /></div>{shared && <ShareCard {...shared} example={v.judge} close={() => setShared(null)} />}</>;
+  if (pair.kind === "spot") return <><PageHeading title="Trade" description="Spot tokens on any supported chain and Hyperliquid perps, checked against your limits." action={<Button onClick={v.goPolicy}><SlidersHorizontal size={16} /> Trading permissions</Button>} /><SpotDesk token={pair} picker={picker} buy={id => { const url = new URL(window.location.href); url.searchParams.set("buy", id); history.replaceState(null, "", url); v.navigate("swap"); }} /></>;
+  return <><PageHeading title="Trade" description="Manage your Hyperliquid positions and orders." action={<Button onClick={v.goPolicy}><SlidersHorizontal size={16} /> Trading permissions</Button>} />{v.judge && <p className="fv-notice">The chart shows public mainnet market data. Example mode cannot place orders.</p>}<div className="fv-trade-layout"><MarketPanel initialCoin={market} onCoin={setMarket} picker={picker}/><OrderTicket coin={market} scope={v.lendingScope} example={!!v.judge} onDraft={setDraft}/></div><div id="fv-perps-review"><PerpsCard key={v.lendingScope} scope={v.lendingScope} onNavigate={v.navigate} onShare={setShared} selectedMarket={market} onMarket={setMarket} draft={draft} /></div>{shared && <ShareCard {...shared} example={v.judge} close={() => setShared(null)} />}</>;
 }
 export function SwapDesk({ v }: { v: any }) {
   const [tab, setTab] = useState("Swap tokens");

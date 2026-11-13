@@ -5,8 +5,9 @@ import { TokenIcon, NetworkLabel } from "./AssetIdentity";
 import { useLiveMarket } from "./useLiveMarket";
 import { RefreshCw } from "lucide-react";
 
-const price = (value: number | string) => Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-export function MarketPanel({ initialCoin = "ETH", onCoin }: { initialCoin?: string; onCoin?: (coin: string) => void }) {
+/** Display precision follows the price, so cheap markets (XRP, kPEPE) keep distinct book levels. */
+const price = (value: number | string) => { const n = Number(value); if (!Number.isFinite(n)) return "—"; if (n > 0 && n < 1) return n.toPrecision(5); const d = n >= 1000 ? 2 : n >= 100 ? 3 : 4; return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: d }); };
+export function MarketPanel({ initialCoin = "ETH", onCoin, picker }: { initialCoin?: string; onCoin?: (coin: string) => void; picker?: React.ReactNode }) {
   const coin = initialCoin;
   const [interval, setInterval] = useState("15m"), [reload, setReload] = useState(0);
   const [mobileTab, setMobileTab] = useState("Chart");
@@ -14,7 +15,7 @@ export function MarketPanel({ initialCoin = "ETH", onCoin }: { initialCoin?: str
   const busy = !data && !error;
   function select(value: string) { onCoin?.(value); }
   return <section className="fv-panel fv-market-panel">
-    <div className="fv-market-heading"><div className="fv-market-choices">{["ETH", "BTC", "NEAR"].map(value => <button key={value} aria-pressed={coin === value} onClick={() => select(value)}><TokenIcon symbol={value} core size={25}/>{value}<small>PERP</small></button>)}</div><NetworkLabel network="hyperliquid"/></div>
+    <div className="fv-market-heading">{picker ?? <div className="fv-market-choices">{["ETH", "BTC", "NEAR"].map(value => <button key={value} aria-pressed={coin === value} onClick={() => select(value)}><TokenIcon symbol={value} core size={25}/>{value}<small>PERP</small></button>)}</div>}<NetworkLabel network="hyperliquid"/></div>
     <div className="fv-price-heading"><strong key={data?.last?.time ?? 0} className={data?.last ? "fv-tick is-" + data.last.side : undefined}>{data?.last ? "$" + price(data.last.price) : data?.mid ? "$" + price(data.mid) : busy ? "Reading market…" : "Price unavailable"}</strong><span>{coin} perpetual · {data?.last ? "last trade" + (data.mid ? " · mid $" + price(data.mid) : "") + " · " : ""}{data?.stale ? "Last good data · reconnecting" : status}</span><button className="fv-icon-button" aria-label="Refresh market data" disabled={busy} onClick={() => setReload(x => x + 1)}><RefreshCw size={16}/></button></div>
     <div className="fv-market-mobile-tabs">{["Chart", "Order book"].map(x => <button key={x} aria-pressed={mobileTab === x} onClick={() => setMobileTab(x)}>{x}</button>)}</div>
     {error && !data && <div className="fv-empty" role="status"><h3>Market data is unavailable</h3><p>{error}</p><button className="fv-button" onClick={() => setReload(x => x + 1)}>Try again</button></div>}

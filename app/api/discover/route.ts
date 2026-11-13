@@ -30,11 +30,17 @@ async function feed(kind: string, chain: string): Promise<MarketRow[]> {
 export async function GET(request: Request) {
   try {
     const q = new URL(request.url).searchParams;
-    const kind = ["trending", "new", "top", "watch"].includes(q.get("feed") ?? "") ? q.get("feed")! : "top";
+    const kind = ["trending", "new", "top", "watch", "search"].includes(q.get("feed") ?? "") ? q.get("feed")! : "top";
     const chain = q.get("chain") ?? "all";
     if (chain !== "all" && !CHAINS[chain]) throw new Error("Unsupported chain.");
     let rows: MarketRow[];
-    if (kind === "watch") {
+    if (kind === "search") {
+      // Pair search (ticker, name or contract) across DexScreener; only chains FlowVault can trade or chart.
+      const term = (q.get("q") ?? "").trim().slice(0, 64);
+      if (term.length < 2) throw new Error("Type at least two characters.");
+      rows = (await snapshot(`discover:search:${term.toLowerCase()}`, async () => bestPairs(await publicJson("https://api.dexscreener.com/latest/dex/search?q=" + encodeURIComponent(term))), old => old))
+        .filter(r => chain === "all" || r.chain === chain).sort((a, b) => (b.liquidityUsd ?? 0) - (a.liquidityUsd ?? 0));
+    } else if (kind === "watch") {
       const ids = (q.get("ids") ?? "").split(",").filter(Boolean).slice(0, 90).map(id => { const i = id.indexOf(":"); return { chain: id.slice(0, i), address: id.slice(i + 1) }; }).filter(t => CHAINS[t.chain] && t.address);
       rows = ids.length ? await pairsFor(ids) : [];
     } else rows = await snapshot(`discover:${kind}:${chain}`, () => feed(kind, chain), old => old);
