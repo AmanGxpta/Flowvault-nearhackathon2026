@@ -41,7 +41,7 @@ impl Vault {
             0,
             "NO_ATTACHED_DEPOSIT"
         );
-        self.idle();
+        self.settled();
         assert_eq!(self.status, Status::Running, "DEPLOYMENT_PAUSED");
         let nav = self.fresh_nav();
         let policy = self.operator.clone().expect("OPERATOR_LIMITS_REQUIRED");
@@ -131,9 +131,9 @@ impl Vault {
             );
             true
         } else {
-            emit(
-                "curator_result",
-                json!({"operation_id":operation_id,"kind":"supply","status":"unknown","reason":"Token resolver did not prove used/refunded amount; operation remains locked"}),
+            self.mark_unresolved(
+                operation_id,
+                "Token resolver did not prove the used/refunded amount",
             );
             false
         }
@@ -144,7 +144,7 @@ impl Vault {
             0,
             "NO_ATTACHED_DEPOSIT"
         );
-        self.idle();
+        self.settled();
         assert!(!self.sync_required, "LIQUID_SYNC_REQUIRED");
         let caller = env::predecessor_account_id();
         if caller != self.config.owner_id && caller != self.config.curator_id {
@@ -200,10 +200,7 @@ impl Vault {
                 true
             }
             Err(_) => {
-                emit(
-                    "curator_result",
-                    json!({"operation_id":operation_id,"kind":"withdraw","status":"unknown","reason":"Unverified external outcome; operation remains locked"}),
-                );
+                self.mark_unresolved(operation_id, "Unverified external withdrawal outcome");
                 false
             }
         }
@@ -263,6 +260,7 @@ impl Vault {
             return false;
         }
         self.liquid = actual - outside;
+        self.last_sync_ms = now();
         self.busy = None;
         self.sync_required = false;
         self.escrow_shortfall = false;
@@ -272,6 +270,40 @@ impl Vault {
             json!({"operation_id":operation_id,"actual_raw":actual.to_string(),"liquid_assets_raw":self.liquid.to_string(),"pending_deposits_raw":self.pending_deposits.to_string(),"claimable_raw":self.claimable.to_string(),"report_required":true}),
         );
         true
+    }
+    /// Owner resolution of an unresolved supply/withdrawal, with evidence. Allowed only after liquid USDC was
+    /// re-read from the token after the operation and the owner reported positions after that read, so the
+    /// books already reflect where the money is. It never resets daily/lifetime budgets or replays anything.
+    /// `evidence_hash` is the owner's attestation (e.g. finalized receipts / Rhea account state), not on-chain proof.
+    #[payable]
+    pub fn resolve_operation(
+        &mut self,
+        operation_id: U64,
+        outcome: OperationOutcome,
+        evidence_hash: String,
+    ) {
+        self.owner();
+        assert_one_yocto();
+        self.idle();
+        assert!(
+            !evidence_hash.is_empty() && evidence_hash.len() <= 128,
+            "EVIDENCE_HASH_REQUIRED"
+        );
+        let u = self.unresolved.clone().expect("NO_UNRESOLVED_OPERATION");
+        assert_eq!(u.operation.id, operation_id, "OPERATION_MISMATCH");
+        assert!(self.exit_nav().is_some(), "SYNC_AND_OWNER_REPORT_REQUIRED");
+        if u.operation.kind == "supply" && outcome == OperationOutcome::Reverted {
+            // The refunded amount is back in liquid (seen by the sync); it is no longer gross deployed supply.
+            self.deployed = self.deployed.saturating_sub(u.operation.amount_raw.0);
+        }
+        self.unresolved = None;
+        // Resolution changes what deposits may price at: require a fresh report under normal rules.
+        self.report_required = true;
+        self.flow();
+        emit(
+            "operation_resolved",
+            json!({"operation_id":operation_id,"kind":u.operation.kind,"amount_raw":u.operation.amount_raw,"outcome":outcome,"evidence_hash":evidence_hash,"deployed_raw":self.deployed.to_string(),"budgets_reset":false}),
+        );
     }
     #[payable]
     pub fn upgrade(&mut self, code: Base64VecU8) -> Promise {

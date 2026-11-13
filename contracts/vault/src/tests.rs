@@ -504,8 +504,10 @@ fn malformed_external_result_never_unlocks_or_invents_refund() {
     assert!(!v.on_supply(op));
     assert_eq!(v.liquid, 90_000_000);
     assert_eq!(v.deployed, 10_000_000);
-    assert!(v.busy.is_some());
+    assert!(v.busy.is_none());
+    assert_eq!(v.unresolved.as_ref().unwrap().operation.id, op);
     assert!(v.get_nav().nav_raw.is_none());
+    assert!(v.get_nav().exit_nav_raw.is_none());
     context("operator.near", 0, 2_001);
     fails(|| {
         let _ = v.curator_supply(U128(1));
@@ -824,4 +826,157 @@ fn deposits_settle_above_hwm_only_after_owner_crystallization() {
         v.get_request(U64(id)).unwrap().status,
         RequestStatus::Settled
     );
+}
+
+fn owner_report_at(v: &mut Vault, seq: u64, external: u128, at: u64) {
+    context("owner.near", 1, at);
+    v.report_nav(NavReport {
+        sequence: U64(seq),
+        observed_at_ms: U64(at),
+        positions: vec![Position {
+            id: "rhea".into(),
+            protocol: RHEA.into(),
+            chain: "near".into(),
+            assets_raw: U128(external),
+            liabilities_raw: U128(0),
+        }],
+        evidence_hash: format!("owner-proof-{seq}"),
+    });
+}
+fn unknown_supply(v: &mut Vault) -> U64 {
+    authorize(v);
+    let op = supply(v, 10_000_000);
+    callback_context(PromiseResult::Successful(b"not-a-quantity".to_vec()));
+    assert!(!v.on_supply(op));
+    op
+}
+fn sync_to(v: &mut Vault, balance: u128, at: u64) {
+    context("curator.near", 1, at);
+    let _ = v.sync_liquid();
+    let sync = v.busy.as_ref().unwrap().id;
+    callback_context(PromiseResult::Successful(
+        serde_json::to_vec(&U128(balance)).unwrap(),
+    ));
+    assert!(v.on_sync_liquid(sync));
+}
+#[test]
+fn unknown_supply_blocks_deposits_and_deployment_but_not_exits_after_sync_and_owner_report() {
+    let mut v = funded();
+    let op = unknown_supply(&mut v);
+    credit(&mut v, "owner.near");
+    context(USDC, 0, 2_001);
+    let r = v.ft_on_transfer(
+        account("owner.near"),
+        U128(5_000_000),
+        "{\"action\":\"deposit\",\"min_shares\":\"1\"}".into(),
+    );
+    assert!(matches!(r, PromiseOrValue::Value(U128(5_000_000))));
+    let id = redemption(&mut v, 10 * E18, 0);
+    context("keeper.near", 0, 2_001);
+    fails(|| {
+        v.process_redemptions(1);
+    });
+    sync_to(&mut v, 90_000_000, 2_001);
+    assert!(v.get_nav().exit_nav_raw.is_none());
+    owner_report_at(&mut v, 2, 10_000_000, 2_002);
+    let nav = v.get_nav();
+    assert!(nav.nav_raw.is_none());
+    assert_eq!(nav.exit_nav_raw.unwrap().0, 100_000_000);
+    assert!(
+        nav.reasons
+            .contains(&"EXTERNAL_OPERATION_UNRESOLVED".to_string())
+    );
+    context(USDC, 0, 2_003);
+    let r = v.ft_on_transfer(
+        account("owner.near"),
+        U128(5_000_000),
+        "{\"action\":\"deposit\",\"min_shares\":\"1\"}".into(),
+    );
+    assert!(matches!(r, PromiseOrValue::Value(U128(5_000_000))));
+    context("operator.near", 0, 2_003);
+    fails(|| {
+        let _ = v.curator_supply(U128(1));
+    });
+    context("keeper.near", 0, 2_003);
+    assert_eq!(v.process_redemptions(1), 1);
+    assert_eq!(v.get_request(id).unwrap().claimable_raw.0, 10_000_000);
+    assert_eq!(v.liquid, 80_000_000);
+    assert_eq!(v.unresolved.as_ref().unwrap().operation.id, op);
+    assert_eq!(v.usage_cumulative, 10_000_000);
+}
+#[test]
+fn curator_report_or_pre_sync_report_cannot_open_exit_nav_or_resolution() {
+    let mut v = funded();
+    let op = unknown_supply(&mut v);
+    context("owner.near", 1, 2_001);
+    fails(|| v.resolve_operation(op, OperationOutcome::Applied, "rhea-state".into()));
+    sync_to(&mut v, 90_000_000, 2_001);
+    report_at(&mut v, 2, 10_000_000, 2_002);
+    assert!(v.get_nav().exit_nav_raw.is_none());
+    context("owner.near", 1, 2_003);
+    fails(|| v.resolve_operation(op, OperationOutcome::Applied, "rhea-state".into()));
+    let _ = redemption(&mut v, 10 * E18, 0);
+    context("keeper.near", 0, 2_003);
+    fails(|| {
+        v.process_redemptions(1);
+    });
+}
+#[test]
+fn resolve_operation_requires_owner_yocto_evidence_and_matching_id() {
+    let mut v = funded();
+    let op = unknown_supply(&mut v);
+    sync_to(&mut v, 90_000_000, 2_001);
+    owner_report_at(&mut v, 2, 10_000_000, 2_002);
+    context("curator.near", 1, 2_003);
+    fails(|| v.resolve_operation(op, OperationOutcome::Applied, "x".into()));
+    context("owner.near", 0, 2_003);
+    fails(|| v.resolve_operation(op, OperationOutcome::Applied, "x".into()));
+    context("owner.near", 1, 2_003);
+    fails(|| v.resolve_operation(op, OperationOutcome::Applied, "".into()));
+    fails(|| v.resolve_operation(op, OperationOutcome::Applied, "x".repeat(129)));
+    fails(|| v.resolve_operation(U64(op.0 + 1), OperationOutcome::Applied, "x".into()));
+    v.resolve_operation(op, OperationOutcome::Applied, "rhea-account-state".into());
+    assert!(v.unresolved.is_none());
+    assert_eq!(v.deployed, 10_000_000);
+    assert!(v.get_nav().nav_raw.is_none());
+    owner_report_at(&mut v, 3, 10_000_000, 2_004);
+    assert_eq!(v.get_nav().nav_raw.unwrap().0, 100_000_000);
+    fails(|| v.resolve_operation(op, OperationOutcome::Applied, "again".into()));
+}
+#[test]
+fn reverted_supply_reduces_deployed_but_never_resets_budgets() {
+    let mut v = funded();
+    let op = unknown_supply(&mut v);
+    sync_to(&mut v, 100_000_000, 2_001);
+    assert_eq!(v.liquid, 100_000_000);
+    owner_report_at(&mut v, 2, 0, 2_002);
+    assert_eq!(v.get_nav().exit_nav_raw.unwrap().0, 100_000_000);
+    context("owner.near", 1, 2_003);
+    v.resolve_operation(op, OperationOutcome::Reverted, "refund-receipt".into());
+    assert_eq!(v.deployed, 0);
+    assert_eq!(v.usage_cumulative, 10_000_000);
+    assert!(
+        get_logs()
+            .iter()
+            .any(|l| l.contains("operation_resolved") && l.contains("\"budgets_reset\":false"))
+    );
+}
+#[test]
+fn unknown_withdraw_becomes_unresolved_and_releases_lock() {
+    let mut v = funded();
+    authorize(&mut v);
+    let op = supply(&mut v, 10_000_000);
+    resolve_supply(&mut v, op, 10_000_000);
+    report_at(&mut v, 2, 10_000_000, 2_001);
+    context("operator.near", 0, 2_003);
+    let _ = v.curator_withdraw(U128(4_000_000));
+    let w = v.busy.as_ref().unwrap().id;
+    callback_context(PromiseResult::Failed);
+    assert!(!v.on_withdraw(w));
+    assert!(v.busy.is_none());
+    assert_eq!(v.unresolved.as_ref().unwrap().operation.kind, "withdraw");
+    context("operator.near", 0, 2_004);
+    fails(|| {
+        let _ = v.curator_withdraw(U128(1));
+    });
 }

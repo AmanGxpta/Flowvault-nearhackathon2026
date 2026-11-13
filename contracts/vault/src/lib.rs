@@ -142,6 +142,21 @@ pub struct Operation {
     pub amount_raw: U128,
     pub flow_nonce: U64,
 }
+#[near(serializers=[borsh,json])]
+#[derive(Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationOutcome {
+    /// The external call took effect (supply sits in Rhea; withdrawal paid out).
+    Applied,
+    /// The external call did not take effect (supply refunded; withdrawal not paid).
+    Reverted,
+}
+#[near(serializers=[borsh,json])]
+#[derive(Clone, Debug)]
+pub struct UnresolvedOperation {
+    pub operation: Operation,
+    pub since_ms: U64,
+}
 #[near(serializers=[json])]
 pub struct NavView {
     pub nav_raw: Option<U128>,
@@ -161,6 +176,11 @@ pub struct NavView {
     pub status: Status,
     pub busy: Option<Operation>,
     pub reasons: Vec<String>,
+    /// Additive (v1.4): an external supply/withdrawal whose outcome is unknown. Deposits and deployment
+    /// stop; exits continue at `exit_nav_raw` once liquid USDC is synced and the owner reports after it.
+    pub unresolved: Option<UnresolvedOperation>,
+    /// Additive (v1.4): NAV used only for redemptions while an operation is unresolved; null otherwise.
+    pub exit_nav_raw: Option<U128>,
 }
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
@@ -185,6 +205,8 @@ pub struct Vault {
     next_id: u64,
     flow_nonce: u64,
     busy: Option<Operation>,
+    unresolved: Option<UnresolvedOperation>,
+    last_sync_ms: u64,
     next_operation: u64,
     operator: Option<OperatorPolicy>,
     usage_day: u64,
@@ -273,6 +295,8 @@ impl Vault {
             next_id: 0,
             flow_nonce: 0,
             busy: None,
+            unresolved: None,
+            last_sync_ms: 0,
             next_operation: 0,
             operator: None,
             usage_day: now() / 86_400_000,
@@ -319,7 +343,7 @@ impl Vault {
         }) {
             reasons.push("NAV_REPORT_STALE_OR_MISSING".into());
         }
-        if self.busy.is_some() {
+        if self.busy.is_some() || self.unresolved.is_some() {
             reasons.push("EXTERNAL_OPERATION_UNRESOLVED".into());
         }
         if liabilities > gross {
@@ -346,6 +370,8 @@ impl Vault {
             report_required: self.report_required,
             status: self.status.clone(),
             busy: self.busy.clone(),
+            unresolved: self.unresolved.clone(),
+            exit_nav_raw: self.exit_nav().map(U128),
             reasons,
         }
     }
@@ -452,7 +478,7 @@ impl Vault {
         // This counter is conservative gross resolved supply, not a portfolio valuation.
         // Returning capital is observed in liquid/NAV; owner-approved policy changes
         // may raise future limits, while daily/lifetime consumption always persists.
-        if g >= l && by_owner {
+        if g >= l && by_owner && self.unresolved.is_none() {
             self.crystallize(g - l);
         }
         emit(
@@ -461,7 +487,7 @@ impl Vault {
         );
     }
     pub fn settle_deposit(&mut self, id: U64) {
-        self.idle();
+        self.settled();
         assert_eq!(self.status, Status::Running, "DEPOSITS_PAUSED");
         let nav = self.fresh_nav();
         assert!(
@@ -524,6 +550,47 @@ impl Vault {
     }
     fn idle(&self) {
         assert!(self.busy.is_none(), "EXTERNAL_OPERATION_UNRESOLVED");
+    }
+    /// Idle AND no unresolved external operation: required for new deposits and deployment.
+    fn settled(&self) {
+        self.idle();
+        assert!(self.unresolved.is_none(), "EXTERNAL_OPERATION_UNRESOLVED");
+    }
+    /// Exit-only NAV while an external operation is unresolved: liquid was re-read from the token after the
+    /// operation began, and the owner reported positions after that read. Redemptions only; never deposits/fees.
+    fn exit_nav(&self) -> Option<u128> {
+        let u = self.unresolved.as_ref()?;
+        let r = self.report.as_ref()?;
+        if self.busy.is_some()
+            || self.sync_required
+            || self.escrow_shortfall
+            || self.report_required
+            || !self.report_by_owner
+            || self.last_sync_ms < u.since_ms.0
+            || r.observed_at_ms.0 < self.last_sync_ms
+            || now() < r.observed_at_ms.0
+            || now() - r.observed_at_ms.0 > self.config.max_nav_age_ms.0
+        {
+            return None;
+        }
+        let (g, l) = self.gross_liabilities();
+        (g >= l).then(|| g - l)
+    }
+    /// Moves the in-flight operation to `unresolved`: the global lock is released, deposits and deployment
+    /// stay blocked, and a liquid sync plus a fresh report are required before anything is priced again.
+    pub(crate) fn mark_unresolved(&mut self, operation_id: U64, reason: &str) {
+        let op = self.busy.take().expect("NO_OPERATION");
+        self.unresolved = Some(UnresolvedOperation {
+            operation: op.clone(),
+            since_ms: U64(now()),
+        });
+        self.report_required = true;
+        self.sync_required = true;
+        self.flow();
+        emit(
+            "curator_result",
+            json!({"operation_id":operation_id,"kind":op.kind,"status":"unknown","reason":reason,"unresolved":true,"deposits_and_deployment":"blocked","exits":"after liquid sync and an owner report"}),
+        );
     }
     fn flow(&mut self) {
         self.flow_nonce = self.flow_nonce.checked_add(1).expect("NONCE_OVERFLOW");
@@ -644,6 +711,7 @@ impl FungibleTokenReceiver for Vault {
             || amount.0 == 0
             || self.status != Status::Running
             || self.busy.is_some()
+            || self.unresolved.is_some()
             || nav.is_none()
             || !permitted
             || self.token.accounts.get(&sender_id).is_none()

@@ -129,7 +129,13 @@ impl Vault {
     pub fn process_redemptions(&mut self, limit: u32) -> u32 {
         self.idle();
         assert!(limit > 0 && limit <= 20, "PROCESS_LIMIT");
-        let mut nav = self.fresh_nav();
+        // While an external operation is unresolved, exits settle at the owner's post-sync exit NAV and only
+        // from verified liquid USDC (the per-request `assets > self.liquid` stop below).
+        let mut nav = if self.unresolved.is_some() {
+            self.exit_nav().expect("EXIT_NAV_UNAVAILABLE")
+        } else {
+            self.fresh_nav()
+        };
         let mut processed = 0;
         for _ in 0..limit {
             let next = self
