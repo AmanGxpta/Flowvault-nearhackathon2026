@@ -20,7 +20,7 @@ import { OpportunitiesView } from "./screens/OpportunitiesView";
 import { ProtectionView } from "./screens/ProtectionView";
 import { LendingVenues } from "./LendingVenues";
 import { CreditView } from "./screens/CreditView";
-import { AssistantView } from "./screens/AssistantView";
+import { AskPanel } from "./chat/AskPanel";
 import { WalletSheetView } from "./screens/WalletSheetView";
 import { AddObligationView } from "./screens/AddObligationView";
 import { SupplyWithdrawView } from "./screens/SupplyWithdrawView";
@@ -959,7 +959,7 @@ export function Shell({ v }: { v: any }) {
           <button aria-expanded={more} onClick={() => setMore(!more)}><MoreHorizontal size={20}/>More</button>
         </nav>
         {more ? <div className="fv-mobile-more"><strong>More from FlowVault</strong>{v.navFlat.filter((n: any) => !['Portfolio','Swap','Trade','Markets'].includes(n.label)).map((n: any) => <button key={n.label} onClick={() => { setMore(false); n.go(); }}>{n.label} →</button>)}</div> : null}
-        {v.asstOpen ? <AssistantView v={v} /> : null}
+        {v.asstOpen ? <AskPanel key={v.lendingScope ?? "personal"} v={v} /> : null}
         {v.modalOpen ? <ModalShellView v={v} /> : null}
         {v.connectModal ? <ConnectWalletModal m={v.connectModal} /> : null}
         {v.convertModal?.open ? <ConvertNearDialog m={v.convertModal} /> : null}

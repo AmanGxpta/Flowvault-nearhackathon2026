@@ -540,3 +540,84 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .fv-rhea-check small{font-weight:400;font-size:12px;color:var(--fvc-6F786B)}
 .fv-rhea-check.is-warn{background:var(--fvb-FFF6E8);border-color:var(--fvb-F6EBDD)}
 .fv-rhea-sheet .fv-confirm-actions .fv-wide-button{margin-bottom:0}
+
+/* ───────────── Ask FlowVault: conversation panel and inline operation cards ───────────── */
+.fv-ask-scrim{position:fixed;inset:0;z-index:39;background:rgba(30,42,34,.10)}
+.fv-ask{position:fixed;top:0;right:0;bottom:0;width:min(560px,100vw);z-index:40;display:flex;flex-direction:column;background:var(--fvb-FFFFFF);border-left:1px solid var(--fvb-E3E6DB);box-shadow:-24px 0 60px rgba(30,42,34,.14);color:var(--fvc-1E2A22);animation:fv-ask-in .22s cubic-bezier(.2,.8,.3,1)}
+@keyframes fv-ask-in{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.fv-ask-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--fvb-EEF0E8)}
+.fv-ask-head>div{flex:1;min-width:0;display:flex;flex-direction:column}.fv-ask-head strong{font-size:17px;letter-spacing:-.01em}.fv-ask-head small{font-size:12px;color:var(--fvc-6F786B);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fv-ask-mark{color:var(--fvc-4E7A4A);flex:none}
+.fv-ask-log{flex:1;overflow:auto;overscroll-behavior:contain;padding:20px 18px 12px;display:flex;flex-direction:column;gap:16px;scroll-padding-bottom:20px}
+.fv-ask-user{align-self:flex-end;max-width:84%;padding:10px 14px;border-radius:16px 16px 4px 16px;background:var(--fvb-2B4233);color:var(--fvc-EAF0E2);font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.fv-ask-ai{display:flex;flex-direction:column;gap:10px;max-width:100%}
+.fv-ask-text{font-size:14px;line-height:1.62;color:var(--fvc-1E2A22);max-width:62ch}.fv-ask-text p{margin:0 0 8px}.fv-ask-text p:last-child{margin:0}.fv-ask-text ul{margin:0 0 8px;padding-left:18px}.fv-ask-text li{margin:3px 0}
+.fv-ask-caret{display:inline-block;width:7px;height:14px;margin-left:2px;vertical-align:-2px;background:var(--fvc-4E7A4A);border-radius:2px;animation:fv-ask-blink 1s steps(2) infinite}
+@keyframes fv-ask-blink{50%{opacity:0}}
+.fv-ask-status{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fvc-6F786B)}
+.fv-ask-dots{display:inline-flex;gap:3px}.fv-ask-dots i{width:5px;height:5px;border-radius:50%;background:var(--fvc-4E7A4A);animation:fv-ask-dot 1.2s infinite ease-in-out}.fv-ask-dots i:nth-child(2){animation-delay:.15s}.fv-ask-dots i:nth-child(3){animation-delay:.3s}
+@keyframes fv-ask-dot{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-2px)}}
+.fv-ask-error{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-radius:10px;background:var(--fvb-F6E3DE);color:var(--fvc-9A3F32);font-size:13px;line-height:1.45}.fv-ask-error .fv-text-button{color:inherit;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.fv-ask-meta{font-size:11.5px;color:var(--fvc-8A9285)}.fv-ask-meta summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:5px}.fv-ask-meta summary::-webkit-details-marker{display:none}.fv-ask-meta p{margin:6px 0 0;line-height:1.5}
+.fv-ask-loading{display:flex;flex-direction:column;gap:10px}.fv-ask-loading span{height:14px;border-radius:7px;background:var(--fvb-EEF0E8);animation:fv-pulse 1.4s infinite}.fv-ask-loading span:nth-child(1){width:70%}.fv-ask-loading span:nth-child(2){width:90%}.fv-ask-loading span:nth-child(3){width:50%}
+.fv-ask-empty{margin:auto 0;display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:8px 2px}
+.fv-ask-empty>svg{color:var(--fvc-4E7A4A)}.fv-ask-empty h2{font-size:22px;letter-spacing:-.02em;margin:4px 0 0}.fv-ask-empty>p{margin:0;font-size:14px;line-height:1.6;color:var(--fvc-6F786B);max-width:46ch}
+.fv-ask-examples{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;margin-top:8px}
+.fv-ask-examples button{text-align:left;padding:12px 14px;border-radius:12px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF);font-size:13.5px;line-height:1.4;color:var(--fvc-1E2A22);cursor:pointer;transition:border-color .15s,background .15s}
+.fv-ask-examples button:hover{border-color:var(--fvb-CDD6C1);background:var(--fvb-F4F7EE)}
+.fv-ask-foot{padding:10px 18px 14px;border-top:1px solid var(--fvb-EEF0E8);display:flex;flex-direction:column;gap:8px}
+.fv-ask-suggest{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}.fv-ask-suggest::-webkit-scrollbar{display:none}
+.fv-ask-suggest button,.fv-chat-chip{flex:none;display:inline-flex;align-items:center;gap:4px;padding:6px 11px;border-radius:999px;border:1px solid var(--fvb-CDD6C1);background:var(--fvb-F4F7EE);font-size:12.5px;color:var(--fvc-2F552D);cursor:pointer;white-space:nowrap}
+.fv-chat-chip{padding:4px 9px;font-size:12px}.fv-chat-chip:disabled{opacity:.5;cursor:default}
+.fv-ask-input{display:flex;align-items:flex-end;gap:8px;border:1px solid var(--fvb-E3E6DB);border-radius:14px;padding:6px 6px 6px 14px;background:var(--fvb-FFFFFF)}
+.fv-ask-input:focus-within{border-color:var(--fvb-CDD6C1);box-shadow:0 0 0 3px var(--fvb-F4F7EE)}
+.fv-ask-input textarea{flex:1;border:0;outline:none;resize:none;background:transparent;color:inherit;font:inherit;font-size:14px;line-height:1.45;padding:7px 0;max-height:140px;field-sizing:content}
+.fv-ask-send{flex:none;width:36px;height:36px;border-radius:10px;border:0;background:var(--fvb-2A4034);color:var(--fvc-FFFFFF);display:grid;place-items:center;cursor:pointer}.fv-ask-send:disabled{opacity:.35;cursor:default}.fv-ask-send.is-stop{background:var(--fvb-F6E3DE);color:var(--fvc-9A3F32)}
+.fv-ask-foot-note{font-size:11px;color:var(--fvc-8A9285);text-align:center}
+
+.fv-chat-card{border:1px solid var(--fvb-E3E6DB);border-radius:16px;padding:14px;background:var(--fvb-FFFFFF);display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 0 rgba(30,42,34,.03)}
+.fv-chat-card-head{display:flex;align-items:center;gap:8px;min-width:0}.fv-chat-card-head>strong{font-size:14.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fv-chat-card-head>small{font-size:11px;color:var(--fvc-8A9285)}
+.fv-chat-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.fv-chat-pill{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:999px;background:var(--fvb-EEF0E8);color:var(--fvc-4A5349)}
+.fv-chat-pill.is-ok{background:var(--fvb-E2EAD6);color:var(--fvc-3F6B3C)}.fv-chat-pill.is-warn,.fv-chat-pill.is-busy{background:var(--fvb-F6EBDD);color:var(--fvc-8A5F25)}.fv-chat-pill.is-bad{background:var(--fvb-F6E3DE);color:var(--fvc-9A3F32)}
+.fv-chat-notes{margin:0;padding:0 0 0 16px;font-size:12px;color:var(--fvc-6F786B);line-height:1.5}
+.fv-chat-amount{padding:12px 14px!important;border-radius:14px!important}.fv-chat-amount input{font-size:26px!important;margin:10px 0 6px!important}.fv-chat-amount .fv-swap-output{font-size:24px;padding:10px 0 6px}
+.fv-chat-card .fv-swap-flip{height:8px}.fv-chat-card .fv-swap-flip button{top:-16px;width:34px;height:34px}
+.fv-chat-card .fv-swap-box-head{flex-wrap:wrap;gap:6px}
+.fv-chat-facts{display:grid;gap:6px;font-size:12.5px}.fv-chat-facts>div{display:flex;justify-content:space-between;gap:12px}.fv-chat-facts span{color:var(--fvc-6F786B)}.fv-chat-facts strong{font-weight:500;text-align:right;display:inline-flex;align-items:center;gap:4px}
+.fv-chat-details{font-size:12px;color:var(--fvc-6F786B);line-height:1.55}.fv-chat-details summary{cursor:pointer}.fv-chat-details p{margin:6px 0 0}
+.fv-chat-small{font-size:12px;line-height:1.5;margin:0}
+.fv-chat-card .fv-wide-button{margin:2px 0 0;min-height:44px;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
+.fv-chat-slippage{display:flex;gap:6px}
+.fv-chat-pair{display:flex;align-items:center;gap:8px;font-size:14px;flex-wrap:wrap}.fv-chat-pair small{color:var(--fvc-8A9285)}
+.fv-chat-outcome{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:var(--fvb-F7F8F3);font-size:13px;line-height:1.5}
+.fv-chat-outcome.is-ok{background:var(--fvb-E2EAD6)}.fv-chat-outcome.is-bad{background:var(--fvb-F6E3DE)}.fv-chat-outcome.is-warn,.fv-chat-outcome.is-busy{background:var(--fvb-FFF6E8)}
+.fv-chat-outcome-line{display:flex;gap:8px;align-items:flex-start}.fv-chat-outcome-line svg{flex:none;margin-top:2px}.fv-chat-outcome p{margin:0}
+.fv-chat-actions{display:flex;gap:8px;flex-wrap:wrap}.fv-chat-actions .fv-button{min-height:36px}
+.fv-chat-total{display:flex;align-items:baseline;gap:8px}.fv-chat-total strong{font-size:24px;letter-spacing:-.02em}.fv-chat-total small{font-size:12px;color:var(--fvc-6F786B)}
+.fv-chat-rows{display:flex;flex-direction:column}
+.fv-chat-row{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--fvb-F1F2EB)}.fv-chat-row:last-child{border:0}.fv-chat-row.is-plain{grid-template-columns:1fr auto}
+.fv-chat-row>span{display:flex;flex-direction:column;min-width:0}.fv-chat-row strong{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fv-chat-row small{font-size:11.5px;color:var(--fvc-8A9285)}
+.fv-chat-row-num{text-align:right;font-variant-numeric:tabular-nums}
+.fv-chat-options{display:flex;flex-direction:column;gap:6px}
+.fv-chat-options button{display:flex;align-items:center;gap:10px;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF);color:inherit;cursor:pointer}
+.fv-chat-options button[aria-checked=true]{border-color:var(--fvc-4E7A4A);background:var(--fvb-F4F7EE)}.fv-chat-options span{display:flex;flex-direction:column}.fv-chat-options small{font-size:11.5px;color:var(--fvc-6F786B)}
+.fv-chat-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.fv-chat-steps li{display:flex;align-items:center;gap:8px;font-size:13px}.fv-chat-steps li>span:first-child{width:14px;height:14px;border:1.5px solid var(--fvb-CDD6C1);border-radius:50%}.fv-chat-steps li>span:nth-child(2){flex:1}.fv-chat-steps li.is-ok{color:var(--fvc-3F6B3C)}
+.fv-chat-notice.is-blocked{border-color:var(--fvb-F6E3DE);background:linear-gradient(var(--fvb-FFFFFF),var(--fvb-FFFFFF)) padding-box}
+.fv-chat-notice .fv-chat-card-head svg{color:var(--fvc-9A3F32);flex:none}.fv-chat-notice.is-info .fv-chat-card-head svg{color:var(--fvc-8A5F25)}
+.fv-chat-notice ul{margin:0;padding-left:18px;font-size:13px;line-height:1.55}
+.fv-chat-choice{display:flex;flex-direction:column;gap:8px}.fv-chat-choice>span{font-size:13.5px;font-weight:500}
+.fv-chat-choice>div{display:flex;flex-wrap:wrap;gap:6px}
+.fv-chat-choice button{display:flex;flex-direction:column;align-items:flex-start;padding:8px 12px;border-radius:12px;border:1px solid var(--fvb-CDD6C1);background:var(--fvb-F4F7EE);color:var(--fvc-2F552D);font-size:13px;cursor:pointer}.fv-chat-choice button small{font-size:11px;color:var(--fvc-6F786B)}.fv-chat-choice button:disabled{opacity:.55;cursor:default}
+/* Reviews rendered inside a chat card: same content as the modal, without the modal chrome. */
+.fv-review-inline.fv-dialog{width:auto;max-width:none!important;max-height:none;box-shadow:none;border:0;padding:0!important;animation:none;overflow:visible;background:transparent;text-align:left}
+.fv-review-inline .fv-confirm-progress{position:static;margin:0 0 12px;border-radius:3px}
+.fv-review-inline .fv-confirm-pair{justify-content:flex-start;margin-bottom:8px}.fv-review-inline h2{font-size:17px}.fv-review-inline .fv-confirm-sub{margin:0 0 12px;max-width:none}
+.fv-chat-card-lend .fv-review-inline .fv-confirm-pair{display:none}
+.fv-chat-card .fv-trade-panel,.fv-chat-card .fv-trade-ticket{border:0;padding:0;box-shadow:none}
+.fv-ask button:focus-visible,.fv-ask summary:focus-visible,.fv-ask textarea:focus-visible{outline:2px solid #7b9f69;outline-offset:2px}
+@media(max-width:640px){.fv-ask{width:100vw;border-left:0}.fv-ask-log{padding:16px 14px 10px}.fv-ask-foot{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}.fv-ask-examples{grid-template-columns:1fr}.fv-ask-head{padding:12px 14px}.fv-chat-card{padding:12px}}
+@media(prefers-reduced-motion:reduce){.fv-ask,.fv-ask *{animation:none!important;transition:none!important}}
+.fv-chat-moved{font-size:12px;color:var(--fvc-8A9285);padding:6px 10px;border:1px dashed var(--fvb-E3E6DB);border-radius:10px}.fv-chat-moved:empty{display:none}
+.fv-chat-card-lend .fv-review-inline.is-form>h2{display:none}

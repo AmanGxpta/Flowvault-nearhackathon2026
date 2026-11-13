@@ -131,17 +131,11 @@ export class DesignApp extends Component<any, any> {
     }
     if (pp.judge !== this.props.judge) this.setWorkspace(this.props.judge ? 'demo' : 'live');
   }
-  /** Ask FlowVault: POST /api/assistant (read-only). Suggested questions skip the model; typed ones may use it if the server has a key. */
-  ask(text: any, typeOverride?: any) {
+  /** Ask FlowVault: open the conversation and queue the question; the panel streams it (POST /api/assistant/chat). */
+  ask(text: any, _typeOverride?: any) {
     const q = (text || '').trim(); if (!q) return;
-    const id = 'm' + Date.now() + Math.random().toString(36).slice(2, 6);
-    const a = this.state.asst;
-    this.setState({ asst: { ...a, open: true, input: '', msgs: [...a.msgs, { role: 'user', text: q }, { role: 'ai', id, q, type: typeOverride || 'typed', pending: true }] } });
-    const toEnd = () => setTimeout(() => { const el = document.querySelector('[data-asst-log]'); if (el) el.scrollTop = el.scrollHeight; }, 30);
-    toEnd();
-    if (!this.props.actions) return;
-    const set = (patch: any) => { const x = this.state.asst; this.setState({ asst: { ...x, msgs: x.msgs.map((m: any) => (m.id === id ? { ...m, ...patch } : m)) } }, toEnd); };
-    this.props.actions.ask(q, !typeOverride).then((r: any) => set({ pending: false, res: r })).catch((e: any) => set({ pending: false, err: e && e.message ? e.message : 'Ask failed.' }));
+    const id = 'q' + Date.now() + Math.random().toString(36).slice(2, 6);
+    this.setState({ asst: { ...this.state.asst, open: true, input: '', queued: { id, q } } });
   }
   opExtra(o: any) {
     const SRC: any = ({ journal: ['JOURNAL', '#EEF0E8', '#4A5349'], example: ['EXAMPLE', '#F6EBDD', '#8A5F25'], session: ['THIS SESSION · SIMULATED WALLET', '#E7ECF3', '#3F5A7A'], replay: ['REPLAY', '#F6EBDD', '#8A5F25'] } as any)[o.src || 'example'];
@@ -848,7 +842,7 @@ export class DesignApp extends Component<any, any> {
       hasPy: !!pyOb, noPy: !pyOb, pyTabs, pyPlans, pyChecks, pyHead,
       stkSub: 'Idle NEAR 42.10 · 0.50 kept as exit reserve · max 41.60', stkAmt: s.stk.amt, onStkAmt: (e: any) => self.setState({ stk: { ...s.stk, amt: e.target.value } }), stkTabs, stakeCards, stkDueUpper: stDl.toUpperCase(), lead: s.lead,
       replays, roadmap, stretch,
-      asstOpen: !!s.asst.open, asstEmpty: s.asst.msgs.length === 0, asstHasMsgs: s.asst.msgs.length > 0, asstMsgs, asstSuggest, asstChips, asstInput: s.asst.input,
+      asstOpen: !!s.asst.open, asstQueued: s.asst.queued, asstEmpty: s.asst.msgs.length === 0, asstHasMsgs: s.asst.msgs.length > 0, asstMsgs, asstSuggest, asstChips, asstInput: s.asst.input,
       openAssistant: () => { self.remember(); self.setState({ asst: { ...s.asst, open: true } }); }, closeAssistant: () => self.closeAsst(),
       onAsstInput: (e: any) => self.setState({ asst: { ...s.asst, input: e.target.value } }), asstSend: () => self.ask(s.asst.input), onAsstKey: (e: any) => { if (e.key === 'Enter') self.ask(s.asst.input); },
       crumb: ({portfolio:'Portfolio',swap:'Swap',strategies:'Earn',credit:'Borrow',trade:'Trade',research:'Markets',pay:'Send',calendar:'Scheduled payments',policy:'Risk & permissions',activity:'Activity'} as any)[s.screen] || crumbs[s.screen], planLabel: 'Plan v' + s.version + ' · updated today', version: s.version, nextVersion: s.version + 1, horizon: s.horizon, horizonEnd: dlabel(new Date(TODAY + s.horizon * 864e5).toISOString().slice(0, 10)),
