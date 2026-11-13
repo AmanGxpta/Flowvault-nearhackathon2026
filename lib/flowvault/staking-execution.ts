@@ -32,6 +32,8 @@ export interface StakingPreparation {
   collateral: false;
   registrationNear: "0";
   valuationBasis: string;
+  /** Set when the reserve or dated payments aren't covered; LiNEAR stays liquid, so this informs rather than blocks. */
+  reserveNote?: string | null;
   signable: true;
 }
 export function assertStakingContext(
@@ -91,15 +93,18 @@ export function buildStakingPreparation(
     deposit + BigInt(q.upfrontNearRaw) + 500000000000000000000000n
   )
     throw new Error("Preserve at least 0.5 NEAR exit gas after this action.");
-  if (
+  // LiNEAR is a liquid token worth the staked NEAR and can be swapped back at any time, so staking into it doesn't
+  // lock value away from the reserve or dated payments (native staking, which locks NEAR for ~4 epochs, keeps the
+  // surplus rule in staking-native.ts). When the reserve is short, the review says so instead of refusing.
+  const reserveShort =
     q.kind === "stake" &&
     (capital.surplusUsdcRaw === null ||
-      BigInt(capital.surplusUsdcRaw) <
-        BigInt(value.usdcRaw) + BigInt(fee.usdcRaw))
-  )
-    throw new Error(
-      "Staking would exceed verified surplus after reserve and obligations.",
-    );
+      BigInt(capital.surplusUsdcRaw) < BigInt(value.usdcRaw) + BigInt(fee.usdcRaw));
+  const reserveNote = reserveShort
+    ? capital.surplusUsdcRaw === null
+      ? "Your reserve and dated payments couldn't be checked. LiNEAR stays liquid: you can swap it back to NEAR at any time."
+      : "Your reserve and dated payments aren't fully covered. LiNEAR stays liquid, so this NEAR can still be swapped back to pay them."
+    : null;
   const asset = q.kind === "unstake" ? "LiNEAR" : "NEAR";
   const amount = decimal(BigInt(value.usdcRaw));
   const policyAction: PolicyAction = {
@@ -144,6 +149,7 @@ export function buildStakingPreparation(
     collateral: false,
     registrationNear: "0",
     valuationBasis: value.basis,
+    reserveNote,
     signable: true,
   };
 }

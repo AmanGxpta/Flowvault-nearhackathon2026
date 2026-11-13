@@ -1,5 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any -- presentation adapters consume the existing view model */
+import { StakeHome } from "./stake/StakeHome";
+import { OpenStakeFlows } from "./stake/OpenStakeFlows";
 import { PairPicker, type Pair } from "./PairPicker";
 import { SpotDesk } from "./SpotDesk";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
@@ -109,7 +111,7 @@ export function ResearchDesk({ v }: { v: any }) {
 }
 
 export function EarnDesk({ v }: { v: any }) {
-  const [tab, setTab] = useState("Supply");
+  const [tab, setTab] = useState(() => { const q = typeof window === "undefined" ? null : new URL(window.location.href).searchParams; return q && (q.get("flow") || q.get("tab") === "stake") ? "Stake" : "Supply"; });
   return <><PageHeading title="Earn" description="Put available funds to work, with an exit plan you understand." /><Tabs values={["Supply", "Stake", "Vaults"]} value={tab} set={setTab} />{tab === "Vaults" ? <VaultsCard scope={v.lendingScope} /> : tab === "Stake" ? <StakeDesk v={v}/> : <>
     <RatesTable mode="earn" usdcNote={v.walletSurplusF ? "Available after your plan: " + v.walletSurplusF : undefined} onUsdc={() => document.getElementById("fv-earn-plan")?.scrollIntoView({ behavior: "smooth" })} />
     <h2 className="fv-subhead" id="fv-earn-plan">For your plan</h2>
@@ -221,7 +223,7 @@ export function ScheduledDesk({ v }: { v: any }) {
   </>;
 }
 export function StakeDesk({ v }: { v: any }) {
-  return <><div className="fv-earn-context"><div><h2 className="fv-small-heading">Stake NEAR</h2><p>{v.stkSub}</p></div><label>Amount (NEAR)<input inputMode="decimal" value={v.stkAmt ?? ''} onChange={v.onStkAmt} placeholder="Choose an amount" /></label></div><div className="fv-discovery-grid">{(v.stakeCards ?? []).map((s: any, i: number) => <article key={i} className="fv-discovery-card fv-stake-card"><div className="fv-section-head"><TokenIcon symbol="NEAR" core size={40}/><span className="fv-chip">{s.tag === 'QUOTE ONLY' ? 'Quote only' : s.tag === 'NEEDS POLICY' ? 'Permission needed' : s.tag === 'PICK A VALIDATOR' ? 'Choose validator' : s.tag === 'NOT ELIGIBLE' ? 'Unavailable' : 'Supported'}</span></div><h2>{s.name}</h2><small className="fv-muted">{s.kind}</small><div className="fv-stake-rate"><small>Variable annual rate</small><strong>{s.rows?.find((r: any) => r.k === 'Rate')?.v ?? 'Unknown'}</strong></div><p>{s.exit}</p>{s.poolOptions && <label className="fv-form">Validator<select value={s.pool ?? ''} onChange={s.onPool}><option value="">{s.poolPlaceholder}</option>{s.poolOptions.map((o: any) => <option key={o.id} value={o.id}>{o.label}</option>)}</select></label>}<Button onClick={s.onClick}>{s.cta?.replace('Allow in Policy','Review permission').replace('Plan staking','Review stake')}</Button><details><summary>Availability & exit details</summary><p>{s.netSub}</p><p>{s.fitText}</p>{s.rows?.map((r: any, j: number) => <div className="fv-list-row" key={j}><span>{r.k}</span><span>{r.v}</span></div>)}<p>{v.stkRateTag}</p></details></article>)}</div>{!v.stakeCards?.length && <div className="fv-empty"><Sprout size={28}/><h3>Staking options are not available yet</h3><p>{v.stkSub}</p><Button onClick={v.openConvert ?? v.openConnect ?? v.connectFirst}>Connect or fund a wallet</Button></div>}<section className="fv-panel fv-staking-summary"><div className="fv-section-head"><h2>Your staking</h2><Button onClick={v.goPortfolio}>View positions</Button></div><div className="fv-perp-stats">{(v.pfStake ?? []).map((s: any, i: number) => <div key={i}><small>{s.label}</small><strong><Skel v={s.v}/></strong><small>{s.sub}</small></div>)}</div><p className="fv-muted">{v.pfStakeNote}</p></section></>;
+  return <StakeHome v={v} />;
 }
 export function RiskDesk({ v }: { v: any }) {
   const [tab,setTab] = useState('Limits');
@@ -231,5 +233,5 @@ export function ActivityDesk({ v }: { v: any }) {
   const [tab,setTab] = useState('Transactions');
   const [filter,setFilter] = useState('All');
   const ops = [...(v.ops ?? [])].filter((o: any) => filter === 'All' || (filter === 'Needs attention' ? ['stuck','failed','failedtx','unknown','partial'].includes(o.status) : ['progress','paying','awaiting','submitted','prepared'].includes(o.status)));
-  return <><PageHeading title="Activity" description="Track what is happening and see what actually changed."/><Tabs values={['Transactions','Plans','Statements']} value={tab} set={setTab}/>{tab === 'Plans' ? <section className="fv-panel fv-history-panel"><PlanHistory scope={v.lendingScope}/></section> : tab === 'Statements' ? <StatementPanel key={v.lendingScope} scope={v.lendingScope}/> : <><div className="fv-activity-filters">{['All','In progress','Needs attention'].map(x => <button key={x} className="fv-button" aria-pressed={filter === x} onClick={() => setFilter(x)}>{x}</button>)}</div><ActivityView v={{...v,embedded:true,ops,noOps:!ops.length,actTimeline:true,actStatement:false,legend:[]}}/>{!v.judge && v.acc && <WalletHistory account={v.acc}/>}</>}</>;
+  return <><PageHeading title="Activity" description="Track what is happening and see what actually changed."/>{!v.judge && <OpenStakeFlows navigate={v.navigate}/>}<Tabs values={['Transactions','Plans','Statements']} value={tab} set={setTab}/>{tab === 'Plans' ? <section className="fv-panel fv-history-panel"><PlanHistory scope={v.lendingScope}/></section> : tab === 'Statements' ? <StatementPanel key={v.lendingScope} scope={v.lendingScope}/> : <><div className="fv-activity-filters">{['All','In progress','Needs attention'].map(x => <button key={x} className="fv-button" aria-pressed={filter === x} onClick={() => setFilter(x)}>{x}</button>)}</div><ActivityView v={{...v,embedded:true,ops,noOps:!ops.length,actTimeline:true,actStatement:false,legend:[]}}/>{!v.judge && v.acc && <WalletHistory account={v.acc}/>}</>}</>;
 }

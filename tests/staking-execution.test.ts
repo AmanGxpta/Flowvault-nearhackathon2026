@@ -129,7 +129,7 @@ test("staking uses Engines values for caps, USDC journal precision and exact raw
     false,
   );
 });
-test("unknown/stale prices, unavailable surplus and reserve/obligation or native gas shortfalls refuse staking", () => {
+test("unknown/stale prices and native gas shortfalls refuse staking; a short reserve is disclosed for liquid LiNEAR", () => {
   const f = fixture();
   for (const v of [
     { ...f.v, usdcRaw: null },
@@ -148,21 +148,12 @@ test("unknown/stale prices, unavailable surplus and reserve/obligation or native
         now,
       ),
     );
-  for (const surplus of [null, "3000000"])
-    assert.throws(
-      () =>
-        buildStakingPreparation(
-          f.w,
-          2,
-          f.quote,
-          f.v,
-          f.fee,
-          { ...f.capital, surplusUsdcRaw: surplus },
-          f.native,
-          now,
-        ),
-      /reserve and obligations/,
-    );
+  // LiNEAR stays liquid: a short or unknown surplus is disclosed on the review instead of refusing the stake.
+  for (const surplus of [null, "3000000"]) {
+    const p = buildStakingPreparation(f.w, 2, f.quote, f.v, f.fee, { ...f.capital, surplusUsdcRaw: surplus }, f.native, now);
+    assert.match(String(p.reserveNote), surplus === null ? /couldn't be checked/ : /aren't fully covered/);
+  }
+  assert.equal(buildStakingPreparation(f.w, 2, f.quote, f.v, f.fee, f.capital, f.native, now).reserveNote, null);
   assert.throws(
     () =>
       buildStakingPreparation(

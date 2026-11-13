@@ -20,6 +20,7 @@ import { appendStep, outcomeFee } from "@/lib/flowvault/timeline";
 import { reservePolicy, checkPolicy } from "@/lib/flowvault/policy-store";
 import { preparationAction, defaultPolicy } from "@/lib/flowvault/policy";
 import { z } from "zod";
+import { releasePolicy } from "@/lib/flowvault/policy-store";
 import { session, mutation, json, failure } from "@/lib/flowvault/store";
 import {
   attemptsDb,
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
       })
       .parse(await request.json());
     const { attempt, previous } = await readAttempt(s.id, b.id);
-    if (b.action === "declined" && !["swap", "lend", "trade"].includes(attempt.kind)) throw new Error("Only swaps, trades and Rhea actions record a declined wallet request here.");
+    if (b.action === "declined" && !["swap", "lend", "trade"].includes(attempt.kind) && !isStakingKind(attempt.kind)) throw new Error("Only swaps, trades, Rhea and LiNEAR actions record a declined wallet request here.");
     if (attempt.kind === "trade") return json({ attempt: await tradeJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
     if (attempt.kind === "lend") return json({ attempt: await rheaJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
     if (attempt.kind === "sell") return json({attempt:await saleJournalAction(request,b.id,b.action,b.hashes)},s.cookie);
@@ -173,6 +174,13 @@ export async function POST(request: Request) {
       attempt.state = "awaiting_wallet";
       attempt.message =
         "Wallet approval requested. Check status before retrying.";
+    } else if (b.action === "declined") {
+      // LiNEAR: the owner declined or closed the wallet before anything was sent; the step can be signed again.
+      if (attempt.state === "awaiting_wallet" && !attempt.hashes.length) {
+        attempt.state = "failed";
+        attempt.message = "Not sent. The wallet request was declined or never opened.";
+        await releasePolicy(s.id, attempt.id);
+      }
     } else if (b.action === "uncertain") {
       if (attempt.state === "awaiting_wallet") {
         attempt.state = "unknown";
