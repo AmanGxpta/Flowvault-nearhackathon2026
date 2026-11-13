@@ -608,6 +608,15 @@ export function PolicyView({ v }: { v: any }) {
             <div style={{ marginTop: "4px", fontSize: "12.5px", color: tc(v.polSave.color, "fg"), lineHeight: "1.5" }}>
               {v.polSave.sub}
             </div>
+            {v.polConnect ? (
+              <button
+                type="button"
+                onClick={v.polConnect}
+                style={{ marginTop: "14px", width: "100%", padding: "12px", borderRadius: "10px", border: "none", background: tc(v.polSave.btnBg, "bg"), color: "var(--fvc-FFFFFF)", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}
+              >
+                Connect wallet →
+              </button>
+            ) : (
             <button
               type="button"
               onClick={v.savePolicy}
@@ -627,6 +636,7 @@ export function PolicyView({ v }: { v: any }) {
             >
               Save as revision {v.polNextRev}
             </button>
+            )}
           </div>
           <div
             style={{

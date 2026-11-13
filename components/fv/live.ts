@@ -107,6 +107,8 @@ export interface LiveSnapshot {
   readingAt: string;
   /** The NEAR account this browser is signed in to on the server (its calendar and plans), or null. */
   signedIn?: string | null;
+  /** Personal workspace with no NEAR account and no proven wallet: reads were skipped on purpose (not loading, not failed). */
+  notConnected?: boolean;
 }
 
 export const emptySnapshot = (scope: Scope = currentScope): LiveSnapshot => ({
@@ -166,14 +168,14 @@ export async function loadSnapshot(
   const workspace: Workspace = ws.workspace;
   const saved = (workspace as any).evmAddresses ?? {};
   const evm = { base: saved.base ?? "", arb: saved.arb ?? "" };
-  const base: Partial<LiveSnapshot> = { scope, workspace, revision: ws.revision, evm, readingAt: new Date().toISOString(), signedIn: ws.signedIn ?? null };
+  const base: Partial<LiveSnapshot> = { scope, workspace, revision: ws.revision, evm, readingAt: new Date().toISOString(), signedIn: ws.signedIn ?? null, notConnected: false };
   onPartial?.(base);
   const example = scope === "example";
   // No main NEAR account and no other wallet proven yet: nothing to read. A proven Ethereum or Solana wallet
   // alone is still read (Portfolio shows it); plans need the main NEAR account.
   const provenOther = ((workspace as any).accounts ?? []).some((a: any) => a.proof && ["nep413", "siwe", "siws"].includes(a.proof.method));
   if (!example && !workspace.accountId && !provenOther) {
-    return { ...base, status: "ready", error: "", obligations: null, portfolio: null, policy: null, strategies: null, plan: null, staking: null };
+    return { ...base, notConnected: true, status: "ready", error: "", obligations: null, portfolio: null, policy: null, strategies: null, plan: null, staking: null };
   }
   // EVM addresses and watched accounts are persisted on the workspace (R7/R10); the portfolio reads them itself.
   const q = new URLSearchParams();

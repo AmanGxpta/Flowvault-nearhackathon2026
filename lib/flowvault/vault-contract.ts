@@ -242,7 +242,13 @@ export function disclosures(c: ConfigView, n: NavView, actualFullAccessKeys: str
       value: `The outcome of an external ${n.unresolved.operation?.kind ? n.unresolved.operation.kind + " " : ""}operation has been unknown since ${new Date(Number(n.unresolved.since_ms)).toISOString()}. New deposits are refunded, deposits don't settle into shares, the curator can't move USDC and no fee crystallizes. Exits continue: due redemptions settle at an exit-only NAV, paid only from USDC the vault holds, once the owner has synced the vault's USDC and then filed an owner report younger than ${Number(B(c.max_nav_age_ms) / 1000n)} s (a curator report never opens exit pricing)${n.exit_nav_raw ? "; that price is available now" : "; that price isn't available yet"}. Claims work as usual. The owner closes it with resolve_operation and evidence; spending budgets are never reset.`,
       risk: "urgent",
     });
-  if (c.settlement_timing) d.push({ label: "Settlement timing", value: `${sentence(c.settlement_timing)} Reports expire after ${Number(B(c.max_nav_age_ms) / 1000n)} s (the contract allows at most ${Number(B(c.max_nav_age_limit_ms ?? "900000") / 1000n)} s).`, risk: "info" });
+  // The contract's settlement_timing text names its own fields; say the same thing in plain words.
+  if (c.settlement_timing)
+    d.push({
+      label: "Settlement timing",
+      value: `Anyone can settle a queued deposit or due redemptions at any moment while the latest NAV report is younger than ${Number(B(c.max_nav_age_ms) / 1000n)} s (the contract allows at most ${Number(B(c.max_nav_age_limit_ms ?? "900000") / 1000n)} s). The minimum shares or minimum USDC you set on each request bounds the price you accept.`,
+      risk: "info",
+    });
   if (c.single_depositor) d.push({ label: "Custody mode", value: `Single depositor (${c.single_depositor}): only the owner deposits, shares can't be transferred, no fees.`, risk: "info" });
   return d;
 }

@@ -853,6 +853,11 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
     out.polRev = "…";
     out.polSave = { title: snap.status === "loading" ? "Reading your policy…" : "Policy unavailable", sub: snap.errors?.policy || snap.error || "Nothing can be saved until the saved policy is read.", bg: "#F4F5EF", border: "#E3E6DB", color: "#4A5349", btnBg: "#B9C0B2" };
     out.polUsedLabel = "…";
+    // Not connected: nothing failed; the policy is saved with your NEAR account, so offer Connect instead of Save.
+    if (snap.notConnected) {
+      out.polSave = { title: "Connect your wallet to set your policy.", sub: "Your policy is saved with your NEAR account. Connect and prove it to see and change your caps, venues and asset rules.", bg: "#F4F5EF", border: "#E3E6DB", color: "#4A5349", btnBg: "#2A4034" };
+      out.polConnect = () => self.setState({ menu: null, connectOpen: true, connectError: "", connectPending: null });
+    }
   }
   if (!snap.workspace) out.planDraft = { ...pd, reserve: "" };
 
@@ -1144,6 +1149,13 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
     out.stratEmptyBody = e ? (custom ? e : "The engine couldn’t read markets or balances (" + e + "). Nothing is ranked on assumed figures.") : "Strategies are ranked once markets and balances are read.";
     out.stratEmptyCta = custom ? "Use my surplus" : "Read again";
     out.stratEmptyAction = custom ? () => self.setState({ cmpAmount: null }) : () => self.liveCall(() => acts.refresh(), "Read again.");
+    // Not connected: the reads were skipped on purpose, so this is not "reading" and reading again can't help.
+    if (snap.notConnected && !custom) {
+      out.stratEmptyTitle = "Connect your wallet to rank strategies.";
+      out.stratEmptyBody = "Strategies are ranked from your own balances and dated payments, which FlowVault reads once you connect and prove a wallet.";
+      out.stratEmptyCta = "Connect wallet →";
+      out.stratEmptyAction = () => self.setState({ menu: null, connectOpen: true, connectError: "", connectPending: null });
+    }
   }
   out.cmpTabs = (snap.strategies?.strategies?.[0]?.dates ?? []).filter((d: any) => days(d.dueDate) > 0).slice(0, 4).map((d: any) => {
     const ob = s.obs.find((o: any) => o.id === d.obligationId);

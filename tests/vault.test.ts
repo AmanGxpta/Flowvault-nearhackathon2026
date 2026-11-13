@@ -199,7 +199,9 @@ test("adapter: contract views become the model book with no differences; disclos
   assert.match(un.value, /Exits continue.*available now/);
   assert.match(un.value, /external supply operation/);
   assert.match(un.value, /curator report never opens exit pricing/);
-  assert.match(disclosures({ ...fx.config, settlement_timing: "Settlement is permissionless." }, fx.nav, [], 0).find((d) => d.label === "Settlement timing")!.value, /at most 900 s/);
+  const timing = disclosures({ ...fx.config, settlement_timing: "Permissionless: … max_nav_age_ms; min_shares / min_assets …" }, fx.nav, [], 0).find((d) => d.label === "Settlement timing")!.value;
+  assert.match(timing, /at most 900 s/);
+  assert.doesNotMatch(timing, /max_nav_age_ms|min_shares|min_assets/, "no raw field names");
   const q: RequestView[] = [
     { ...fx.requests[3], id: "7", owner_id: "zed.near", status: "queued", amount_raw: "4" },
     { ...fx.requests[3], id: "9", owner_id: "bob.near", status: "queued", amount_raw: "2" },
