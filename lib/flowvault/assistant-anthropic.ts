@@ -9,7 +9,8 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { parseIntent, validateModelIntent } from "./assistant.ts";
 import { SYSTEM } from "./assistant-provider.ts";
 
-export const ANTHROPIC_DEFAULT_MODEL = "claude-opus-5-5";
+/** Haiku is the default for Ask FlowVault; ANTHROPIC_MODEL overrides it. No silent escalation to another model. */
+export const ANTHROPIC_DEFAULT_MODEL = "claude-haiku-5-5";
 
 /** The structured shape Claude must return; FlowVault's own validator re-checks every field afterwards. */
 const IntentOutput = z.object({
@@ -41,16 +42,15 @@ export async function anthropicIntent(question: string, config: { key: string; m
   });
   try {
     const client = new Anthropic({ apiKey: config.key, timeout: 30_000, maxRetries: 1 });
-    // Server-side fallbacks: if Opus 5.5 declines, the API re-runs the request on a fallback model in the same call.
-    const response = await client.beta.messages.parse({
+    // Haiku 5.5: no sampling parameters, no prefill and no server-side fallback list; thinking off for a fast extraction.
+    const response = await client.messages.parse({
       model,
-      max_tokens: 16000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
+      max_tokens: 1024,
+      thinking: { type: "disabled" },
       system: SYSTEM + "\nToday UTC: " + new Date(now).toISOString().slice(0, 10),
       messages: [{ role: "user", content: question }],
-      output_config: { effort: "low", format: zodOutputFormat(IntentOutput) },
-    } as Parameters<typeof client.beta.messages.parse>[0]);
+      output_config: { format: zodOutputFormat(IntentOutput) },
+    });
     if (response.stop_reason === "refusal") return fallback("Claude declined this question. Deterministic intent parser used.");
     const parsed = response.parsed_output;
     if (!parsed) return fallback("Claude's answer didn't match the intent schema. Deterministic intent parser used.");
