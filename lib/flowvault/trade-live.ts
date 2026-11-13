@@ -336,21 +336,22 @@ export async function tradeOptions(request: Request, chainId: number, wallets: {
   const target = chains.find(c => c.id === chainId);
   if (!target) throw new Error("This network isn't available for in-app trading.");
   const ids = [...new Set([chainId, ...(wallets.evm.length ? [1, 8453, 42161] : []), ...(wallets.solana.length ? [SOLANA_ID] : [])])];
-  const out: { chainId: number; chain: string; token: string; symbol: string; decimals: number; logo: string | null; balances: { address: string; amount: string }[] }[] = [];
+  const out: { chainId: number; chain: string; token: string; symbol: string; decimals: number; logo: string | null; usd: number; balances: { address: string; amount: string }[] }[] = [];
   await Promise.all(ids.map(async id => {
     const c = chains.find(x => x.id === id);
     if (!c) return;
     const owners = (c.type === "SVM" ? wallets.solana : wallets.evm).filter(a => own(s, id, a));
-    const tokens = [{ token: c.native.address, symbol: c.native.symbol, decimals: c.native.decimals, logo: c.logo }];
-    const usdc = await tokenInfo(id, "USDC").catch(() => null);
-    if (usdc) tokens.push({ token: usdc.address, symbol: usdc.symbol, decimals: usdc.decimals, logo: usdc.logo });
+    const [nativeInfo, usdc] = await Promise.all([tokenInfo(id, c.native.address).catch(() => null), tokenInfo(id, "USDC").catch(() => null)]);
+    const tokens = [{ token: c.native.address, symbol: c.native.symbol, decimals: c.native.decimals, logo: c.logo, price: Number(nativeInfo?.priceUsd ?? 0) }];
+    if (usdc) tokens.push({ token: usdc.address, symbol: usdc.symbol, decimals: usdc.decimals, logo: usdc.logo, price: Number(usdc.priceUsd ?? 1) });
     for (const t of tokens) {
       const balances = (await Promise.all(owners.map(async a => ({ address: a, raw: await tokenBalance(c, t.token, a).catch(() => null) })))).filter(b => b.raw !== null).map(b => ({ address: b.address, amount: dec(b.raw!, t.decimals) }));
-      out.push({ chainId: id, chain: c.name, ...t, balances });
+      const { price, ...rest } = t;
+      out.push({ chainId: id, chain: c.name, ...rest, usd: Math.max(0, ...balances.map(b => Number(b.amount) * (Number.isFinite(price) ? price : 0))), balances });
     }
   }));
-  // Tokens you hold first, then the token's own chain, then the rest.
-  const held = (o: (typeof out)[number]) => o.balances.some(b => Number(b.amount) > 0) ? 0 : 1;
-  return { chain: { id: target.id, name: target.name, type: target.type, native: target.native, logo: target.logo }, options: out.sort((x, y) => held(x) - held(y) || (x.chainId === chainId ? 0 : 1) - (y.chainId === chainId ? 0 : 1)) };
+  // Largest holding (in USD, dust under $0.50 ignored) first, then the token's own chain, then the rest.
+  const worth = (o: (typeof out)[number]) => o.usd >= 0.5 ? o.usd : 0;
+  return { chain: { id: target.id, name: target.name, type: target.type, native: target.native, logo: target.logo }, options: out.sort((x, y) => worth(y) - worth(x) || (x.chainId === chainId ? 0 : 1) - (y.chainId === chainId ? 0 : 1)) };
 }
 export { isEvmAddress };
