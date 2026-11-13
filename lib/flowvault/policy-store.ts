@@ -15,3 +15,24 @@ export async function reservePolicy(sessionId:string,action:PolicyAction,policy:
  }
  throw new Error('Policy budget changed concurrently. Refresh and try again.');
 }
+/** Release a reservation for an operation that provably never reached the chain (declined in the wallet, or a
+ * deposit address that expired with nothing received). Marks the ledger row cancelled-before-wallet and returns
+ * its amount to that day's budget; idempotent, and a row in any other state is left untouched. */
+export async function releasePolicy(sessionId:string,operationId:string){
+  const d=await db();
+  for(let i=0;i<5;i++){
+    const row=await d.prepare('SELECT payload FROM policy_ledger WHERE operation_id=? AND session_id=?').bind(operationId,sessionId).first<{payload:string}>();
+    if(!row)return;
+    const entry=JSON.parse(row.payload) as LedgerEntry;
+    if(entry.state!=='authorized')return;
+    const budget=JSON.stringify([sessionId,entry.accountId,entry.source,entry.createdAt.slice(0,10)]);
+    const b=await d.prepare('SELECT total FROM policy_budgets WHERE id=?').bind(budget).first<{total:string}>();
+    const next=b?BigInt(b.total)-units(entry.amount):0n;
+    const released=JSON.stringify({...entry,state:'cancelled-before-wallet'});
+    const result=await d.batch([
+      d.prepare('UPDATE policy_ledger SET payload=? WHERE operation_id=? AND session_id=? AND payload=?').bind(released,operationId,sessionId,row.payload),
+      ...(b?[d.prepare('UPDATE policy_budgets SET total=?,nonce=? WHERE id=? AND total=? AND EXISTS(SELECT 1 FROM policy_ledger WHERE operation_id=? AND payload=?)').bind((next>0n?next:0n).toString(),crypto.randomUUID(),budget,b.total,operationId,released)]:[]),
+    ]);
+    if(result[0].meta.changes===1)return;
+  }
+}

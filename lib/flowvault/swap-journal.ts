@@ -2,10 +2,10 @@
 // check, and the wallet_attempts journal (authorize → wallet → attach/check). FlowVault never signs: the owner
 // approves the exact reviewed transactions in their own wallet.
 import { session } from "./store.ts";
-import { attemptsDb, createAttempt, readAttempt, saveAttempt } from "./attempts.ts";
+import { attemptsDb, createAttempt, readAttempt, saveAttempt, listActiveAttempts } from "./attempts.ts";
 import { assertSignable } from "./execution.ts";
 import { evaluatePolicy, defaultPolicy } from "./policy.ts";
-import { checkPolicy, readLedger, reservePolicy } from "./policy-store.ts";
+import { checkPolicy, readLedger, reservePolicy, releasePolicy } from "./policy-store.ts";
 import { networkRpc, view } from "./near.ts";
 import { appendStep } from "./timeline.ts";
 import { decimal } from "./money.ts";
@@ -132,6 +132,8 @@ export async function swapJournalAction(request: Request, id: string, action: st
     revision = s.revision;
     a.state = "awaiting_wallet";
     a.message = "Waiting for your wallet. Approve the reviewed swap there. If the result is unclear, check its status before swapping again.";
+  } else if (action === "declined") {
+    if (a.state === "awaiting_wallet" && !a.hashes.length) { a.state = "failed"; a.message = "Not sent. The wallet request was declined or never opened."; await releasePolicy(s.id, a.id); }
   } else if (action === "uncertain") {
     if (a.state === "awaiting_wallet") { a.state = "unknown"; a.message = "The wallet did not report a result. Check this swap's status before trying again."; }
   } else {
@@ -297,6 +299,28 @@ async function intentsStatus(p: IntentsPreparation) {
   return readStatus(body);
 }
 
+/** A swap that reached the wallet but has no transaction hash. 1Click's view of its deposit address decides:
+ * money seen → keep tracking it; nothing seen UNSENT_AFTER_MS after the wallet was asked → it was never sent, so
+ * close it and release its limit reservation. (1Click keeps deposit addresses open for days, so its own deadline
+ * is too late to unblock the wallet; a deposit that did land late is still delivered to the owner's own wallet.) */
+const UNSENT_AFTER_MS = 10 * 60_000;
+const unsentAt = (a: { createdAt: string; preparation: unknown }) => Date.parse((a.preparation as { walletAskedAt?: string }).walletAskedAt ?? a.createdAt) + UNSENT_AFTER_MS;
+async function resolveUnhashed(sessionId: string, a: import("./execution.ts").WalletAttempt, p: IntentsPreparation) {
+  if (!["awaiting_wallet", "unknown"].includes(a.state) || a.hashes.length) return false;
+  const st = await intentsStatus(p).catch(() => null);
+  if (!st) return false;
+  if (st.status !== "PENDING_DEPOSIT" && st.status !== "UNKNOWN") {
+    a.state = "submitted"; a.hashes = st.originHashes.slice(0, 1);
+    p.result = { status: st.status, deliveredRaw: st.deliveredRaw, delivered: st.deliveredRaw ? decimal(BigInt(st.deliveredRaw), p.to.decimals) : null, refundedRaw: st.refundedRaw, originHashes: st.originHashes, destinationHashes: st.destinationHashes };
+    a.message = "NEAR Intents received a deposit for this swap. Tracking delivery…";
+    return true;
+  }
+  if (unsentAt(a) > Date.now()) return false;
+  a.state = "failed"; a.message = "Not sent. Nothing reached the NEAR Intents deposit address, so the request was closed.";
+  await releasePolicy(sessionId, a.id);
+  return true;
+}
+
 export async function intentsJournalAction(request: Request, id: string, action: string, hashes: string[] = []) {
   const s = await session(request), { attempt: a, previous } = await readAttempt(s.id, id), p = a.preparation as unknown as IntentsPreparation;
   if (a.kind !== "swap" || p.route !== "intents" || s.workspace.mode !== "live") throw new Error("Swap not in this live workspace.");
@@ -309,14 +333,27 @@ export async function intentsJournalAction(request: Request, id: string, action:
     if (a.mandateVersion !== s.workspace.mandate.version) throw new Error("Your cash plan changed. Review the swap again.");
     if (s.account !== s.workspace.accountId || ownWallet(s.workspace, p.from.network, p.accountId) !== p.accountId || ownWallet(s.workspace, p.to.network, p.recipient) !== p.recipient)
       throw new Error("The sending or receiving wallet is no longer connected and proven.");
+    // One outgoing operation per wallet at a time. Clear earlier swaps that provably never sent anything first.
+    for (const other of await listActiveAttempts(s.id)) {
+      if (other.id === a.id || other.accountId.toLowerCase() !== p.accountId.toLowerCase()) continue;
+      const op = other.preparation as unknown as IntentsPreparation, before = JSON.stringify(other);
+      if (op.route === "intents" && await resolveUnhashed(s.id, other, op)) { await saveAttempt(s.id, other, before); if (!["awaiting_wallet", "submitted", "unknown", "partial"].includes(other.state)) continue; }
+      const until = op.route === "intents" && !other.hashes.length ? " If nothing was sent, it clears automatically after " + new Date(unsentAt(other)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + "." : "";
+      throw new Error(`An earlier ${other.kind} from this wallet (started ${new Date(other.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}) is still unresolved, so FlowVault won't send another yet.${until} Check it in Activity.`);
+    }
     const policy = s.workspace.policy ?? defaultPolicy(), policyAction = { ...p.policyAction, id: a.id };
     await checkPolicy(s.id, policyAction, policy);
     await reservePolicy(s.id, policyAction, policy, s.revision);
     revision = s.revision;
     a.state = "awaiting_wallet";
+    p.walletAskedAt = new Date().toISOString();
     a.message = "Waiting for your wallet. Approve the deposit there; NEAR Intents delivers after it lands.";
+  } else if (action === "declined") {
+    if (a.state === "awaiting_wallet" && !a.hashes.length) { a.state = "failed"; a.message = "Not sent. The wallet request was declined or never opened."; await releasePolicy(s.id, a.id); }
   } else if (action === "uncertain") {
-    if (a.state === "awaiting_wallet") { a.state = "unknown"; a.message = "The wallet did not report a result. Check this swap's status before trying again."; }
+    if (a.state === "awaiting_wallet") { a.state = "unknown"; a.message = "The wallet did not report a result. FlowVault checks NEAR Intents for a deposit; nothing sent clears after the quote expires."; }
+  } else if (action === "check" && !hashes.length && !a.hashes.length) {
+    await resolveUnhashed(s.id, a, p);
   } else {
     if (a.state === "prepared") throw new Error("This swap has not reached your wallet.");
     const all = [...new Set([...a.hashes, ...hashes])];

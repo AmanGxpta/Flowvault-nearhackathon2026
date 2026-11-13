@@ -78,7 +78,10 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   // Quote as the owner types (debounced), and keep the quote fresh while it is on screen.
   useEffect(() => {
     revision.current++; request.current?.abort();
-    const t = setTimeout(() => { setPreview(null); setSelected(null); setError(""); if (validAmount && from && to && fromId !== toId) void quote(); else setBusy(false); }, validAmount ? 550 : 0);
+    // Paying from another network needs the sending wallet's address; wait for the wallet read instead of quoting
+    // without it (which would show a misleading "add your addresses" warning).
+    const waitingForWallet = !!from && from.network !== "near" && !sender && !!owner && !example && !holdings.covered.has(from.network);
+    const t = setTimeout(() => { setPreview(null); setSelected(null); setError(""); if (validAmount && from && to && fromId !== toId && !waitingForWallet) void quote(); else setBusy(false); }, validAmount ? 550 : 0);
     return () => clearTimeout(t);
   }, [fromId, toId, amount, slippage, sender, recipient, validAmount, !!from, !!to]); // eslint-disable-line react-hooks/exhaustive-deps -- quote reads the same inputs
   useEffect(() => {
@@ -106,6 +109,7 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   const cta: Cta = (() => {
     if (!from || !to) return { label: "Loading tokens…", disabled: true };
     if (!validAmount) return { label: "Enter an amount", disabled: true };
+    if (from.network !== "near" && !sender && owner && !example && !holdings.covered.has(from.network)) return { label: "Reading your wallets…", disabled: true, spin: true };
     if (busy && !preview) return { label: "Finding the best route…", disabled: true, spin: true };
     if (!chosen) return { label: error ? "No route for this amount" : "No route yet", disabled: true };
     if (inApp(chosen)) {

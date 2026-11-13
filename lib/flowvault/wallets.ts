@@ -321,3 +321,27 @@ export async function sendIntentsDeposit(s: WalletSession, p: { evmTx: { chainId
   if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error(s.walletName + " didn’t return a transaction hash.");
   return hash;
 }
+
+/** A usable EVM session for an address the server has already proven: the remembered session if this browser has
+ * one, otherwise any wallet here that exposes that address without a prompt (eth_accounts). Found sessions are
+ * remembered. Returns null when no wallet in this browser offers the address. */
+export async function evmSessionFor(address: string): Promise<WalletSession | null> {
+  start();
+  const want = address.toLowerCase();
+  const live = await liveSessions();
+  const hit = live.find((s) => s.chain === "evm" && s.address.toLowerCase() === want);
+  if (hit) return hit;
+  await new Promise((r) => setTimeout(r, 300)); // let EIP-6963 wallets announce themselves
+  for (const [id, d] of evm) {
+    try {
+      const accounts: string[] = await d.provider.request({ method: "eth_accounts" });
+      const match = accounts.find((a) => a.toLowerCase() === want);
+      if (!match) continue;
+      const session = { chain: "evm", walletId: id, walletName: d.info.name, icon: d.info.icon, address: match } as WalletSession;
+      remember([...remembered().filter((s) => !(s.chain === "evm" && s.address.toLowerCase() === want)), session]);
+      notify();
+      return session;
+    } catch { /* wallet unavailable */ }
+  }
+  return null;
+}

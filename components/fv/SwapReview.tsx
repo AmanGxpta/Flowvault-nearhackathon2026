@@ -7,7 +7,7 @@ import { coreIdentity } from "./useTokenCatalog";
 import { api } from "./live";
 import { fmtAmount, fmtUsd } from "./swap-format";
 import { signSwap, signIntentsNear } from "@/lib/flowvault/wallet";
-import { sendIntentsDeposit, useMultiWallets } from "@/lib/flowvault/wallets";
+import { sendIntentsDeposit, evmSessionFor, type WalletSession } from "@/lib/flowvault/wallets";
 import type { IntentsPreparation } from "@/lib/flowvault/swap-intents";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 import type { SwapPreparation } from "@/lib/flowvault/swap-exec";
@@ -29,12 +29,21 @@ const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base
 export function SwapReview({ from, to, amount, slippage, close, onSettled, route = "ref", sender, recipient }: { from: SwapToken; to: SwapToken; amount: string; slippage: number; close: () => void; onSettled: () => void; route?: "ref" | "intents"; sender?: string; recipient?: string }) {
   const intents = route === "intents";
   const explorer = (h: string) => explorerFor(from.network, h);
-  const { sessions } = useMultiWallets();
   const [phase, setPhase] = useState<Phase>("preparing");
   const [prep, setPrep] = useState<Prepared | null>(null);
   const [attempt, setAttempt] = useState<WalletAttempt | null>(null);
   const [error, setError] = useState(""), [now, setNow] = useState(() => Date.now());
   const alive = useRef(true);
+  // The wallet that holds the token (already proven to FlowVault); looked up again whenever the window regains focus.
+  const [senderSession, setSenderSession] = useState<WalletSession | null>(null);
+  const holder = intents && from.network !== "near" ? (prep?.attempt.preparation as unknown as IntentsPreparation | undefined)?.accountId : undefined;
+  useEffect(() => {
+    if (!holder) return;
+    let live = true;
+    const look = () => void evmSessionFor(holder).then(sess => { if (live) setSenderSession(sess); });
+    look(); window.addEventListener("focus", look);
+    return () => { live = false; window.removeEventListener("focus", look); };
+  }, [holder]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
@@ -75,17 +84,23 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
     const id = prep.attempt.id;
     setError(""); setPhase("wallet");
     const url = new URL(window.location.href);
+    // authorized: the journal reserved this swap; opened: a wallet may have sent something. Only an opened request
+    // that didn't come back is "uncertain"; anything before that, or a refusal, is recorded as not sent.
+    let authorized = false, opened = false;
     try {
       await api("/api/transactions", { id, action: "authorize" });
+      authorized = true;
       // Persist the request before the wallet opens, so a redirect wallet returns to this journal entry.
       url.searchParams.set("fv_attempt", id); history.replaceState(null, "", url);
       let hashes: string[];
       const ip = prep.attempt.preparation as unknown as IntentsPreparation;
       if (intents && ip.evmTx) {
-        const wallet = sessions.find(w => w.chain === "evm" && w.address.toLowerCase() === ip.accountId.toLowerCase());
+        const wallet = senderSession?.address.toLowerCase() === ip.accountId.toLowerCase() ? senderSession : await evmSessionFor(ip.accountId);
         if (!wallet) throw new Error(`Connect ${short(ip.accountId)} in its wallet first (wallet menu › Connect another wallet). Nothing was sent.`);
+        opened = true;
         hashes = [await sendIntentsDeposit(wallet, ip)];
       } else {
+        opened = true;
         const outcomes = await (intents ? signIntentsNear(ip) : signSwap(prep.attempt.preparation as unknown as SwapPreparation));
         hashes = ((outcomes ?? []) as { transaction: { hash: string } }[]).map(o => o.transaction.hash);
       }
@@ -97,14 +112,19 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
       setPhase(final?.state === "confirmed" ? "done" : final ? "failed" : "settling");
       onSettled();
     } catch (e) {
-      await api("/api/transactions", { id, action: "uncertain" }).catch(() => {});
-      if (alive.current) { setError((e as Error).message); setPhase("error"); }
+      const err = e as { code?: number; message?: string };
+      const refused = err?.code === 4001 || /reject|denied|declin|cancel|isn’t available|Select 0x|doesn’t match|Connect 0x/i.test(String(err?.message ?? e));
+      if (authorized) await api("/api/transactions", { id, action: !opened || refused ? "declined" : "uncertain" }).catch(() => {});
+      if (alive.current) { setError(refused && opened ? "You declined in your wallet. Nothing was sent." : (e as Error).message); setPhase("error"); }
     } finally {
       url.searchParams.delete("fv_attempt"); history.replaceState(null, "", url);
     }
   }
 
   const review = prep?.review;
+  // EVM deposits are sent by the wallet that holds the token; say so before Approve if it isn't available here.
+  const evmSender = intents && from.network !== "near" ? (prep?.attempt.preparation as unknown as IntentsPreparation | undefined)?.accountId : undefined;
+  const senderMissing = !!evmSender && senderSession?.address.toLowerCase() !== evmSender.toLowerCase();
   const left = review ? Math.max(0, Math.floor((Date.parse(review.expiresAt) - now) / 1000)) : 0;
   const result = (attempt?.preparation as unknown as SwapPreparation | undefined)?.result;
   const blocked = prep && !prep.policy.allowed;
@@ -144,10 +164,12 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
       {phase === "settling" && <div className="fv-confirm-hashes">{attempt?.hashes.map(h => <a key={h} href={explorer(h)} target="_blank" rel="noopener noreferrer">{h.slice(0, 8)}…{h.slice(-6)} <ExternalLink size={12} /></a>)}</div>}
       {phase === "done" && <div className="fv-confirm-success"><Check size={18} /> {attempt?.message}<div className="fv-confirm-hashes">{attempt?.hashes.map(h => <a key={h} href={explorer(h)} target="_blank" rel="noopener noreferrer">View transaction <ExternalLink size={12} /></a>).slice(-1)}</div></div>}
       {error && phase === "review" && <p role="alert" className="fv-notice">{error}</p>}
+      {senderMissing && phase === "review" && <p role="status" className="fv-notice">Open your Ethereum wallet and make {short(evmSender)} available to this site (it holds the {from.symbol}). FlowVault picks it up as soon as you come back.</p>}
 
       <div className="fv-confirm-actions">
         {phase === "review" && (left === 0 ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void prepare()}><RefreshCw size={15} /> Quote expired · refresh</button>
           : blocked ? (fixable ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void allow()}><ShieldCheck size={15} /> Allow and continue</button> : <button type="button" className="fv-button fv-wide-button" onClick={close}>Close</button>)
+          : senderMissing ? <button type="button" className="fv-button fv-wide-button" disabled>Waiting for {short(evmSender)} in your wallet</button>
           : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void approve()}>Approve in wallet · {left}s</button>)}
         {(phase === "preparing" || phase === "allowing") && <button type="button" className="fv-button fv-primary fv-wide-button" disabled><RefreshCw size={15} className="fv-spin" /> {phase === "allowing" ? "Saving a new policy revision…" : "Checking…"}</button>}
         {(phase === "done" || phase === "failed") && <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}

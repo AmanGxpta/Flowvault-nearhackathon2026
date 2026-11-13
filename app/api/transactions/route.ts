@@ -74,7 +74,7 @@ export async function POST(request: Request) {
     const b = z
       .object({
         id: z.string().uuid(),
-        action: z.enum(["authorize", "attach", "check", "uncertain"]),
+        action: z.enum(["authorize", "attach", "check", "uncertain", "declined"]),
         hashes: z
           .array(z.string().regex(/^(?:[1-9A-HJ-NP-Za-km-z]{43,44}|0x[0-9a-fA-F]{64})$/))
           .max(4)
@@ -82,6 +82,7 @@ export async function POST(request: Request) {
       })
       .parse(await request.json());
     const { attempt, previous } = await readAttempt(s.id, b.id);
+    if (b.action === "declined" && attempt.kind !== "swap") throw new Error("Only swaps record a declined wallet request here.");
     if (attempt.kind === "sell") return json({attempt:await saleJournalAction(request,b.id,b.action,b.hashes)},s.cookie);
     if (attempt.kind === "swap") return json({ attempt: await swapJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
     if ((b.hashes?.length ?? 0) > 2) throw new Error("This operation accepts at most two transaction hashes.");
