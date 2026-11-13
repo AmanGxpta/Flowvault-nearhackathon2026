@@ -592,8 +592,8 @@ export function PolicyView({ v }: { v: any }) {
             gap: "16px",
           }}
         >
-          {v.scope ? <PolicyContractCard key={v.scope} scope={v.scope} policyVersion={v.policyVersion ?? null} live={!!v.policyLive} /> : null}
-          {v.scope ? <MandatesCard key={v.scope + ":mandates"} scope={v.scope} /> : null}
+          {v.scope && !v.hideAuthorityPanels ? <PolicyContractCard key={v.scope} scope={v.scope} policyVersion={v.policyVersion ?? null} live={!!v.policyLive} /> : null}
+          {v.scope && !v.hideAuthorityPanels ? <MandatesCard key={v.scope + ":mandates"} scope={v.scope} /> : null}
           <div
             style={{
               borderRadius: "18px",

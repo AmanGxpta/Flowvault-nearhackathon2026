@@ -1,6 +1,8 @@
 // Generated from docs/design/FlowVault.html by the design converter, then edited by hand.
 /* eslint-disable */
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
+import { CommandSearch, PortfolioHome, EarnDesk, BorrowDesk, TradeDesk, ResearchDesk, SwapDesk, SendDesk, RiskDesk, ActivityDesk, destinations } from "./WorkspaceViews";
+import { MoreHorizontal } from "lucide-react";
 import { tc } from "./theme";
 import { ThemeToggle } from "./ThemeToggle";
 import { ConnectWalletModal, ConnectedWalletRow } from "./WalletConnect";
@@ -26,12 +28,13 @@ import { PayView } from "./screens/PayView";
 import { ModalShellView } from "./screens/ModalShellView";
 
 export function Shell({ v }: { v: any }) {
+  const [more, setMore] = useState(false);
   return (
     <>
       <a href="#fv-main" className="fv-skip">
         Skip to content
       </a>
-      <div
+      <div className="fv-workspace"
         style={{
           display: "flex",
           flexDirection: v.shellDir,
@@ -222,7 +225,7 @@ export function Shell({ v }: { v: any }) {
                                 <span
                                   style={{ width: "22px", display: "flex", justifyContent: "center", fontSize: "14px" }}
                                 >
-                                  {n.icon}
+                                  {(() => { const Item = destinations.find(d => d.label === n.label)?.Icon; return Item ? <Item size={18} /> : n.icon; })()}
                                 </span>
                                 <span style={{ display: v.lblDisp, flex: "1" }}>{n.label}</span>
                                 <span
@@ -249,6 +252,7 @@ export function Shell({ v }: { v: any }) {
                                 onClick={n.go}
                                 title={n.label}
                                 aria-label={n.label}
+                                aria-current={n.active ? "page" : undefined}
                                 style={{
                                   display: "flex",
                                   alignItems: "center",
@@ -282,7 +286,7 @@ export function Shell({ v }: { v: any }) {
                                 <span
                                   style={{ width: "22px", display: "flex", justifyContent: "center", fontSize: "15px" }}
                                 >
-                                  {n.icon}
+                                  {(() => { const Item = destinations.find(d => d.label === n.label)?.Icon; return Item ? <Item size={18} /> : n.icon; })()}
                                 </span>
                                 <span style={{ display: v.lblDisp, flex: "1" }}>{n.label}</span>
                                 <span
@@ -397,7 +401,7 @@ export function Shell({ v }: { v: any }) {
                 </button>
                 <ThemeToggle size={36} />
               </div>
-              <nav aria-label="Main" style={{ display: "flex", gap: "6px", overflowX: "auto", padding: "0 12px 10px" }}>
+              <nav aria-label="Main" style={{ display: "none" }}>
                 {(v.navFlat || []).map((n: any, i_n_0: number) => (
                   <Fragment key={i_n_0}>
                     <button
@@ -418,7 +422,7 @@ export function Shell({ v }: { v: any }) {
                         cursor: "pointer",
                       }}
                     >
-                      <span>{n.icon}</span>
+                      <span>{(() => { const Item = destinations.find(d => d.label === n.label)?.Icon; return Item ? <Item size={18} /> : n.icon; })()}</span>
                       <span>{n.label}</span>
                     </button>
                   </Fragment>
@@ -500,7 +504,7 @@ export function Shell({ v }: { v: any }) {
                   EXAMPLE WORKSPACE
                 </span>
                 <span style={{ flex: "1", minWidth: "200px" }}>
-                  Demo Mode. Separate example data and no wallet. Nothing here touches your personal workspace.
+                  Fictional data · nothing can be signed. Your personal workspace is separate.
                 </span>
                 <button
                   type="button"
@@ -605,6 +609,8 @@ export function Shell({ v }: { v: any }) {
                 {v.crumb}
               </span>
             </div>
+            <CommandSearch v={v} />
+            <button className="fv-button fv-primary" type="button" onClick={v.goPay}>Send ↗</button>
             <button
               type="button"
               onClick={v.openAssistant}
@@ -896,7 +902,7 @@ export function Shell({ v }: { v: any }) {
               ) : null}
             </div>
           </header>
-          <div
+          <div className="fv-canvas"
             style={{
               flex: "1",
               padding: `${v.padTop} ${v.padX} 28px`,
@@ -906,18 +912,21 @@ export function Shell({ v }: { v: any }) {
               minWidth: "0",
             }}
           >
-            {v.isOverview ? <OverviewView v={v} /> : null}
-            {v.isCalendar ? <CalendarView v={v} /> : null}
-            {v.isStrategies ? <StrategiesView v={v} /> : null}
-            {v.isActivity ? <ActivityView v={v} /> : null}
-            {v.isPortfolio ? <PortfolioView v={v} /> : null}
-            {v.isPolicy ? <PolicyView v={v} /> : null}
-            {v.isPay ? <PayOnADateView v={v} /> : null}
+            {v.isOverview ? <PortfolioHome v={v} /> : null}
+            {v.isCalendar ? <SendDesk key="scheduled" v={v} /> : null}
+            {v.isStrategies ? <EarnDesk v={v} /> : null}
+            {v.isActivity ? <ActivityDesk v={v} /> : null}
+            {v.isPortfolio ? <PortfolioHome v={v} /> : null}
+            {v.isPolicy ? <RiskDesk v={v} /> : null}
+            {v.isPay ? <SendDesk key="send" v={v} /> : null}
             {v.isReplays ? <ReplaysView v={v} /> : null}
             {v.isRoadmap ? <RoadmapView v={v} /> : null}
             {v.isOpps ? <OpportunitiesView v={v} /> : null}
             {v.isProt ? <ProtectionView v={v} /> : null}
-            {v.isCredit ? <><CreditView v={v} /><LendingVenues key={v.lendingScope} scope={v.lendingScope} accounts={v.lendingAccounts} /></> : null}
+            {v.isCredit ? <BorrowDesk v={v} /> : null}
+            {v.isTrade ? <TradeDesk v={v} /> : null}
+            {v.isSwap ? <SwapDesk v={v} /> : null}
+            {v.isResearch ? <ResearchDesk key={v.lendingScope + ":" + v.acc} v={v} /> : null}
           </div>
           <footer
             style={{
@@ -937,9 +946,19 @@ export function Shell({ v }: { v: any }) {
               ></span>
               {v.footLabel}
             </span>
-            <span>Good decisions need clear boundaries.</span>
+            <span className="fv-statusbar">
+              {(v.pfBalances ?? []).slice(0, 2).map((b: any) => <button type="button" key={b.label} onClick={() => v.navigate("portfolio")}><small>{b.label === "Net worth" ? "Portfolio" : b.label}</small><b>{b.value}</b></button>)}
+              {(() => { const n = (v.pfRows ?? []).find((r: any) => r.symbol === "NEAR" && (!r.kind || r.kind === "wallet")); return n ? <button type="button" onClick={() => v.navigate("swap")}><small>NEAR</small><b>{n.quantity ?? n.value}</b></button> : null; })()}
+              {v.upcoming?.[0] ? <button type="button" onClick={v.goCalendar}><small>Next payment</small><b>{v.upcoming[0].amountF ?? v.upcoming[0].amount} {v.upcoming[0].asset ?? "USDC"} · {v.upcoming[0].dueLabel ?? v.upcoming[0].due}</b></button> : null}
+              <button type="button" onClick={v.goPolicy}><small>Guardrails</small><b>On</b></button>
+            </span>
           </footer>
         </main>
+        <nav className="fv-mobile-nav" aria-label="Primary navigation">
+          {destinations.filter(d => ['portfolio','swap','trade','research'].includes(d.id)).map(({id,label,Icon}) => <button key={id} aria-current={v.screen === id ? 'page' : undefined} onClick={() => { setMore(false); v.navigate(id); }}><Icon size={20}/>{label}</button>)}
+          <button aria-expanded={more} onClick={() => setMore(!more)}><MoreHorizontal size={20}/>More</button>
+        </nav>
+        {more ? <div className="fv-mobile-more"><strong>More from FlowVault</strong>{v.navFlat.filter((n: any) => !['Portfolio','Swap','Trade','Markets'].includes(n.label)).map((n: any) => <button key={n.label} onClick={() => { setMore(false); n.go(); }}>{n.label} →</button>)}</div> : null}
         {v.asstOpen ? <AssistantView v={v} /> : null}
         {v.modalOpen ? <ModalShellView v={v} /> : null}
         {v.connectModal ? <ConnectWalletModal m={v.connectModal} /> : null}

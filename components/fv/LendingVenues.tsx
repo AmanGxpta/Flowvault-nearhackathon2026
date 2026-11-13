@@ -10,7 +10,7 @@ import { api, type Scope } from "./live";
 import { openPlan } from "./PlanDock";
 
 /** Existing PlanDock and wallet journals own review, signing and recovery. */
-export function LendingVenues({ scope, accounts = [] }: { scope: Scope; accounts?: LinkedAccount[] }) {
+export function LendingVenues({ scope, accounts = [], expanded = false, hideSales = false }: { scope: Scope; accounts?: LinkedAccount[]; expanded?: boolean; hideSales?: boolean }) {
   const [snapshot, setSnapshot] = useState<LendingVenueSnapshot | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,13 +40,13 @@ export function LendingVenues({ scope, accounts = [] }: { scope: Scope; accounts
   }
   const chain = venue as AaveChain;
   const assets = AAVE_MARKETS[chain] ? [...AAVE_MARKETS[chain].collateral, AAVE_MARKETS[chain].debt] : [];
-  return <details className="fv-lending-venues" style={{ marginTop: 24, background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", border: "1px solid var(--fvb-E3E6DB)", padding: 20, borderRadius: 18 }}>
-    <summary style={{cursor:"pointer",fontWeight:600}}>Lending venues and approved asset sales</summary>
+  return <details open={expanded || undefined} className="fv-lending-venues" style={{ marginTop: 24, background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", border: "1px solid var(--fvb-E3E6DB)", padding: 20, borderRadius: 18 }}>
+    <summary style={{cursor:"pointer",fontWeight:600}}>Your positions, health and debt</summary>
     <style>{`.fv-lending-venues label { display:block; margin:10px 0; } .fv-lending-venues input,.fv-lending-venues select,.fv-lending-venues button { background:var(--fvb-FFFFFF); color:var(--fvc-1E2A22); border:1px solid var(--fvb-E3E6DB); border-radius:8px; padding:7px 10px; max-width:100%; } .fv-lending-venues fieldset { border:1px solid var(--fvb-E3E6DB); border-radius:10px; margin-top:16px; } .fv-lending-venues p { color:var(--fvc-5B6458); line-height:1.5; }`}</style>
     <p>Health and capacity belong to each account and market. Posted collateral is not spendable cash.</p>
     <label>Market <select value={venue} onChange={e=>{setVenue(e.target.value);setSnapshot(null);setMessage("");}}><option value="rhea">Rhea · NEAR</option><option value="eth">Aave v3 · Ethereum Core</option><option value="base">Aave v3 · Base</option><option value="arb">Aave v3 · Arbitrum</option></select></label>
-    {venue!=="rhea" && <label>Proven EVM account <select value={account} onChange={e=>{setAccount(e.target.value);setSnapshot(null);}}><option value="">Choose account</option>{evm.map(a=><option key={a.id} value={a.address}>{a.label} · {a.address}</option>)}</select></label>}
-    <button onClick={load} disabled={busy}>{busy ? "Reading…" : "Refresh venue risk"}</button>
+    {venue!=="rhea" && <label>Your wallet <select value={account} onChange={e=>{setAccount(e.target.value);setSnapshot(null);}}><option value="">Choose account</option>{evm.map(a=><option key={a.id} value={a.address}>{a.label} · {a.address}</option>)}</select></label>}
+    <button onClick={load} disabled={busy}>{busy ? "Reading…" : "Read market & positions"}</button>
     {message && <p role="status">{message}</p>}
     {snapshot && <section aria-label="Venue risk">
       <strong>{snapshot.venueId} · {snapshot.accountId}</strong>
@@ -63,9 +63,9 @@ export function LendingVenues({ scope, accounts = [] }: { scope: Scope; accounts
       <label>Asset <select value={asset} onChange={e=>setAsset(e.target.value)}>{assets.map(x=><option key={x.id} value={x.symbol}>{x.symbol}</option>)}</select></label>
       <label>Quantity <input inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0" /></label>
       <p>WETH is wrapped ETH. Native ETH needs wrapping outside this flow. Saved credit policy and exact pool/method allowlists are required. Borrowing needs an additional explicit new-debt approval in the plan.</p>
-      <button onClick={plan}>Create review plan</button>
+      <button onClick={plan}>Review operation</button>
     </fieldset>}
-    <ApprovedAssetSales scope={scope} accounts={accounts} />
+    {!hideSales && <ApprovedAssetSales scope={scope} accounts={accounts} />}
     <p>Activity retains submitted and uncertain attempts. Recover wallet hashes and check the existing attempt before retrying. Cross-chain settlement is a separate dependent operation.</p>
   </details>;
 }

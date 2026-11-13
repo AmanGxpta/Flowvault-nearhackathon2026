@@ -9,6 +9,7 @@ import { PlanHistory } from "../PlanDock";
 export function ActivityView({ v }: { v: any }) {
   return (
     <>
+      {!v.embedded ? <>
       <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: "12px", letterSpacing: ".22em", fontWeight: "600", color: "var(--fvc-6F786B)" }}>
           {v.layerEyebrow}
@@ -79,6 +80,7 @@ export function ActivityView({ v }: { v: any }) {
           </Fragment>
         ))}
       </div>
+      </> : null}
       {v.actTimeline ? (
         <>
           <div style={{ marginTop: "26px", display: "flex", gap: "8px", flexWrap: "wrap" }}>

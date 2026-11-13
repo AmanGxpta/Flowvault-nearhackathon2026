@@ -7,6 +7,9 @@ import { liveState, liveVals, liveConfigure, liveDecide, liveExecute, livePrevie
 import { emptySnapshot } from "./live";
 // The personal account comes from the live workspace (connected or watched); never hard-coded.
 let LIVE_ACC = '';
+/** Friendly ?view= names (what the navigation says) mapped to internal screen ids; the reverse keeps links readable. */
+const VIEW_ALIASES: Record<string, string> = { overview: 'portfolio', earn: 'strategies', borrow: 'credit', send: 'pay', scheduled: 'calendar', risk: 'policy', permissions: 'policy', markets: 'research', discover: 'research' };
+const VIEW_NAMES: Record<string, string> = { research: 'markets', strategies: 'earn', credit: 'borrow', pay: 'send', calendar: 'scheduled', policy: 'risk' };
 const DEMO_ACC = 'fictional example account';
 let ACC = LIVE_ACC;
 const WS_KEYS = ['wallet', 'rhea', 'evm', 'obs', 'intents', 'ops', 'reserve', 'reserveDraft', 'version', 'horizon', 'lead', 'planDraft', 'pol', 'polDraft', 'revisions'];
@@ -37,18 +40,18 @@ const isEvm = (a: any) => /^0x[0-9a-fA-F]{40}$/.test(a);
 const isNear = (a: any) => /^([a-z0-9_-]+\.)*[a-z0-9_-]+\.(near|tg)$/.test(a) || /^[0-9a-f]{64}$/.test(a);
 
 export class DesignApp extends Component<any, any> {
-  iv: any; tt: any; onKey: any; onResize: any; opener: any; polTestKey: any; polTestTimer: any; creditKey: any; creditTimer: any; opPollFor: any; payPollFor: any;
+  onPopState: any; iv: any; tt: any; onKey: any; onResize: any; opener: any; polTestKey: any; polTestTimer: any; creditKey: any; creditTimer: any; opPollFor: any; payPollFor: any;
   constructor(props: any) { super(props); this.state = this.init(props); }
   init(p: any) {
     const s: any = {
       ds: 'api', wallet: 0, rhea: 0, reserve: 0, reserveDraft: '', version: 1, horizon: 30, lead: 3,
       planDraft: { reserve: '', horizon: '30', lead: '3' },
-      obs: [], ops: [], screen: p.screen || 'overview', modal: null, op: null, pay: null,
+      obs: [], ops: [], screen: p.screen || 'portfolio', modal: null, op: null, pay: null,
       form: { name: '', amount: '', chain: 'Arbitrum', token: 'USDC', recurrence: 'none', recipient: '', due: iso(13), note: '', confirmed: false },
       compareTo: null, cmpAmount: null, openOp: null, toast: null, retried: false,
       credit: { dd: 50, cap: 70, hp: 15, debt: 0, prio: 'P2' },
       judge: !!p.judge, asst: { open: !!p.assistant, msgs: [], input: '' }, pol: POL(), polDraft: POL(), revisions: [],
-      test: { kind: 'supply', amount: '6000', asset: 'usdc', venue: 'rhea' }, stk: { amt: '30', by: null }, payPick: null, pfDate: null
+      test: { kind: 'supply', amount: '6000', asset: 'usdc', venue: 'rhea' }, stk: { amt: '', by: null }, payPick: null, pfDate: null
     };
     s.ws = p.judge ? 'demo' : 'live'; s.intent = null; s.stress = { eth: { on: true }, linear: { on: true, dd: 60, cap: 50 }, rnear: { on: true, dd: 60, cap: 50 }, near: { on: false, dd: 60, cap: 50 } };
     try { s.whyOff = JSON.parse(sessionStorage.getItem('fv-why') || '{}'); } catch (e) { s.whyOff = {}; } s.replay = null; s.connected = false; s.menu = null; s.confirm = null; s.vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
@@ -57,6 +60,10 @@ export class DesignApp extends Component<any, any> {
     return s;
   }
   componentDidMount() {
+    const known = ['portfolio','swap','strategies','credit','trade','research','activity','calendar','policy','pay','replays','roadmap','opps','protection'];
+    const readRoute = () => { const raw = new URL(window.location.href).searchParams.get('view') || ''; const view = VIEW_ALIASES[raw] ?? raw; this.setState({ screen: known.includes(view) ? view : 'portfolio' }); };
+    readRoute(); this.onPopState = readRoute; window.addEventListener('popstate', readRoute);
+
     if (!this.props.frozen) this.iv = setInterval(() => this.tick(), 1000);
     this.onKey = (e: any) => {
       // Keep keyboard focus inside an open dialog or the assistant panel.
@@ -65,7 +72,7 @@ export class DesignApp extends Component<any, any> {
     this.onResize = () => this.setState({ vw: window.innerWidth });
     document.addEventListener('keydown', this.onKey); window.addEventListener('resize', this.onResize);
   }
-  componentWillUnmount() { clearInterval(this.iv); clearTimeout(this.tt); document.removeEventListener('keydown', this.onKey); window.removeEventListener('resize', this.onResize); }
+  componentWillUnmount() { window.removeEventListener('popstate', this.onPopState); clearInterval(this.iv); clearTimeout(this.tt); document.removeEventListener('keydown', this.onKey); window.removeEventListener('resize', this.onResize); }
   findOb(id: any) { const s = this.state; return s.obs.find((o: any) => o.id === id) || (s.intents || []).find((o: any) => o.id === id); }
   srcNow() { const s = this.state; return s.replay ? 'replay' : s.ws === 'demo' ? 'example' : 'session'; }
   isLive() { return this.state && this.state.ws === 'live'; }
@@ -111,6 +118,8 @@ export class DesignApp extends Component<any, any> {
   closeMenu() { this.setState({ menu: null }); this.refocus(); }
   closeAsst() { this.setState({ asst: { ...this.state.asst, open: false } }); this.refocus(); }
   componentDidUpdate(pp: any, ps: any) {
+    if (ps.screen !== this.state.screen) { const url = new URL(window.location.href); const name = VIEW_NAMES[this.state.screen] ?? this.state.screen; if (url.searchParams.get('view') !== name) { url.searchParams.set('view', name); history.pushState(null, '', url); } }
+
     // Move focus into a dialog or the assistant when it opens; closing returns it via refocus().
     if (ps && !ps.modal && this.state.modal) setTimeout(() => { const d: any = document.querySelector('[role=dialog]'); const f: any = d && (d.querySelector('input:not([disabled]),select,button:not([disabled])') || d); if (f) f.focus(); }, 0);
     if (ps && !ps.asst.open && this.state.asst.open) setTimeout(() => { const i: any = document.querySelector('[data-asst-panel] input'); if (i) i.focus(); }, 0);
@@ -354,8 +363,8 @@ export class DesignApp extends Component<any, any> {
     const pay = s.pay; const payOb = pay && this.findOb(pay.obId);
 
     if (s.modal === 'confirm' && s.confirm) m = { eyebrow: 'POLICY · PROTECTED ASSET', title: s.confirm.title, hasSteps: false, steps: [] };
-    if (s.modal === 'intent') m = { eyebrow: 'PAY OR MOVE MONEY', title: 'State the outcome', hasSteps: false, steps: [] };
-    if (s.modal === 'add') m = s.editObId ? { eyebrow: 'DATED PAYMENT', title: 'Edit payment', hasSteps: false, steps: [] } : { eyebrow: 'NEW DATED PAYMENT', title: 'Add a payment to your plan', hasSteps: false, steps: [] };
+    if (s.modal === 'intent') m = { eyebrow: 'SEND', title: 'New payment', hasSteps: false, steps: [] };
+    if (s.modal === 'add') m = s.editObId ? { eyebrow: 'DATED PAYMENT', title: 'Edit payment', hasSteps: false, steps: [] } : { eyebrow: 'SCHEDULED PAYMENT', title: 'Schedule a payment', hasSteps: false, steps: [] };
 
     if (s.modal === 'op' && s.op) {
       const o = s.op; const sup = o.kind === 'supply'; const a = parseFloat(o.amount) || 0;
@@ -459,7 +468,7 @@ export class DesignApp extends Component<any, any> {
 
     // ===== five-layer additions
     const judge = !!s.judge; const P = s.pol; const D = s.polDraft; const NP = 3.2;
-    const L = s.vw < 640 ? 'm' : s.vw < 1024 ? 'r' : 'f';
+    const L = s.vw < 761 ? 'm' : 'f';
     const hpv = c.hp / 10;
     const ST_A = [
       { k: 'eth', name: 'ETH', chain: 'Arbitrum', venue: 'Aave v3 · Arbitrum', usd: 2000, lt: 0.8 },
@@ -769,7 +778,7 @@ export class DesignApp extends Component<any, any> {
       { k: 'Swap rNEAR to NEAR outside Rhea', sub: 'removes pool exposure · needs a swap leg', cost: '~0.2% · ' + usd(26.5 * NP * 0.002), tag: 'Preview', tagColor: '#8A5F25' },
       { k: 'Stay and monitor', sub: 'no cost now; risk depends on how the incident develops', cost: '$0.00', tag: 'Option', tagColor: '#8A9285' },
     ] : [{ k: 'Nothing to exit', sub: 'none of your positions are on the affected venue', cost: '$0.00', tag: '', tagColor: '#8A9285' }];
-    const navItem = (id: any, label: any, icon: any, badge?: any) => { const a = s.screen === id; return { label, icon, badge: badge || '', badgeBg: badge ? '#F6EBDD' : 'transparent', bg: a ? '#E2EAD6' : 'transparent', color: a ? '#1E2A22' : '#4A5349', weight: a ? 600 : 400, bar: a ? '#4E7A4A' : 'transparent', go: () => self.go(id), mBg: a ? '#fff' : 'transparent', mBorder: a ? '#9DB48C' : '#DDE1D4', isLink: true, isStatic: false }; };
+    const navItem = (id: any, label: any, icon: any, badge?: any) => { const a = s.screen === id; return { active: a, label, icon, badge: badge || '', badgeBg: badge ? '#F6EBDD' : 'transparent', bg: a ? '#E2EAD6' : 'transparent', color: a ? '#1E2A22' : '#4A5349', weight: a ? 600 : 400, bar: a ? '#4E7A4A' : 'transparent', go: () => self.go(id), mBg: a ? '#fff' : 'transparent', mBorder: a ? '#9DB48C' : '#DDE1D4', isLink: true, isStatic: false }; };
     const navStatic = (label: any, icon: any, badge: any) => ({ label, icon, badge, isLink: false, isStatic: true });
     const soonCount = sorted.filter((o: any) => days(o.due) <= s.lead).length;
     const crumbs: any = { overview: 'Observe / Overview', portfolio: 'Observe / Portfolio', calendar: 'Configure / Calendar', policy: 'Configure / Policy', strategies: 'Decide / Strategies', credit: 'Decide / Credit', pay: 'Execute / Pay on a date', activity: 'Account / Activity', replays: 'Account / Replays', roadmap: 'Roadmap', opps: 'Decide / Opportunities', protection: 'Execute / Protection' };
@@ -780,20 +789,12 @@ export class DesignApp extends Component<any, any> {
     const out: any = {
       // Your own workspace shows only working pages; sample and preview pages (Opportunities, Protection,
       // Replays, the roadmap) appear in Demo Mode. No internal phase badges.
-      navGroups: NG = (s.ws === 'demo' ? [
-        { n: '1', title: 'OBSERVE', items: [navItem('overview', 'Overview', '▦'), navItem('portfolio', 'Portfolio', '◎')] },
-        { n: '2', title: 'CONFIGURE', items: [navItem('calendar', 'Calendar', '▤', soonCount ? soonCount + ' due' : ''), navItem('policy', 'Policy', '◇', polClean ? '' : 'unsaved')] },
-        { n: '3', title: 'DECIDE', items: [navItem('strategies', 'Strategies', '◈'), navItem('credit', 'Credit', '◐', 'preview'), navItem('opps', 'Opportunities', '✧', 'sample')] },
-        { n: '4', title: 'EXECUTE', items: [navItem('pay', 'Pay on a date', '↗'), navItem('protection', 'Protection', '⛉', 'sample')] },
-        { n: '5', title: 'ACCOUNT', items: [navItem('activity', 'Activity', '◷'), navItem('replays', 'Replays', '↻')] },
-        { n: '·', title: 'LATER', items: [navItem('roadmap', 'Roadmap', '→'), navStatic('Exchanges and perps', '⇄', 'soon'), navStatic('Cards', '▭', 'soon'), navStatic('Speculative sleeve', '◌', 'soon')] },
-      ] : [
-        { n: '1', title: 'OBSERVE', items: [navItem('overview', 'Overview', '▦'), navItem('portfolio', 'Portfolio', '◎')] },
-        { n: '2', title: 'CONFIGURE', items: [navItem('calendar', 'Calendar', '▤', soonCount ? soonCount + ' due' : ''), navItem('policy', 'Policy', '◇', polClean ? '' : 'unsaved')] },
-        { n: '3', title: 'DECIDE', items: [navItem('strategies', 'Strategies', '◈'), navItem('credit', 'Credit', '◐', 'preview')] },
-        { n: '4', title: 'EXECUTE', items: [navItem('pay', 'Pay on a date', '↗')] },
-        { n: '5', title: 'ACCOUNT', items: [navItem('activity', 'Activity', '◷')] },
-      ]),
+      planningOpen: !!s.planningOpen, navigate: (screen: string) => self.go(screen === 'overview' ? 'portfolio' : screen), screen: s.screen,
+      navGroups: NG = [
+        { title: '', items: [navItem('portfolio','Portfolio','◎'), navItem('research','Markets','⌕'), navItem('swap','Swap','⇄'), navItem('strategies','Earn','✧'), navItem('credit','Borrow','◐'), navItem('trade','Trade','↗'), navItem('activity','Activity','◷')] },
+        { title: '', items: [navItem('pay','Send','↗'), navItem('calendar','Scheduled','▤',soonCount ? soonCount + ' due' : ''), navItem('policy','Risk & permissions','◇',polClean ? '' : 'unsaved')] },
+        ...(s.ws === 'demo' ? [{ title: '', items: [navItem('replays','Recovery examples','↻'),navItem('roadmap','Roadmap','→')] }] : []),
+      ],
       footNet: s.ws === 'demo' ? 'Demo Mode · example data' : 'NEAR mainnet',
       ovMetrics, ovPositions, headline: this.props.headline || 'Your whole portfolio, one plan.', barSrc: judge ? 'Example figures · example workspace' : 'Observed USDC · wallets + Rhea · block 224067523',
       goPortfolio: () => self.go('portfolio'), goPay: () => self.go('pay'), tryRisky: () => self.setState({ screen: 'policy', test: { kind: 'supply', amount: '6000', asset: 'usdc', venue: 'rhea' } }),
@@ -820,9 +821,9 @@ export class DesignApp extends Component<any, any> {
       layerEyebrow: EB[s.screen] || '', judge, dataTag: judge ? 'EXAMPLE WORKSPACE' : 'LIVE READS · MAINNET', dataTagBg: judge ? '#F6EBDD' : '#E2EAD6', dataTagColor: judge ? '#8A5F25' : '#3F6B3C',
       toggleJudge: () => self.setWorkspace(judge ? 'live' : 'demo'), leaveDemo: () => self.setWorkspace('live'), replayOn: !!s.replay, acc: ACC, todayLabel: dlabel(iso(0)), goPolicy: () => self.go('policy'), judgeBg: judge ? '#F6EBDD' : '#fff', judgeBorder: judge ? '#EBD9BF' : '#E3E6DB', judgeTrack: judge ? '#8A5F25' : '#CDD3C2', judgeKnob: judge ? '14px' : '2px',
       netLabel: judge ? 'Example workspace · no wallet' : s.connected ? 'Mainnet · wallet connected' : 'Not connected · read only', netColor: judge ? '#8A5F25' : s.connected ? '#4E7A4A' : '#8A9285',
-      navFlat: NG.flatMap((g: any) => g.items).filter((n: any) => n.isLink), isMobile: L === 'm', notMobile: L !== 'm', shellDir: L === 'm' ? 'column' : 'row', asideW: L === 'r' ? '76px' : '264px', asidePadX: L === 'r' ? '12px' : '18px', lblDisp: L === 'r' ? 'none' : 'block', fullFlex: L === 'r' ? 'none' : 'flex', railDivider: L === 'r' ? 'block' : 'none', navJustify: L === 'r' ? 'center' : 'flex-start', padX: L === 'm' ? '16px' : L === 'r' ? '24px' : '44px', padTop: L === 'm' ? '24px' : '40px',
+      navFlat: NG.flatMap((g: any) => g.items).filter((n: any) => n.isLink), isMobile: L === 'm', notMobile: L !== 'm', shellDir: L === 'm' ? 'column' : 'row', asideW: '216px', asidePadX: '14px', lblDisp: 'block', fullFlex: 'flex', railDivider: 'none', navJustify: 'flex-start', padX: L === 'm' ? '16px' : '32px', padTop: L === 'm' ? '24px' : '40px',
       wsName: s.ws === 'demo' ? 'Example workspace' : 'Personal workspace', wsRole: s.ws === 'demo' ? 'Demo Mode · no wallet' : s.connected ? 'Owner · can approve' : 'Read only · not connected', wsInitial: s.ws === 'demo' ? 'E' : 'P', wsInitBg: s.ws === 'demo' ? '#F6EBDD' : '#E2EAD6',
-      wsMenuOpen: s.menu === 'ws', wsMenuLeft: L === 'm' ? '16px' : L === 'r' ? '84px' : '18px', wsMenuTop: L === 'm' ? '58px' : L === 'r' ? '64px' : '136px',
+      wsMenuOpen: s.menu === 'ws', wsMenuLeft: L === 'm' ? '16px' : '18px', wsMenuTop: L === 'm' ? '58px' : '136px',
       toggleWsMenu: () => { self.remember(); self.setState({ menu: s.menu === 'ws' ? null : 'ws' }); }, closeMenu: () => self.closeMenu(),
       wsItems: [['live', 'Personal workspace', 'Your wallet · live reads'], ['demo', 'Example workspace', 'Demo Mode · example data, no wallet']].map(([id, t, d]: any) => ({ t, d, check: s.ws === id ? '✓' : '', onClick: () => self.setWorkspace(id) })),
       acctLabel: s.ws === 'demo' ? DEMO_ACC : s.connected ? LIVE_ACC : 'Connect wallet', acctMenuOpen: s.menu === 'acct', toggleAcct: () => { self.remember(); self.setState({ menu: s.menu === 'acct' ? null : 'acct' }); },
@@ -849,9 +850,9 @@ export class DesignApp extends Component<any, any> {
       asstOpen: !!s.asst.open, asstEmpty: s.asst.msgs.length === 0, asstHasMsgs: s.asst.msgs.length > 0, asstMsgs, asstSuggest, asstChips, asstInput: s.asst.input,
       openAssistant: () => { self.remember(); self.setState({ asst: { ...s.asst, open: true } }); }, closeAssistant: () => self.closeAsst(),
       onAsstInput: (e: any) => self.setState({ asst: { ...s.asst, input: e.target.value } }), asstSend: () => self.ask(s.asst.input), onAsstKey: (e: any) => { if (e.key === 'Enter') self.ask(s.asst.input); },
-      crumb: crumbs[s.screen], planLabel: 'Plan v' + s.version + ' · updated today', version: s.version, nextVersion: s.version + 1, horizon: s.horizon, horizonEnd: dlabel(new Date(TODAY + s.horizon * 864e5).toISOString().slice(0, 10)),
+      crumb: ({portfolio:'Portfolio',swap:'Swap',strategies:'Earn',credit:'Borrow',trade:'Trade',research:'Markets',pay:'Send',calendar:'Scheduled payments',policy:'Risk & permissions',activity:'Activity'} as any)[s.screen] || crumbs[s.screen], planLabel: 'Plan v' + s.version + ' · updated today', version: s.version, nextVersion: s.version + 1, horizon: s.horizon, horizonEnd: dlabel(new Date(TODAY + s.horizon * 864e5).toISOString().slice(0, 10)),
       lendingScope: LV?.scope ?? (judge ? 'example' : 'personal'), lendingAccounts: LV?.workspace?.accounts ?? [],
-      isOverview: s.screen === 'overview', isCalendar: s.screen === 'calendar', isStrategies: s.screen === 'strategies', isActivity: s.screen === 'activity', isPortfolio: s.screen === 'portfolio', isCredit: s.screen === 'credit',
+      isTrade: s.screen === 'trade', isSwap: s.screen === 'swap', isResearch: s.screen === 'research', isOverview: false, isCalendar: s.screen === 'calendar', isStrategies: s.screen === 'strategies', isActivity: s.screen === 'activity', isPortfolio: s.screen === 'portfolio', isCredit: s.screen === 'credit',
       showOnboarding: !!s.firstRun, showPlanView: !s.firstRun,
       ob1Bg: (s.reserveSet ?? s.reserve > 0) ? '#F4F7EE' : '#fff', ob1DotBg: (s.reserveSet ?? s.reserve > 0) ? '#4E7A4A' : '#EEF0E8', ob1DotColor: (s.reserveSet ?? s.reserve > 0) ? '#fff' : '#5B6458', ob1Glyph: (s.reserveSet ?? s.reserve > 0) ? '✓' : '1',
       reserveDraft: s.reserveDraft, onReserveDraft: (e: any) => self.setState({ reserveDraft: e.target.value }),
@@ -900,8 +901,12 @@ export class DesignApp extends Component<any, any> {
       hasToast: !!s.toast, toast: s.toast,
       watchOpen: !!s.watchOpen, toggleWatch: () => self.setState({ watchOpen: !s.watchOpen, screen: s.screen }), pfStakeHead: 'aurora.pool.near · native', asstTag1: 'NEAR AI CLOUD · PRIVATE INFERENCE', asstTag2: 'EXAMPLE RESPONSES', replaysIntro: 'Each replay runs the real flow against a recorded 1Click, Rhea or RPC response. Nothing is signed or sent, and results appear in Activity labeled as replays.', creditPermNote: 'Read from policy rev ' + s.pol.rev + '. Change them in Policy.', stratEmptyTitle: 'No surplus to put to work yet.', stratEmptyBody: 'Once your reserve and dated payments are covered, whatever is left shows up here, ranked by what it nets by your next payment date.', stratEmptyCta: 'Finish your plan', stratEmptyAction: () => self.go('overview'), creditEthLine: '0.62 ETH · $2,000.00 · example price, 18:24', planMoveCost: usd(s.pol.maxMove) + ' per move', planBorrowLabel: s.pol.borrow ? 'Allowed to propose · preview only' : 'Off · needs verification', planRheaLabel: (s.pol.venues.rhea ? '✓ ' : '') + 'Rhea Lending · USDC',
     };
+    out.openSendNow = () => {
+      if (s.ws !== 'demo' && !LV?.signedIn) { (out.openConnect || out.connectFirst)(); return; }
+      self.remember(); self.setState({ modal: 'intent', intent: { amount: '', asset: 'USDC', rid: 'new', addr: '', chain: 'Base', due: iso(0), save: false, repeats: 'none' }, asst: { ...s.asst, open: false } });
+    };
     if (!LV) return out;
-    out.dialogLabel = ({ intent: 'Pay or move money', add: 'Add a payment', op: s.op && s.op.kind === 'replay' ? 'Replay' : s.op && s.op.kind === 'withdraw' ? 'Withdraw USDC from Rhea' : 'Supply USDC to Rhea', pay: 'Pay on a date', confirm: (s.confirm && s.confirm.title) || 'Confirm', wallet: 'Wallet' } as any)[s.modal] || 'FlowVault dialog';
+    out.dialogLabel = ({ intent: 'New payment', add: 'Add a payment', op: s.op && s.op.kind === 'replay' ? 'Replay' : s.op && s.op.kind === 'withdraw' ? 'Withdraw USDC from Rhea' : 'Supply USDC to Rhea', pay: 'Pay on a date', confirm: (s.confirm && s.confirm.title) || 'Confirm', wallet: 'Wallet' } as any)[s.modal] || 'FlowVault dialog';
     const lctx = { self, s, example: s.ws === 'demo' };
     return { ...out, ...liveVals(LV, out, lctx), ...liveConfigure(LV, out, lctx), ...liveDecide(LV, out, lctx), ...liveExecute(LV, out, lctx), ...livePreviews(LV, out, lctx) };
   }

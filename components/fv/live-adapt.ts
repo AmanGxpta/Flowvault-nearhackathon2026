@@ -1,3 +1,4 @@
+import { displayQuantity } from "@/lib/flowvault/research";
 /* eslint-disable @typescript-eslint/no-explicit-any -- adapters between untyped design view-model data and API JSON */
 // Maps live API snapshots onto the design's view model. Used only in the personal (live)
 // workspace. When the API cannot establish a figure the view shows "Unavailable", never 0.
@@ -210,6 +211,7 @@ const secName = (id: string) => {
   if (m) return shortAddress(m[2]) + " · " + (m[1] === "evm" ? (NET_NAME[m[3] ?? ""] ?? m[3]) : m[1] === "solana" ? "Solana" : "NEAR");
   return id.replace(/-/g, " ");
 };
+const LAST_GOOD = new Map<string, { value: string; at: string }>();
 const shortWhy = (rs: string[] = []) => (rs.some((r) => /429|providers failed|NetworkError|fetch|RPC/i.test(r)) ? "NEAR RPC unavailable" : rs[0] ?? "");
 const metricSub = (m: Usable | undefined, fallback: string) => {
   if (!m) return "not read yet";
@@ -300,6 +302,9 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   // Engines' capitalView (same pass as /api/valuation): the one source for net worth, spendable, holdback, surplus.
   const capital = (u as any)?.capital as { spendableNow?: string; holdback?: string | null; surplus?: string | null; netWorth?: string | null; blocksAutomation?: boolean; reasons?: string[] } | undefined;
   out.scope = snap.scope;
+  out.portfolioLoading = !snap.portfolio && !snap.portfolioError && !snap.notConnected;
+  out.portfolioReadError = snap.portfolioError || null;
+  out.refreshPortfolio = () => self.liveCall(() => self.props.actions.refresh(), "Balances refreshed.");
   out.planCta =
     s.screen === "strategies" ? { label: "Plan putting surplus to work →", onClick: () => void startPlan({ objective: "deploy_surplus" }).catch(() => undefined), note: "Compares every venue against your dates and policy" }
     : s.screen === "credit"
@@ -545,14 +550,14 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   const a = snap.plan?.action;
   if (a) {
     const caveats = (a.caveats ?? []).join(" ");
-    const body = [a.detail, caveats].filter(Boolean).join(" ");
+    const body = [a.detail, caveats].filter(Boolean).join(" ").replace(/\bCalendar\b/g,"Scheduled payments");
     const R: any =
       a.kind === "supply"
         ? { tag: "SURPLUS", title: a.title, body, cta: "Review supply", onClick: () => self.openOp("supply", a.amount) }
         : a.kind === "withdraw"
           ? { tag: "RESTORE", title: a.title, body, cta: "Withdraw USDC", onClick: () => self.openOp("withdraw", a.amount) }
           : /below your plan/i.test(a.title) && acct
-            ? { tag: "FUND", title: a.title, body, cta: "Copy your NEAR account", onClick: () => { try { navigator.clipboard.writeText(acct); } catch {} self.toastMsg("Copied " + acct + ". Send native USDC on NEAR to it; FlowVault reads it, it never holds it."); } }
+            ? { tag: "FUND", title: a.title, body, cta: "Review reserve & payments", onClick: () => self.setState({screen:"calendar",planningOpen:true}) }
             : a.kind === "none"
               ? { tag: "NO STEP", title: a.title, body, cta: "Read balances again", onClick: () => self.liveCall(() => self.props.actions.refresh(), "Balances read again.") }
               : { tag: "PLAN", title: a.title, body, cta: "Open your calendar", onClick: () => self.go("calendar") };
@@ -582,12 +587,21 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
       ? { label: "Spendable now", m: { ...(u?.cashNow ?? {}), amount: capital.spendableNow } as Usable, sub: "USDC in the NEAR account you sign from" + (example || ((snap.workspace as any)?.accounts ?? []).some((a: any) => a.proof && !a.primary) ? " · other wallets count toward net worth" : "") }
       : { label: "Cash now", m: u?.cashNow, sub: example ? "USDC on NEAR, Base and Arbitrum" : "USDC in your wallet" + (snap.evm?.base || snap.evm?.arb ? ", Base and Arbitrum" : "") },
     { label: "Withdrawable by " + wdLabel, m: wd ?? u?.cashNow, sub: pick ? "cash plus positions verified to exit in time" : "cash available now" },
-    { label: "Borrowing headroom", m: u?.borrowingHeadroom, sub: "preview · borrowing isn’t available yet" },
+    { label: "Borrowing headroom", m: u?.borrowingHeadroom, sub: "Scenario capacity · actual borrowing depends on venue and permissions" },
     { label: "Committed", m: u?.committedCapital, sub: "Rhea supply and payments in flight" },
   ];
   out.ovMetrics = bal.map((b, i) => ({ label: b.label, value: b.m ? money(b.m.amount) : snap.portfolioError ? "Unavailable" : "…", sub: metricSub(b.m, b.sub), dot: MD[i], border: i ? "1px solid #EEF0E8" : "none" }));
   const W = { bg: "#fff", color: "#1E2A22", border: "#E3E6DB" };
-  out.pfBalances = bal.map((b, i) => ({ label: b.label, value: b.m ? money(b.m.amount) : "…", sub: metricSub(b.m, b.sub), ...(i === 0 ? { bg: "#2B4233", color: "#EAF0E2", border: "#2B4233" } : W) }));
+  // A headline figure never goes blank: a partial read shows "≥ known subtotal", and a failed read keeps the last
+  // good figure with its time. Both say so in the line below; nothing missing is treated as zero.
+  out.pfBalances = bal.map((b, i) => {
+    const key = (example ? "x:" : "p:") + b.label;
+    let value = b.m ? money(b.m.amount) : "…", sub = metricSub(b.m, b.sub);
+    if (b.m && b.m.amount !== null) LAST_GOOD.set(key, { value, at: b.m.capturedAt });
+    else if (b.m && b.m.knownSubtotal != null && /^\d+(\.\d+)?$/.test(String(b.m.knownSubtotal))) { value = "≥ " + money(b.m.knownSubtotal); sub = "partial · " + sub.replace(/^known so far [^·]+· /, ""); }
+    else if ((b.m || snap.portfolioError) && LAST_GOOD.has(key)) { const g = LAST_GOOD.get(key)!; value = g.value; sub = "last good read " + hhmm(g.at) + " · refreshing"; }
+    return { label: b.label, value, sub, ...(i === 0 ? { bg: "#2B4233", color: "#EAF0E2", border: "#2B4233" } : W) };
+  });
 
   // Reserve / payments / surplus bar from API figures.
   const reserve = f(snap.workspace?.mandate.reserve) ?? 0;
@@ -868,14 +882,18 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   const srcOf = (p: any) => (p.venue ? p.venue + " · " : "") + (example ? "fictional example" : stale ? "last good read" : "mainnet read") + (p.capturedAt || cap ? " · " + hhmm(p.capturedAt ?? cap) : "");
   const protSet = new Set((snap.policy?.policy?.protectedAssets ?? []).map((x: string) => x.toLowerCase()));
   const rows = (pf?.positions ?? []).filter((p: any) => p.amount !== "0" || p.id === "usdc-wallet");
+  // Positions valued by the capital view (Pyth evidence for ETH/SOL/NEAR on connected wallets) carry their USD
+  // there, keyed by position id; use it when the position itself has no inline valuation.
+  const capVal = new Map<string, number>(((pf as any)?.capital?.valuations ?? []).filter((x: any) => /^\d+$/.test(String(x.usdcRaw ?? ""))).map((x: any) => [x.positionId, Number(x.usdcRaw) / 1e6]));
   out.pfRows = rows.map((p: any) => {
     const watched = p.ownership === "watched";
     const isUsdc = p.asset === "USDC";
     const fees = p.asset === "NEAR" && p.kind === "wallet";
     const prot = protSet.has(String(p.asset).toLowerCase());
-    const val = posValue(p);
+    const val = posValue(p) ?? capVal.get(p.id) ?? null;
     const by = watched ? "Excluded" : prot ? "Protected" : fees ? "Fees only" : p.kind === "wallet" && isUsdc ? "✓ Usable" : p.kind === "supplied" ? (p.availableAt && !p.availabilityIsEstimate ? "From " + dlabel(String(p.availableAt).slice(0, 10)) : "Timing unverified") : p.kind === "debt" ? "Debt" : "Hold";
     return {
+      id: p.id, symbol: p.asset, kind: p.kind, network: p.chain ?? 'near', ownership: p.ownership ?? 'owner', accountLabel: shortAddress(p.accountId ?? (example ? 'fictional account' : acct)), quantity: displayQuantity(p.amount, p.asset),
       name: p.label,
       sub: (p.asset !== "USDC" ? (p.amount === "unknown" ? "quantity unknown" : num(Number(p.amount)) + " " + p.asset) : shortAddress(p.accountId ?? (example ? "fictional account" : acct))) + (p.venue ? " · " + p.venue : ""),
       chain: chainName(p.chain ?? "near"),

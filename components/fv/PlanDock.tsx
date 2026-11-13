@@ -68,7 +68,7 @@ const PLAN_STATE: Record<string, [string, string, string]> = {
   partial: ["PARTIAL · NEEDS ATTENTION", "var(--fvb-F6EBDD)", "var(--fvc-8A5F25)"],
   completed: ["COMPLETED · VERIFIED", "var(--fvb-E2EAD6)", "var(--fvc-2F552D)"],
   failed: ["FAILED", "var(--fvb-F6E3DE)", "var(--fvc-9A3F32)"],
-  blocked: ["BLOCKED BY THE ENGINES", "var(--fvb-F6E3DE)", "var(--fvc-9A3F32)"],
+  blocked: ["NEEDS ATTENTION", "var(--fvb-F6E3DE)", "var(--fvc-9A3F32)"],
   superseded: ["SUPERSEDED", "var(--fvb-F4F5EF)", "var(--fvc-5B6458)"],
   expired: ["EXPIRED", "var(--fvb-F4F5EF)", "var(--fvc-5B6458)"],
   cancelled: ["CANCELLED", "var(--fvb-F4F5EF)", "var(--fvc-5B6458)"],
@@ -109,7 +109,7 @@ const qtyText = (r: string, decimals: number, unit: string) => {
     return r;
   }
 };
-/** Engine figures: dollars only when the figure is a USD/USDC amount; token quantities keep their unit. */
+/** Impact: dollars only when the figure is a USD/USDC amount; token quantities keep their unit. */
 const figureText = (label: string, value: string) => {
   if (!/^-?\d+(\.\d+)?$/.test(value)) return value;
   const token = !/USDC|USD|\$/.test(label) && label.match(/\b(LiNEAR|rNEAR|NEAR)\b/)?.[1];
@@ -129,16 +129,12 @@ const raw6 = (r: string | null | undefined) => {
 
 function stages(p: Plan) {
   const signed = p.steps.filter((s) => s.approval === "owner_wallet");
-  const reachedWallet = signed.some((s) => IN_FLIGHT.includes(s.state) || s.state === "confirmed");
   const signedDone = signed.length > 0 && signed.every((s) => s.state === "confirmed" || s.state === "skipped") && signed.some((s) => s.state === "confirmed");
   const blocked = p.state === "blocked";
   return [
-    { id: "understand", label: "Understand", done: true },
-    { id: "evaluate", label: "Evaluate", done: !blocked, bad: blocked },
-    { id: "review", label: "Review", done: !!p.selectedChoiceId },
-    { id: "authorize", label: "Authorize", done: reachedWallet },
-    { id: "sign", label: "Sign", done: signedDone },
-    { id: "confirm", label: "Confirm result", done: p.state === "completed" },
+    { id: "review", label: "Review", done: !!p.selectedChoiceId, bad: blocked },
+    { id: "wallet", label: "Confirm in wallet", done: signedDone },
+    { id: "result", label: "Track result", done: p.state === "completed" },
   ];
 }
 
@@ -382,8 +378,8 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
             </section>
 
             {plan.figures?.length ? (
-              <section aria-label="Engine figures">
-                <h3 style={H3}>Engine figures</h3>
+              <section aria-label="Impact">
+                <h3 style={H3}>Impact</h3>
                 <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "1fr auto", rowGap: "6px", columnGap: "12px", fontSize: "13px" }}>
                   {plan.figures.map((f) => (
                     <div key={f.label} style={{ display: "contents" }}>
@@ -398,7 +394,7 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
             {plan.state === "blocked" || plan.state === "superseded" || plan.state === "expired" ? (
               <section aria-label="Why" style={{ padding: "12px", borderRadius: "10px", background: "var(--fvb-F7F8F3)", fontSize: "13px", color: "var(--fvc-4A5349)" }}>
                 <div style={{ fontWeight: 600, color: "var(--fvc-1E2A22)", marginBottom: "4px" }}>
-                  {plan.state === "blocked" ? "Why the engines refused" : plan.state === "superseded" ? "What changed" : "Why it expired"}
+                  {plan.state === "blocked" ? "What needs to change" : plan.state === "superseded" ? "What changed" : "Why it expired"}
                 </div>
                 <ul style={{ margin: 0, paddingLeft: "18px" }}>
                   {[...new Set(plan.blockedReasons)].slice(0, 8).map((r) => <li key={r}>{code(r)}</li>)}
@@ -548,7 +544,7 @@ function Alt({ a, label: given, recommended, canChoose, busy, onChoose }: { a: F
     <div style={{ border: "1px solid " + (a.eligible ? "var(--fvb-C9D9BF)" : "var(--fvb-E3E6DB)"), background: a.eligible ? "var(--fvb-F4F7EE)" : "var(--fvb-FFFFFF)", borderRadius: "10px", padding: "10px 12px", fontSize: "13px" }}>
       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
         <span aria-hidden style={{ color: a.eligible ? "var(--fvc-3F6B3C)" : "var(--fvc-9A3F32)", fontWeight: 700 }}>{a.eligible ? "✓" : "✕"}</span>
-        <span style={{ fontWeight: 600, color: "var(--fvc-1E2A22)", flex: 1 }}>{label}{recommended ? <span style={{ marginLeft: "6px", fontSize: "10.5px", fontWeight: 700, color: "var(--fvc-3F6B3C)" }}>ENGINE PICK</span> : null}</span>
+        <span style={{ fontWeight: 600, color: "var(--fvc-1E2A22)", flex: 1 }}>{label}{recommended ? <span style={{ marginLeft: "6px", fontSize: "10.5px", fontWeight: 700, color: "var(--fvc-3F6B3C)" }}>SUGGESTED</span> : null}</span>
         {a.amountUsdcRaw !== "0" ? <span style={{ fontWeight: 600 }}>{raw6(a.amountUsdcRaw)}</span> : null}
       </div>
       <div style={{ marginTop: "4px", color: "var(--fvc-6F786B)", fontSize: "12px" }}>
@@ -639,12 +635,13 @@ export function PlanCta({ cta }: { cta?: { label: string; onClick: () => void; n
 
 /** Activity: every saved plan for this workspace, newest first. Opening one resumes it in the dock. */
 export function PlanHistory({ scope }: { scope: Scope }) {
+  const [showArchived, setShowArchived] = useState(false);
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     const load = () =>
-      api("/api/plans", undefined, "GET").then(
+      api("/api/plans", undefined, "GET", scope).then(
         (r) => live && setPlans(r.plans ?? []),
         (e) => live && setErr(e instanceof Error ? e.message : String(e)),
       );
@@ -658,10 +655,12 @@ export function PlanHistory({ scope }: { scope: Scope }) {
   }, [scope]);
   if (err) return <p style={{ fontSize: "13px", color: "var(--fvc-9A3F32)" }}>Plans couldn’t be read: {err}</p>;
   if (!plans) return <p style={{ fontSize: "13px", color: "var(--fvc-8A9285)" }}>Reading saved plans…</p>;
-  if (!plans.length) return <p style={{ fontSize: "13px", color: "var(--fvc-8A9285)" }}>No plans yet. Ask FlowVault, or use “Plan this payment” on Pay on a date.</p>;
-  return (
+  if (!plans.length) return <p style={{ fontSize: "13px", color: "var(--fvc-8A9285)" }}>No plans yet. Create a payment or review an earning opportunity to get started.</p>;
+  const archived = plans.filter(p => ENDED.includes(p.state));
+  const visible = (showArchived ? plans : plans.filter(p => !ENDED.includes(p.state))).slice(0, 30);
+  return (<><div className="fv-section-head" style={{marginBottom:16}}><h2>{showArchived ? 'All saved plans' : 'Current plans'}</h2>{archived.length > 0 && <button type="button" style={btn(false)} onClick={() => setShowArchived(!showArchived)}>{showArchived ? 'Hide archived' : 'Show archived (' + archived.length + ')'}</button>}</div>{!visible.length && <p style={{fontSize:13,color:'var(--fvc-6F786B)'}}>No current plans. Completed and superseded plans are available in the archive.</p>}
     <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
-      {plans.slice(0, 12).map((p) => {
+      {visible.map((p) => {
         const st = PLAN_STATE[p.state] ?? [p.state.toUpperCase(), "var(--fvb-F4F5EF)", "var(--fvc-5B6458)"];
         const done = p.steps.filter((s) => s.state === "confirmed").length;
         return (
@@ -677,6 +676,6 @@ export function PlanHistory({ scope }: { scope: Scope }) {
           </li>
         );
       })}
-    </ul>
+    </ul></>
   );
 }

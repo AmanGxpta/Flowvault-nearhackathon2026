@@ -1,6 +1,8 @@
 // Generated from docs/design/FlowVault.html by the design converter, then edited by hand.
 /* eslint-disable */
 import { Fragment } from "react";
+import { LogoSelect } from "../LogoSelect";
+import { TokenIcon, NetworkLabel } from "../AssetIdentity";
 import { tc } from "../theme";
 
 // Design section: ADD OBLIGATION
@@ -37,7 +39,7 @@ export function AddObligationView({ v }: { v: any }) {
               color: "var(--fvc-5B6458)",
             }}
           >
-            Recipient receives (net){" "}
+            Recipient receives{" "}
             <div
               style={{
                 display: "flex",
@@ -48,21 +50,13 @@ export function AddObligationView({ v }: { v: any }) {
                 padding: "11px 12px",
               }}
             >
-              <span style={{ color: "var(--fvc-8A9285)" }}>$</span>
+
               <input
                 value={v.form.amount ?? ""}
                 onChange={v.onForm.amount}
                 style={{ flex: "1", width: "0", border: "none", outline: "none", fontSize: "15px" }}
               />
-              <select
-                value={v.form.token ?? "USDC"}
-                onChange={v.onForm.token}
-                aria-label="Token"
-                style={{ border: "none", background: "transparent", fontSize: "12px", color: "var(--fvc-8A9285)", outline: "none", cursor: "pointer" }}
-              >
-                <option>USDC</option>
-                <option>USDT</option>
-              </select>
+              <LogoSelect label="Token" value={v.form.token ?? "USDC"} onChange={value => v.onForm.token({target:{value}})} options={["USDC","USDT"].map(symbol=>({value:symbol,label:symbol,icon:<TokenIcon symbol={symbol} core size={22}/>}))}/>
             </div>
           </label>
           <label
@@ -74,24 +68,8 @@ export function AddObligationView({ v }: { v: any }) {
               color: "var(--fvc-5B6458)",
             }}
           >
-            Destination chain{" "}
-            <select
-              value={v.form.chain ?? ""}
-              onChange={v.onForm.chain}
-              style={{
-                padding: "12px",
-                border: "1px solid var(--fvb-DDE1D4)",
-                borderRadius: "10px",
-                fontSize: "14.5px",
-                background: "var(--fvb-FFFFFF)",
-              }}
-            >
-              <option>Arbitrum</option>
-              <option>Base</option>
-              <option>Ethereum</option>
-              <option>BNB Chain</option>
-              <option>NEAR</option>
-            </select>
+            Destination network{" "}
+            <LogoSelect label="Destination network" value={v.form.chain ?? "Arbitrum"} onChange={value=>v.onForm.chain({target:{value}})} options={[{value:"Arbitrum",network:"arb"},{value:"Base",network:"base"},{value:"Ethereum",network:"eth"},{value:"BNB Chain",network:"bnb"},{value:"NEAR",network:"near"}].map(x=>({value:x.value,label:x.value,icon:<NetworkLabel network={x.network} iconOnly/>}))}/>
           </label>
           <label
             style={{
