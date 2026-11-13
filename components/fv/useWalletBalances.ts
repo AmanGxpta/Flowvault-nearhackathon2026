@@ -42,10 +42,45 @@ export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enab
         const account = !prev || raw > BigInt(prev.largestRaw ?? prev.raw) ? pos.accountId : prev.account;
         balances[t.id] = { raw: total.toString(), amount: decimal(total, t.decimals), usd: usd ? usd.toFixed(2) : prev?.usd ?? null, account, largestRaw: (!prev || raw > BigInt(prev.largestRaw ?? prev.raw) ? raw : BigInt(prev.largestRaw ?? prev.raw)).toString() };
       }
+      // The portfolio reads finalized blocks (planning-safe, ~15 min behind on Ethereum). For swapping, replace the
+      // ETH and USDC figures with latest-block reads of each proven EVM wallet, so a just-made swap shows at once.
+      const wallets = new Map<string, string>();
+      for (const pos of (p.positions ?? []) as { chain?: string; accountId?: string; ownership?: string }[])
+        if (["eth", "base", "arb"].includes(pos.chain ?? "") && pos.accountId && pos.ownership !== "watched") wallets.set(pos.chain + "|" + pos.accountId.toLowerCase(), pos.accountId);
+      const fresh = await Promise.all([...wallets].map(async ([key, address]) => {
+        const chain = key.split("|")[0];
+        try { return { chain, address, ...(await api("/api/swap/balances?chain=" + chain + "&address=" + address, undefined, "GET")) as { nativeRaw: string; usdcRaw: string; usdc: string } }; } catch { return null; }
+      }));
+      const ratio = (id: string) => { const b = balances[id]; return b?.usd && Number(b.amount) > 0 ? Number(b.usd) / Number(b.amount) : null; };
+      const perToken = new Map<string, { raw: bigint; largest: bigint; account: string }>();
+      for (const f of fresh) {
+        if (!f) continue;
+        for (const [contract, raw] of [["native", f.nativeRaw], [f.usdc.toLowerCase(), f.usdcRaw]] as const) {
+          const t = tokens.find(x => x.network === f.chain && (contract === "native" ? x.contract === "native" : x.contract.toLowerCase() === contract));
+          if (!t || !/^\d+$/.test(raw)) continue;
+          const v = BigInt(raw), prev = perToken.get(t.id);
+          perToken.set(t.id, { raw: (prev?.raw ?? 0n) + v, largest: prev && prev.largest >= v ? prev.largest : v, account: prev && prev.largest >= v ? prev.account : f.address });
+        }
+      }
+      for (const [id, v] of perToken) {
+        const t = tokens.find(x => x.id === id)!;
+        const unit = ratio(id) ?? (t.price ? Number(t.price) : null);
+        if (v.raw <= 0n) { delete balances[id]; continue; }
+        const amount = decimal(v.raw, t.decimals);
+        balances[id] = { raw: v.raw.toString(), amount, usd: unit !== null ? (Number(amount) * unit).toFixed(2) : null, account: v.account, largestRaw: v.largest.toString() };
+      }
       setEvm({ balances, addresses, covered: [...covered] });
     } catch { /* portfolio unavailable: EVM/Solana balances stay "not read" */ }
   }, [enabled, tokens]);
   useEffect(() => { const t = setTimeout(() => void read(), 0); return () => clearTimeout(t); }, [read, tick]);
+  // Keep the form current after a swap: re-read when the tab regains focus and every 30 seconds while open.
+  useEffect(() => {
+    if (!enabled) return;
+    const bump = () => setTick(x => x + 1);
+    const timer = setInterval(bump, 30_000);
+    window.addEventListener("focus", bump);
+    return () => { clearInterval(timer); window.removeEventListener("focus", bump); };
+  }, [enabled]);
   const nearBalances: Record<string, Holding> = {};
   for (const [id, h] of Object.entries(near.balances)) nearBalances[id] = { ...h, account: nearAccount };
   const covered = new Set<string>([...evm.covered, ...(near.state === "ready" && nearAccount ? ["near"] : [])]);
