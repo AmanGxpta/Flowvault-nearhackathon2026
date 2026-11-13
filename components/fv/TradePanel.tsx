@@ -4,7 +4,8 @@
 // exact transactions, checks your balance, fees and limits, and your own wallet signs.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReviewFrame } from "./ReviewFrame";
-import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw, ArrowRight } from "lucide-react";
+import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw, ArrowRight, Wallet, ChevronDown } from "lucide-react";
+import { TokenIcon } from "./AssetIdentity";
 import { api } from "./live";
 import { fmtAmount, fmtUsd } from "./swap-format";
 import { DS_CHAINS, SOLANA_ID } from "@/lib/flowvault/trade-lifi";
@@ -21,9 +22,37 @@ interface Prepared {
 }
 const feeText = (f: { name: string; usd: string | null; included: boolean }) => `${f.name} ${f.usd === null ? "unknown" : fmtUsd(f.usd)}${f.included ? "" : " (on top)"}`;
 const short = (a?: string) => !a ? "" : a.length > 14 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
+
+const CHAIN_NET: Record<number, string> = { 1: "eth", 8453: "base", 42161: "arb", 56: "bsc", 10: "op", 137: "pol", 43114: "avax", 999: "hyperevm", [SOLANA_ID]: "sol" };
+const chainNet = (id?: number) => (id !== undefined ? CHAIN_NET[id] : undefined);
+/** Pay-with picker: token and network logos, your balance (or "none held"), largest holding first. */
+function PayWith({ options, pick, onPick }: { options: Option[] | null; pick: number; onPick: (i: number) => void }) {
+  const [open, setOpen] = useState(false), box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const o = options?.[pick];
+  if (!options) return <span className="fv-trade-token is-loading">Loading…</span>;
+  if (!o) return <span className="fv-trade-token">No wallet</span>;
+  return <div className="fv-paywith" ref={box}>
+    <button type="button" className="fv-token-select" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <TokenIcon symbol={o.symbol} network={chainNet(o.chainId)} image={o.logo ?? undefined} core={["ETH", "USDC", "SOL", "BNB"].includes(o.symbol)} size={26} />
+      <span><strong>{o.symbol}</strong><small>{o.chain}</small></span><ChevronDown size={14} />
+    </button>
+    {open && <div className="fv-paywith-menu" role="listbox">{options.map((x, i) => { const bal = best(x)?.amount; const has = !!bal && Number(bal) > 0; return <button type="button" role="option" aria-selected={i === pick} key={x.chainId + x.token} onClick={() => { onPick(i); setOpen(false); }}>
+      <TokenIcon symbol={x.symbol} network={chainNet(x.chainId)} image={x.logo ?? undefined} core={["ETH", "USDC", "SOL", "BNB"].includes(x.symbol)} size={24} />
+      <span><strong>{x.symbol}</strong><small>{x.chain}</small></span>
+      <em className={has ? "" : "is-empty"}>{has ? fmtAmount(bal!) : "none held"}</em>
+    </button>; })}</div>}
+  </div>;
+}
 const best = (o?: Option) => o?.balances.slice().sort((a, b) => Number(b.amount) - Number(a.amount))[0];
 
-export function TradePanel({ chain, address, symbol, inline, onAttempt }: { chain: string; address: string; symbol: string; inline?: boolean; onAttempt?: (a: WalletAttempt) => void }) {
+export function TradePanel({ chain, address, symbol, icon, inline, onAttempt }: { chain: string; address: string; symbol: string; icon?: string | null; inline?: boolean; onAttempt?: (a: WalletAttempt) => void }) {
   const chainId = DS_CHAINS[chain];
   const { sessions } = useMultiWallets();
   const evmWallets = sessions.filter(s => s.chain === "evm").map(s => s.address), solWallets = sessions.filter(s => s.chain === "solana").map(s => s.address);
@@ -72,32 +101,46 @@ export function TradePanel({ chain, address, symbol, inline, onAttempt }: { chai
 
   if (!chainId) return <p className="fv-muted">In-app trading doesn’t cover this network yet.</p>;
   const needFamily = chainId === SOLANA_ID ? "Solana" : "Ethereum-compatible";
+  const balanceOf = (o?: Option) => best(o)?.amount ?? null;
+  const payBalance = side === "buy" ? balanceOf(opt) : preview?.balance ?? null;
+  const fraction = (pct: bigint) => {
+    const bal = payBalance, dec = side === "buy" ? opt?.decimals : undefined;
+    if (!bal || !/^\d+(\.\d+)?$/.test(bal)) return;
+    const [w, f = ""] = bal.split("."), d = dec ?? Math.max(f.length, 0);
+    // Max uses the exact balance; percentages round down to 8 decimals so the box stays readable.
+    let raw = BigInt(w + f.padEnd(d, "0").slice(0, d)) * pct / 100n;
+    if (pct !== 100n && d > 8) raw = raw / 10n ** BigInt(d - 8) * 10n ** BigInt(d - 8);
+    const t = raw.toString().padStart(d + 1, "0"), v = d ? (t.slice(0, -d) + "." + t.slice(-d)).replace(/\.?0+$/, "") : t;
+    setAmount(raw > 0n ? v : "");
+  };
+  const paySymbol = side === "buy" ? opt?.symbol ?? "" : symbol;
   return <div className="fv-trade-panel">
-    <div className="fv-segment fv-segment-small"><button type="button" aria-pressed={side === "buy"} onClick={() => setSide("buy")}>Buy</button><button type="button" aria-pressed={side === "sell"} onClick={() => setSide("sell")}>Sell</button></div>
+    <div className="fv-trade-tabs" role="tablist" aria-label="Buy or sell">{(["buy", "sell"] as const).map(x => <button type="button" role="tab" key={x} aria-selected={side === x} className={"is-" + x} onClick={() => { setSide(x); setAmount(""); setPreview(null); }}>{x === "buy" ? "Buy" : "Sell"}</button>)}</div>
     {!targetFamily.length && <p className="fv-notice">Connect a {needFamily} wallet (wallet menu) to {side === "buy" ? "receive" : "sell"} {symbol}.</p>}
     {optError && <p role="alert" className="fv-notice">{optError}</p>}
-    <label className="fv-muted" style={{ display: "grid", gap: 4, marginTop: 8 }}>{side === "buy" ? "Pay with" : "Receive"}
-      <select value={pick} onChange={e => { setPick(Number(e.target.value)); setPreview(null); }} disabled={!options?.length}>
-        {(options ?? []).map((o, i) => <option key={o.chainId + o.token} value={i}>{o.symbol} on {o.chain}{best(o) ? ` · ${fmtAmount(best(o)!.amount)}` : ""}</option>)}
-      </select>
-    </label>
-    <label className="fv-muted" style={{ display: "grid", gap: 4, marginTop: 8 }}>Amount ({side === "buy" ? opt?.symbol ?? "" : symbol})
-      <span style={{ display: "flex", gap: 6 }}><input inputMode="decimal" value={amount} placeholder="0.0" onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ""))} style={{ flex: 1, minWidth: 0 }} />
-        {side === "buy" && best(opt) && <button type="button" className="fv-button" onClick={() => setAmount(best(opt)!.amount)}>Max</button>}
-        {side === "sell" && preview?.balance && <button type="button" className="fv-button" onClick={() => setAmount(preview.balance!)}>Max</button>}</span>
-    </label>
-    <div className="fv-segment fv-segment-small" style={{ marginTop: 8 }} aria-label="Slippage">{[100, 300, 500].map(b => <button type="button" key={b} aria-pressed={slippage === b} onClick={() => setSlippage(b)}>{b / 100}%</button>)}</div>
-    {preview && <div className="fv-confirm-table" style={{ marginTop: 10 }}>
-      <div><span>You get</span><strong>≈ {fmtAmount(preview.output)} {preview.to.symbol}{preview.toUsd ? <small> · {fmtUsd(preview.toUsd)}</small> : null}</strong></div>
-      <div><span>Minimum</span><strong>{fmtAmount(preview.minimum)} {preview.to.symbol}</strong></div>
+    <div className="fv-swap-amount fv-trade-box">
+      <div className="fv-swap-box-head"><label htmlFor={"trade-amt-" + address}>You pay</label>
+        {payBalance !== null ? <span className="fv-swap-balance"><Wallet size={13} /> {fmtAmount(payBalance)}{Number(payBalance) > 0 && [25n, 50n, 100n].map(x => <button type="button" key={String(x)} onClick={() => fraction(x)}>{x === 100n ? "Max" : x + "%"}</button>)}</span> : null}</div>
+      <div className="fv-swap-line"><input id={"trade-amt-" + address} className={amount.length > 9 ? "is-long" : undefined} inputMode="decimal" autoComplete="off" value={amount} placeholder="0" onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ""))} aria-label={"Amount in " + paySymbol} />
+        {side === "buy" ? <PayWith options={options} pick={pick} onPick={i => { setPick(i); setPreview(null); setAmount(""); }} /> : <span className="fv-trade-token"><TokenIcon symbol={symbol} network={chainNet(chainId)} image={icon ?? undefined} size={24} />{symbol}</span>}</div>
+      <small>{preview?.fromUsd ? fmtUsd(preview.fromUsd) : " "}{preview?.enough === false && <b className="fv-swap-warn"> · more than your balance</b>}</small>
+    </div>
+    <div className="fv-swap-amount fv-swap-receive fv-trade-box">
+      <div className="fv-swap-box-head"><span>You receive</span></div>
+      <div className="fv-swap-line"><strong className={"fv-swap-output" + (loading ? " fv-loading-text" : "")}>{preview ? fmtAmount(preview.output) : loading ? "…" : "0"}</strong>
+        {side === "buy" ? <span className="fv-trade-token"><TokenIcon symbol={symbol} network={chainNet(chainId)} image={icon ?? undefined} size={24} />{symbol}</span> : <PayWith options={options} pick={pick} onPick={i => { setPick(i); setPreview(null); }} />}</div>
+      <small>{preview?.toUsd ? fmtUsd(preview.toUsd) : " "}</small>
+    </div>
+    <div className="fv-trade-slip" role="group" aria-label="Slippage"><span>Slippage</span>{[100, 300, 500].map(b => <button type="button" key={b} aria-pressed={slippage === b} onClick={() => setSlippage(b)}>{b / 100}%</button>)}</div>
+    {preview && <div className="fv-swap-facts fv-chat-facts fv-trade-facts">
+      <div><span>Minimum received</span><strong>{fmtAmount(preview.minimum)} {preview.to.symbol}</strong></div>
       <div><span>Route</span><strong>{preview.tool} · {preview.fromChain === preview.toChain ? preview.fromChain : `${preview.fromChain} → ${preview.toChain}`}{preview.durationSec ? ` · ~${preview.durationSec}s` : ""}</strong></div>
       <div><span>Fees</span><strong>{preview.fees.length ? preview.fees.map(feeText).join(" · ") : "none listed"}{preview.gasUsd ? ` · gas ${fmtUsd(preview.gasUsd)}` : " · gas unknown"}</strong></div>
-      {preview.balance !== null && <div><span>Your balance</span><strong className={preview.enough === false ? "fv-down" : ""}>{fmtAmount(preview.balance)} {preview.from.symbol}</strong></div>}
     </div>}
     {pvError && <p role="alert" className="fv-notice">{/no available quotes|No available quotes|no route/i.test(pvError) ? `No route for this amount right now. Try another amount or pay token.` : pvError}</p>}
-    <button type="button" className="fv-button fv-primary fv-wide-button" style={{ marginTop: 10 }} disabled={!body || !preview || preview.enough === false || loading} onClick={() => body && setReview({ body })}>
-      {loading ? <><RefreshCw size={14} className="fv-spin" /> Quoting…</> : preview?.enough === false ? "Not enough balance" : !amount ? "Enter an amount" : `Review ${side} ${symbol}`}</button>
-    <p className="fv-muted" style={{ fontSize: 12, marginTop: 6 }}>Routed by LI.FI from your own wallets{sender ? ` (${short(sender)}${recipient && recipient !== sender ? " → " + short(recipient) : ""})` : ""}. Your wallet signs; FlowVault never holds funds.</p>
+    <button type="button" className="fv-button fv-primary fv-wide-button fv-trade-cta" disabled={!body || !preview || preview.enough === false || loading} onClick={() => body && setReview({ body })}>
+      {loading ? <><RefreshCw size={14} className="fv-spin" /> Quoting…</> : preview?.enough === false ? `Not enough ${paySymbol}` : !amount ? "Enter an amount" : `Review ${side} ${symbol}`}</button>
+    <p className="fv-trade-note">Routed by LI.FI from your own wallets{sender ? ` (${short(sender)}${recipient && recipient !== sender ? " → " + short(recipient) : ""})` : ""}. Your wallet signs; FlowVault never holds funds.</p>
     {review && <TradeReview body={review.body} sessions={sessions} close={() => setReview(null)} inline={inline} onAttempt={onAttempt} />}
   </div>;
 }

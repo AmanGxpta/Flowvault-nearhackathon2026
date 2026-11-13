@@ -672,3 +672,21 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .fv-market-panel>.fv-panel-foot{border-radius:0 0 16px 16px}
 .fv-prochart{position:relative}.fv-prochart-zoom{position:absolute;right:76px;top:30px;z-index:3;display:flex;gap:4px}
 .fv-prochart-zoom button{min-width:26px;height:24px;padding:0 7px;border:1px solid var(--fvb-E3E6DB);border-radius:7px;background:var(--fvb-FFFFFF);color:var(--fvc-4A5349);font-size:12px;cursor:pointer}.fv-prochart-zoom button:hover{background:var(--fvb-F4F7EE)}
+/* LI.FI trade panel, in the swap card's style */
+.fv-trade-panel{display:flex;flex-direction:column;gap:10px}
+.fv-trade-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:12px;background:var(--fvb-F7F8F3);border:1px solid var(--fvb-E3E6DB)}
+.fv-trade-tabs button{border:0;border-radius:9px;padding:9px;background:transparent;font-size:14px;font-weight:500;color:var(--fvc-6F786B);cursor:pointer}
+.fv-trade-tabs button.is-buy[aria-selected=true]{background:var(--fvb-2A4034);color:var(--fvc-FFFFFF)}.fv-trade-tabs button.is-sell[aria-selected=true]{background:var(--fvc-9A3F32);color:#fff}
+.fv-trade-box{padding:12px 14px!important;border-radius:14px!important}.fv-trade-box input{font-size:26px!important;margin:8px 0 4px!important;min-width:0}.fv-trade-box .fv-swap-output{font-size:24px;padding:8px 0 4px;overflow:hidden;text-overflow:ellipsis}
+.fv-trade-box .fv-swap-line{display:flex;align-items:center;gap:8px}.fv-trade-box .fv-swap-line>input,.fv-trade-box .fv-swap-line>strong{flex:1;min-width:0}
+.fv-trade-token{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--fvb-E3E6DB);border-radius:12px;background:var(--fvb-FFFFFF);font-weight:600;font-size:14px;white-space:nowrap}.fv-trade-token.is-loading{color:var(--fvc-8A9285);font-weight:400}
+.fv-paywith{position:relative}.fv-paywith .fv-token-select span{display:flex;flex-direction:column}.fv-paywith .fv-token-select small{font-size:10px;color:var(--fvc-6F786B)}
+.fv-paywith-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:230px;background:var(--fvb-FFFFFF);border:1px solid var(--fvb-E3E6DB);border-radius:12px;box-shadow:0 14px 40px rgba(30,42,34,.16);padding:6px;display:flex;flex-direction:column;max-height:300px;overflow:auto}
+.fv-paywith-menu button{display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:10px;padding:8px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;cursor:pointer}.fv-paywith-menu button:hover,.fv-paywith-menu button[aria-selected=true]{background:var(--fvb-F4F7EE)}
+.fv-paywith-menu span{display:flex;flex-direction:column}.fv-paywith-menu strong{font-size:13.5px}.fv-paywith-menu small{font-size:11px;color:var(--fvc-8A9285)}.fv-paywith-menu em{font-style:normal;font-size:12.5px;font-variant-numeric:tabular-nums}.fv-paywith-menu em.is-empty{color:var(--fvc-8A9285)}
+.fv-trade-slip{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fvc-6F786B)}.fv-trade-slip span{margin-right:auto}
+.fv-trade-slip button{border:1px solid var(--fvb-E3E6DB);border-radius:999px;padding:4px 10px;background:var(--fvb-FFFFFF);font-size:12px;color:var(--fvc-4A5349);cursor:pointer}.fv-trade-slip button[aria-pressed=true]{background:var(--fvb-F4F7EE);border-color:var(--fvb-CDD6C1);color:var(--fvc-2F552D);font-weight:600}
+.fv-trade-cta{min-height:46px;margin:2px 0 0!important;display:flex;align-items:center;justify-content:center;gap:8px}
+.fv-trade-note{font-size:11.5px;line-height:1.5;color:var(--fvc-8A9285);margin:0}
+.fv-trade-panel .fv-notice{margin:0}
+.fv-trade-box input.is-long{font-size:20px!important}
