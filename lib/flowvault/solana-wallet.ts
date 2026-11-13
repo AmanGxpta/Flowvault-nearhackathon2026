@@ -32,3 +32,21 @@ export async function sendSolanaLeg(session: WalletSession, tx: unknown): Promis
   const t = tx as SolanaTransfer;
   return sendSolanaTransfer(session, t, t.depositAddress, t.amountRaw);
 }
+
+/** In-app trade (LI.FI route) from a Solana wallet: the prepared transaction, unchanged, only when the owner pays
+ * and is its only signer. Returns the signature. */
+export async function sendSolanaRoute(session: WalletSession, base64: string): Promise<string> {
+  if (session.chain !== "solana") throw new Error("Use the Solana wallet that holds the token.");
+  const { assertOwnerOnly } = await import("./trade-solana");
+  assertOwnerOnly(base64, session.address);
+  const wallet = solanaWallet(session.walletId);
+  if (!wallet) throw new Error(session.walletName + " isn't available in this browser. Reconnect it from the wallet menu.");
+  const send = wallet.features?.["solana:signAndSendTransaction"];
+  if (!send) throw new Error(session.walletName + " can't send Solana transactions from this site. Use Phantom, Solflare or Backpack.");
+  if (!wallet.accounts?.some((a: any) => a.address === session.address)) await wallet.features["standard:connect"].connect();
+  const account = wallet.accounts?.find((a: any) => a.address === session.address);
+  if (!account) throw new Error("Select " + session.address + " in " + session.walletName + ", then try again.");
+  const [out] = await send.signAndSendTransaction({ account, chain: "solana:mainnet", transaction: fromBase64(base64), options: { preflightCommitment: "confirmed" } });
+  if (!out?.signature) throw new Error(session.walletName + " didn't return a transaction signature.");
+  return signatureText(new Uint8Array(out.signature));
+}

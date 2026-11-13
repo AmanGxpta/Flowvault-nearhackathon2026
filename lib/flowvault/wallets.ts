@@ -345,3 +345,42 @@ export async function evmSessionFor(address: string): Promise<WalletSession | nu
   }
   return null;
 }
+
+/** In-app trade (LI.FI route) from an EVM wallet: exactly the prepared approval or route transaction, on the
+ * prepared chain, from the prepared address. Switches the wallet to that chain first, offering to add it (with
+ * LI.FI's published network details) when the wallet doesn't know it. Returns the transaction hash. */
+export async function sendTradeEvm(s: WalletSession, tx: { chainId: number; from: string; to: string; value: string; data: string; gasLimit: string | null }, expected: { chainId: number; from: string; to: string; value: string; data: string }, chainParams: unknown) {
+  start();
+  if (s.chain !== "evm") throw new Error("Use the Ethereum-compatible wallet that holds the token.");
+  const d = evm.get(s.walletId);
+  if (!d) throw new Error(s.walletName + " isn’t available in this browser. Reconnect it from the wallet menu.");
+  if (tx.chainId !== expected.chainId || tx.from.toLowerCase() !== expected.from.toLowerCase() || tx.from.toLowerCase() !== s.address.toLowerCase() || tx.to.toLowerCase() !== expected.to.toLowerCase() || BigInt(tx.value) !== BigInt(expected.value) || tx.data.toLowerCase() !== expected.data.toLowerCase())
+    throw new Error("The prepared transaction doesn’t match the review. Nothing was sent.");
+  const accounts: string[] = await d.provider.request({ method: "eth_requestAccounts" });
+  if (!accounts.some((a) => a.toLowerCase() === s.address.toLowerCase())) throw new Error("Select " + s.address + " in " + s.walletName + ", then try again.");
+  const want = "0x" + tx.chainId.toString(16);
+  const current: string = await d.provider.request({ method: "eth_chainId" });
+  if (BigInt(current) !== BigInt(tx.chainId)) {
+    try { await d.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: want }] }); }
+    catch (e) {
+      const p = chainParams as { chainName?: string; rpcUrls?: string[]; nativeCurrency?: unknown; blockExplorerUrls?: string[] } | null;
+      if ((e as { code?: number }).code !== 4902 || !p?.chainName || !p.rpcUrls?.length) throw e;
+      await d.provider.request({ method: "wallet_addEthereumChain", params: [{ chainId: want, chainName: p.chainName, rpcUrls: p.rpcUrls, nativeCurrency: p.nativeCurrency, blockExplorerUrls: p.blockExplorerUrls }] });
+    }
+  }
+  const hash: string = await d.provider.request({ method: "eth_sendTransaction", params: [{ from: s.address, to: tx.to, value: tx.value, data: tx.data, ...(tx.gasLimit ? { gas: tx.gasLimit } : {}) }] });
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error(s.walletName + " didn’t return a transaction hash.");
+  return hash;
+}
+/** Waits (through the wallet's own RPC) until a transaction is mined; true when it succeeded. */
+export async function waitEvmReceipt(s: WalletSession, hash: string, timeoutMs = 180_000) {
+  const d = evm.get(s.walletId);
+  if (!d) throw new Error(s.walletName + " isn’t available in this browser.");
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    const r = await d.provider.request({ method: "eth_getTransactionReceipt", params: [hash] }).catch(() => null) as { status?: string } | null;
+    if (r?.status) return r.status === "0x1";
+    await new Promise((res) => setTimeout(res, 2500));
+  }
+  throw new Error("The approval hasn’t confirmed yet. Check again in a moment; nothing else was sent.");
+}

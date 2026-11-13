@@ -51,6 +51,7 @@ const workerSetting = (name: string) => {
 };
 import { holdback } from "@/lib/flowvault/obligations";
 import { rheaJournalAction } from "@/lib/flowvault/rhea-markets-live";
+import { tradeJournalAction } from "@/lib/flowvault/trade-live";
 export async function GET(request: Request) {
   try {
     const s = await session(request);
@@ -77,13 +78,14 @@ export async function POST(request: Request) {
         id: z.string().uuid(),
         action: z.enum(["authorize", "attach", "check", "uncertain", "declined"]),
         hashes: z
-          .array(z.string().regex(/^(?:[1-9A-HJ-NP-Za-km-z]{43,44}|0x[0-9a-fA-F]{64})$/))
+          .array(z.string().regex(/^(?:[1-9A-HJ-NP-Za-km-z]{43,44}|[1-9A-HJ-NP-Za-km-z]{64,90}|0x[0-9a-fA-F]{64})$/))
           .max(4)
           .optional(),
       })
       .parse(await request.json());
     const { attempt, previous } = await readAttempt(s.id, b.id);
-    if (b.action === "declined" && attempt.kind !== "swap" && attempt.kind !== "lend") throw new Error("Only swaps and Rhea actions record a declined wallet request here.");
+    if (b.action === "declined" && !["swap", "lend", "trade"].includes(attempt.kind)) throw new Error("Only swaps, trades and Rhea actions record a declined wallet request here.");
+    if (attempt.kind === "trade") return json({ attempt: await tradeJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
     if (attempt.kind === "lend") return json({ attempt: await rheaJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
     if (attempt.kind === "sell") return json({attempt:await saleJournalAction(request,b.id,b.action,b.hashes)},s.cookie);
     if (attempt.kind === "swap") return json({ attempt: await swapJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);

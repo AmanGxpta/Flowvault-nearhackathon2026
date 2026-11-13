@@ -17,6 +17,24 @@ export const CHAINS: Record<string, { network: string; gecko: string; label: str
   solana: { network: "sol", gecko: "solana", label: "Solana" }, bsc: { network: "bsc", gecko: "bsc", label: "BNB Chain" },
   polygon: { network: "pol", gecko: "polygon_pos", label: "Polygon" }, avalanche: { network: "avax", gecko: "avax", label: "Avalanche" },
   optimism: { network: "op", gecko: "optimism", label: "Optimism" },
+  // More DexScreener chains with GeckoTerminal candles; trading on them runs through LI.FI (trade-lifi.ts).
+  robinhood: { network: "hood", gecko: "robinhood", label: "Robinhood Chain" }, elysium: { network: "elysium", gecko: "elysium", label: "Elysium" },
+  hyperevm: { network: "hyperevm", gecko: "hyperevm", label: "HyperEVM" }, monad: { network: "monad", gecko: "monad", label: "Monad" },
+  sonic: { network: "sonic", gecko: "sonic", label: "Sonic" }, unichain: { network: "unichain", gecko: "unichain", label: "Unichain" },
+  ink: { network: "ink", gecko: "ink", label: "Ink" }, abstract: { network: "abstract", gecko: "abstract", label: "Abstract" },
+  linea: { network: "linea", gecko: "linea", label: "Linea" }, mantle: { network: "mantle", gecko: "mantle", label: "Mantle" },
+  berachain: { network: "bera", gecko: "berachain", label: "Berachain" }, scroll: { network: "scroll", gecko: "scroll", label: "Scroll" },
+  zksync: { network: "zksync", gecko: "zksync", label: "zkSync" }, seiv2: { network: "sei", gecko: "sei-evm", label: "Sei" },
+  cronos: { network: "cronos", gecko: "cro", label: "Cronos" }, celo: { network: "celo", gecko: "celo", label: "Celo" },
+  worldchain: { network: "worldchain", gecko: "world-chain", label: "World Chain" }, apechain: { network: "apechain", gecko: "apechain", label: "ApeChain" },
+  soneium: { network: "soneium", gecko: "soneium", label: "Soneium" }, plasma: { network: "plasma", gecko: "plasma", label: "Plasma" },
+  katana: { network: "katana", gecko: "katana", label: "Katana" }, megaeth: { network: "megaeth", gecko: "megaeth", label: "MegaETH" },
+  xlayer: { network: "xlayer", gecko: "x-layer", label: "X Layer" }, gnosischain: { network: "gnosis", gecko: "xdai", label: "Gnosis" },
+  metis: { network: "metis", gecko: "metis", label: "Metis" }, mode: { network: "mode", gecko: "mode", label: "Mode" },
+  fraxtal: { network: "fraxtal", gecko: "fraxtal", label: "Fraxtal" }, ronin: { network: "ronin", gecko: "ronin", label: "Ronin" },
+  flare: { network: "flare", gecko: "flare", label: "Flare" }, kaia: { network: "kaia", gecko: "kaia", label: "Kaia" },
+  morph: { network: "morph", gecko: "morph-l2", label: "Morph" }, hemi: { network: "hemi", gecko: "hemi", label: "Hemi" },
+  etherlink: { network: "etherlink", gecko: "etherlink", label: "Etherlink" }, taiko: { network: "taiko", gecko: "taiko", label: "Taiko" },
 };
 const ADDRESS = /^[A-Za-z0-9._:-]{2,90}$/;
 const num = (x: unknown): number | null => { const n = typeof x === "string" ? Number(x) : x; return typeof n === "number" && Number.isFinite(n) ? n : null; };
@@ -86,7 +104,7 @@ export function trustSignals(r: MarketRow, ctx: { listedForSwap: boolean; verifi
     : { label: "Thin liquidity", tone: "bad", detail: "Under $50k in the main pool. Expect high price impact and exit risk." });
   if (ageDays !== null) out.push(ageDays >= 90 ? { label: "Established pool", tone: "good", detail: `Main pool is ${Math.floor(ageDays)} days old.` } : ageDays >= 7 ? { label: "Young pool", tone: "warn", detail: `Main pool is ${Math.floor(ageDays)} days old.` } : { label: "Brand-new pool", tone: "bad", detail: "Main pool is under a week old. New tokens carry the most risk." });
   if (liq > 0) { const turn = vol / liq; out.push(turn > 20 ? { label: "Unusual turnover", tone: "warn", detail: `24h volume is ${turn.toFixed(0)}× liquidity, which can signal wash trading or a short-lived spike.` } : { label: "Normal turnover", tone: "good", detail: `24h volume is ${turn.toFixed(1)}× liquidity.` }); }
-  out.push(ctx.listedForSwap ? { label: "Swappable in FlowVault", tone: "good", detail: "Listed in the NEAR Intents / Ref catalog FlowVault quotes from." } : { label: "Not in FlowVault’s catalog", tone: "warn", detail: "FlowVault can’t quote this token; trading it means using another venue." });
+  out.push(ctx.listedForSwap ? { label: "Swappable in FlowVault", tone: "good", detail: "Listed in the NEAR Intents / Ref catalog FlowVault quotes from." } : { label: "Routed through LI.FI", tone: "good", detail: "Not in the NEAR catalog; FlowVault quotes it live through LI.FI from your own wallets, and shows when no route exists." });
   if (ctx.verifiedMetadata !== null) out.push(ctx.verifiedMetadata ? { label: "Metadata matches", tone: "good", detail: "On-chain token metadata matches the catalog’s symbol and decimals." } : { label: "Metadata mismatch", tone: "bad", detail: "On-chain metadata differs from the catalog. Check the contract before trading." });
   return out;
 }

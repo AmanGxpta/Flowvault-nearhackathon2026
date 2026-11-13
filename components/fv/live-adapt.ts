@@ -27,6 +27,8 @@ const ATTEMPT_STATUS: Record<string, string> = {
   unknown: "stuck",
 };
 const LEND: Record<string, [string, string]> = { supply: ["Supply", "Supply"], withdraw: ["Withdrawal", "Withdraw"], collateral_add: ["Supply", "Add collateral"], collateral_release: ["Withdrawal", "Release collateral"], borrow: ["Borrow", "Borrow"], repay: ["Repay", "Repay"] };
+const tradeTitle = (a: any) => `${a.preparation?.from?.symbol ?? ""} → ${a.preparation?.to?.symbol ?? ""}`;
+const tradeSub = (a: any) => `${a.preparation?.tool ?? "LI.FI"} · ${a.preparation?.fromChainName === a.preparation?.toChainName ? a.preparation?.fromChainName : `${a.preparation?.fromChainName} → ${a.preparation?.toChainName}`}`;
 const lendSub = (a: any) => "Rhea Lending · " + (a.preparation?.healthAfter ? "health after " + a.preparation.healthAfter : "in-app");
 const lendKind = (a: any) => LEND[a.preparation?.action]?.[0] ?? "Lending";
 const lendTitle = (a: any) => `${LEND[a.preparation?.action]?.[1] ?? "Rhea"} ${a.preparation?.amount ?? ""} ${a.preparation?.symbol ?? ""}`.trim();
@@ -104,10 +106,10 @@ export function liveState(snap: LiveSnapshot) {
       return {
         id: a.id,
         src: "journal",
-        kind: a.kind === "swap" ? "Swap" : a.kind === "lend" ? lendKind(a) : KIND[a.kind] ?? a.kind,
-        title: a.kind === "swap" ? swapTitle(a) : a.kind === "lend" ? lendTitle(a) : a.kind === "pay" ? "Payout" : "Rhea Lending",
+        kind: a.kind === "swap" || a.kind === "trade" ? "Swap" : a.kind === "lend" ? lendKind(a) : KIND[a.kind] ?? a.kind,
+        title: a.kind === "swap" ? swapTitle(a) : a.kind === "trade" ? tradeTitle(a) : a.kind === "lend" ? lendTitle(a) : a.kind === "pay" ? "Payout" : "Rhea Lending",
         amount,
-        sub: whenLabel(a.createdAt) + " · " + (a.kind === "swap" ? swapSub(a) : a.kind === "lend" ? lendSub(a) : a.kind === "supply" ? "native USDC → Rhea · collateral off" : a.kind === "withdraw" ? "Rhea → wallet" : "payout"),
+        sub: whenLabel(a.createdAt) + " · " + (a.kind === "swap" ? swapSub(a) : a.kind === "trade" ? tradeSub(a) : a.kind === "lend" ? lendSub(a) : a.kind === "supply" ? "native USDC → Rhea · collateral off" : a.kind === "withdraw" ? "Rhea → wallet" : "payout"),
         status: ATTEMPT_STATUS[a.state] ?? "progress",
         steps: steps.length ? steps : [{ label: phaseLabel(a.state), detail: a.message, time: whenLabel(a.updatedAt), hash: "", state: stepState(a.state) }],
         foot: a.message || "Status from the server journal.",

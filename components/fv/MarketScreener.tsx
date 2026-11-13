@@ -9,8 +9,8 @@ export type ScreenRow = MarketRow & { swapId: string | null };
 type Feed = "top" | "trending" | "new" | "watch";
 type SortKey = "volume" | "change" | "liquidity" | "txns" | "age" | "mcap";
 const FEEDS: { id: Feed; label: string; Icon: typeof Flame }[] = [{ id: "top", label: "NEAR markets", Icon: Trophy }, { id: "trending", label: "Trending", Icon: Flame }, { id: "new", label: "New", Icon: Sparkles }];
-const CHAIN_OPTS = [["all", "All chains"], ["near", "NEAR"], ["solana", "Solana"], ["base", "Base"], ["ethereum", "Ethereum"], ["bsc", "BNB Chain"], ["arbitrum", "Arbitrum"]] as const;
-const NET: Record<string, string> = { near: "near", ethereum: "eth", base: "base", arbitrum: "arb", solana: "solana", bsc: "bnb", polygon: "pol", avalanche: "avax", optimism: "op" };
+const CHAIN_OPTS = [["all", "All chains"], ["near", "NEAR"], ["solana", "Solana"], ["base", "Base"], ["ethereum", "Ethereum"], ["bsc", "BNB Chain"], ["arbitrum", "Arbitrum"], ["robinhood", "Robinhood"], ["hyperevm", "HyperEVM"], ["elysium", "Elysium"], ["monad", "Monad"]] as const;
+const NET: Record<string, string> = { near: "near", ethereum: "eth", base: "base", arbitrum: "arb", solana: "solana", bsc: "bnb", polygon: "pol", avalanche: "avax", optimism: "op", hyperevm: "hyperliquid", elysium: "hyperliquid", monad: "monad", berachain: "bera", scroll: "scroll", xlayer: "xlayer", plasma: "plasma", abstract: "abstract", gnosischain: "gnosis" };
 export const marketId = (r: { chain: string; address: string }) => r.chain + ":" + r.address;
 
 function useFeed(feed: Feed, chain: string, ids: string[], tick: number) {

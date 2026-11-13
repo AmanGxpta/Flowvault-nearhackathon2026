@@ -5,6 +5,7 @@ import { TokenIcon } from "./AssetIdentity";
 import { CandleChart } from "./MarketPanel";
 import { chainNetwork, marketId, type ScreenRow } from "./MarketScreener";
 import { api } from "./live";
+import { TradePanel } from "./TradePanel";
 import { fmtUsd, fmtPct, ago } from "./swap-format";
 import type { Candle } from "@/lib/flowvault/market-display";
 
@@ -16,12 +17,20 @@ export function TokenPage({ token, back, buy, watched, toggleWatch, share }: { t
   const [tf, setTf] = useState("1h");
   const [detail, setDetail] = useState<Detail | null>(null), [error, setError] = useState("");
   const [policy, setPolicy] = useState<PolicyView["policy"] | null>(null);
+  // Live: price, stats and candles re-read every 15 seconds while the page is visible (and on return to the tab).
   useEffect(() => {
-    const abort = new AbortController();
-    fetch(`/api/discover/token?chain=${encodeURIComponent(token.chain)}&address=${encodeURIComponent(token.address)}&tf=${tf}`, { signal: abort.signal, cache: "no-store" })
-      .then(async r => { const b = await r.json() as Detail & { error?: string }; if (!r.ok) throw new Error(b.error); setDetail(b); setError(""); })
-      .catch(e => { if (!abort.signal.aborted) setError((e as Error).message); });
-    return () => abort.abort();
+    let abort = new AbortController();
+    const read = () => {
+      if (document.visibilityState === "hidden") return;
+      abort.abort(); abort = new AbortController();
+      fetch(`/api/discover/token?chain=${encodeURIComponent(token.chain)}&address=${encodeURIComponent(token.address)}&tf=${tf}`, { signal: abort.signal, cache: "no-store" })
+        .then(async r => { const b = await r.json() as Detail & { error?: string }; if (!r.ok) throw new Error(b.error); setDetail(b); setError(""); })
+        .catch(e => { if (!abort.signal.aborted) setError((e as Error).message); });
+    };
+    read();
+    const timer = setInterval(read, 15_000);
+    document.addEventListener("visibilitychange", read);
+    return () => { abort.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", read); };
   }, [token.chain, token.address, tf]);
   useEffect(() => { api("/api/policy", undefined, "GET").then((b: PolicyView) => setPolicy(b.policy ?? null)).catch(() => setPolicy(null)); }, []);
 
@@ -62,7 +71,7 @@ export function TokenPage({ token, back, buy, watched, toggleWatch, share }: { t
         <section className="fv-panel fv-token-buy">
           <h2>Trade {symbol}</h2>
           {detail?.swapId ? <><p>Best route across Rhea / Ref and NEAR Intents, checked against your limits.</p><div className="fv-actions"><button type="button" className="fv-button fv-primary" onClick={() => buy(detail.swapId!)}>Buy {symbol}</button><button type="button" className="fv-button" onClick={() => buy("sell:" + detail.swapId!)}>Sell</button></div></>
-            : <p className="fv-muted">{detail ? "FlowVault can’t quote this token yet. It isn’t in the NEAR Intents / Ref catalog." : "Checking availability…"}</p>}
+            : detail ? <TradePanel chain={token.chain} address={token.address} symbol={symbol} /> : <p className="fv-muted">Checking availability…</p>}
           {r?.url && <a className="fv-text-button" href={r.url} target="_blank" rel="noopener noreferrer">Pair on DexScreener <ArrowUpRight size={13} /></a>}
           {r?.website && <a className="fv-text-button" href={r.website} target="_blank" rel="noopener noreferrer"><Globe size={13} /> Website</a>}
         </section>
