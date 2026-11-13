@@ -345,7 +345,7 @@ export class DesignApp extends Component<any, any> {
     const cmpTabs = sorted.filter((o: any) => days(o.due) > 0).slice(0, 4).map((o: any) => ({ label: o.name.split(' ')[0] + ' · ' + dlabel(o.due), bg: o.id === cmpOb.id ? '#fff' : 'transparent', shadow: o.id === cmpOb.id ? '0 1px 3px rgba(0,0,0,.08)' : 'none', onClick: () => self.setState({ compareTo: o.id }) }));
 
     // activity
-    const kindIcon: any = { Payout: ['↗', '#E7ECF3', '#3F5A7A'], Supply: ['↑', '#E2EAD6', '#3F6B3C'], Withdrawal: ['↙', '#F6EBDD', '#8A5F25'], Swap: ['⇄', '#EEF4E4', '#3F6B3C'] };
+    const kindIcon: any = { Payout: ['↗', '#E7ECF3', '#3F5A7A'], Supply: ['↑', '#E2EAD6', '#3F6B3C'], Withdrawal: ['↙', '#F6EBDD', '#8A5F25'], Swap: ['⇄', '#EEF4E4', '#3F6B3C'], Borrow: ['↓', '#F6EBDD', '#8A5F25'], Repay: ['↺', '#E2EAD6', '#3F6B3C'] };
     const OTHER_ICON = ['•', '#EEF0E8', '#5B6458']; // any journal kind without its own icon must still render
     const ops = s.ops.map((o: any) => {
       const st = ST[o.status] || ST.progress; const ic = kindIcon[o.kind] ?? OTHER_ICON; const open = s.openOp === o.id;

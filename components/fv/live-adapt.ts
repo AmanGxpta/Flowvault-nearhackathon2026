@@ -26,6 +26,10 @@ const ATTEMPT_STATUS: Record<string, string> = {
   partial: "stuck",
   unknown: "stuck",
 };
+const LEND: Record<string, [string, string]> = { supply: ["Supply", "Supply"], withdraw: ["Withdrawal", "Withdraw"], collateral_add: ["Supply", "Add collateral"], collateral_release: ["Withdrawal", "Release collateral"], borrow: ["Borrow", "Borrow"], repay: ["Repay", "Repay"] };
+const lendSub = (a: any) => "Rhea Lending · " + (a.preparation?.healthAfter ? "health after " + a.preparation.healthAfter : "in-app");
+const lendKind = (a: any) => LEND[a.preparation?.action]?.[0] ?? "Lending";
+const lendTitle = (a: any) => `${LEND[a.preparation?.action]?.[1] ?? "Rhea"} ${a.preparation?.amount ?? ""} ${a.preparation?.symbol ?? ""}`.trim();
 const KIND: Record<string, string> = { supply: "Supply", withdraw: "Withdrawal", pay: "Payout" };
 const stepState = (status: string) =>
   /fail|error|reject|revert/i.test(status) ? "fail" : /unknown|uncertain|warn|refund/i.test(status) ? "warn" : /pending|wait|await|prepar/i.test(status) ? "pending" : "done";
@@ -100,10 +104,10 @@ export function liveState(snap: LiveSnapshot) {
       return {
         id: a.id,
         src: "journal",
-        kind: a.kind === "swap" ? "Swap" : KIND[a.kind] ?? a.kind,
-        title: a.kind === "swap" ? swapTitle(a) : a.kind === "pay" ? "Payout" : "Rhea Lending",
+        kind: a.kind === "swap" ? "Swap" : a.kind === "lend" ? lendKind(a) : KIND[a.kind] ?? a.kind,
+        title: a.kind === "swap" ? swapTitle(a) : a.kind === "lend" ? lendTitle(a) : a.kind === "pay" ? "Payout" : "Rhea Lending",
         amount,
-        sub: whenLabel(a.createdAt) + " · " + (a.kind === "swap" ? swapSub(a) : a.kind === "supply" ? "native USDC → Rhea · collateral off" : a.kind === "withdraw" ? "Rhea → wallet" : "payout"),
+        sub: whenLabel(a.createdAt) + " · " + (a.kind === "swap" ? swapSub(a) : a.kind === "lend" ? lendSub(a) : a.kind === "supply" ? "native USDC → Rhea · collateral off" : a.kind === "withdraw" ? "Rhea → wallet" : "payout"),
         status: ATTEMPT_STATUS[a.state] ?? "progress",
         steps: steps.length ? steps : [{ label: phaseLabel(a.state), detail: a.message, time: whenLabel(a.updatedAt), hash: "", state: stepState(a.state) }],
         foot: a.message || "Status from the server journal.",

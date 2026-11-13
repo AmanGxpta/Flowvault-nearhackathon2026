@@ -20,6 +20,8 @@ export function supplyHoldback(mandate: Mandate) {
 export type SupplyPreparation = ReturnType<typeof prepareSupply>;
 export type PreparationKind =
   | "swap"
+  // Rhea Lending for every market (rhea-markets.ts owns preparation and verification).
+  | "lend"
   | "sell"
   | "supply"
   | "withdraw"
@@ -44,6 +46,7 @@ export type PreparationKind =
   | "vault_settle";
 export type WalletPreparation =
   | import("./swap-exec.ts").SwapPreparation
+  | import("./rhea-markets-live.ts").RheaPreparation
   | import("./sale.ts").SalePreparation
   | SupplyPreparation
   | WithdrawPreparation

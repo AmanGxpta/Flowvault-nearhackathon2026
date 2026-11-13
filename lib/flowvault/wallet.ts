@@ -318,6 +318,23 @@ export async function signSwap(preparation: import("./swap-exec").SwapPreparatio
   return signPrepared(preparation as unknown as WalletPreparation);
 }
 
+/** Rhea Lending action, only after /api/transactions authorize: calls only Rhea, wrap.near and the market's own
+ * token, and every token transfer goes to Rhea. */
+export async function signRhea(preparation: import("./rhea-markets-live").RheaPreparation) {
+  if (preparation.kind !== "lend") throw new Error("Use a Rhea preparation for Rhea signing.");
+  const RHEA = "contract.main.burrow.near";
+  const allowed = new Set([RHEA, "wrap.near", preparation.tokenId]);
+  for (const tx of preparation.transactions) {
+    if (!allowed.has(tx.receiverId)) throw new Error("A Rhea action may call only Rhea, wrap.near and its own token.");
+    for (const a of tx.actions) {
+      if (!["storage_deposit", "near_deposit", "near_withdraw", "ft_transfer_call", "execute_with_pyth"].includes(a.params.methodName)) throw new Error("Unexpected method in a Rhea action.");
+      if (a.params.methodName === "ft_transfer_call" && a.params.args.receiver_id !== RHEA) throw new Error("A Rhea deposit must go to Rhea.");
+      if (a.params.methodName === "storage_deposit" && a.params.args.account_id !== preparation.accountId) throw new Error("Storage may be registered only for your own account.");
+    }
+  }
+  return signPrepared(preparation as unknown as WalletPreparation);
+}
+
 /** NEAR-origin NEAR Intents swap deposit, only after /api/transactions authorize: optional wrap on wrap.near, then
  * one ft_transfer of the token to the quote's deposit address. */
 export async function signIntentsNear(preparation: import("./swap-intents").IntentsPreparation) {

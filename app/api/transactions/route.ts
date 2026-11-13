@@ -50,6 +50,7 @@ const workerSetting = (name: string) => {
   return typeof v === "string" ? v : process.env[name];
 };
 import { holdback } from "@/lib/flowvault/obligations";
+import { rheaJournalAction } from "@/lib/flowvault/rhea-markets-live";
 export async function GET(request: Request) {
   try {
     const s = await session(request);
@@ -82,7 +83,8 @@ export async function POST(request: Request) {
       })
       .parse(await request.json());
     const { attempt, previous } = await readAttempt(s.id, b.id);
-    if (b.action === "declined" && attempt.kind !== "swap") throw new Error("Only swaps record a declined wallet request here.");
+    if (b.action === "declined" && attempt.kind !== "swap" && attempt.kind !== "lend") throw new Error("Only swaps and Rhea actions record a declined wallet request here.");
+    if (attempt.kind === "lend") return json({ attempt: await rheaJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
     if (attempt.kind === "sell") return json({attempt:await saleJournalAction(request,b.id,b.action,b.hashes)},s.cookie);
     if (attempt.kind === "swap") return json({ attempt: await swapJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
     if ((b.hashes?.length ?? 0) > 2) throw new Error("This operation accepts at most two transaction hashes.");

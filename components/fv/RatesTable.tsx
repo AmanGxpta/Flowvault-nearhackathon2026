@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Search } from "lucide-react";
+import { Search } from "lucide-react";
+import { RheaSheet } from "./RheaSheet";
 import { TokenIcon } from "./AssetIdentity";
 import { fmtUsd, ago } from "./swap-format";
 
@@ -8,10 +9,11 @@ interface Rate { token: string; symbol: string; name: string; icon: string | nul
 const USDC = "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
 const STABLE = /^(USDC|USDT|USDT\.E|USDC\.E|DAI|FRAX|USDt)$/i;
 
-/** Live Rhea markets, shown first on Earn and Borrow. In-app actions exist for USDC (FlowVault's supply/credit
- * journals); other markets open Rhea. `note` carries the plan-aware context for the USDC row. */
+/** Live Rhea markets, shown first on Earn and Borrow. Every market is actionable in-app: USDC through FlowVault's
+ * plan-aware supply/credit flow (`onUsdc`), every other market through the Rhea action sheet. */
 export function RatesTable({ mode, onUsdc, usdcNote }: { mode: "earn" | "borrow"; onUsdc?: () => void; usdcNote?: string }) {
   const [rows, setRows] = useState<Rate[] | null>(null), [at, setAt] = useState<string | null>(null), [error, setError] = useState("");
+  const [open, setOpen] = useState<Rate | null>(null);
   const [filter, setFilter] = useState<"all" | "stable" | "other">("all"), [query, setQuery] = useState("");
   useEffect(() => {
     const abort = new AbortController();
@@ -43,11 +45,12 @@ export function RatesTable({ mode, onUsdc, usdcNote }: { mode: "earn" | "borrow"
           <span className="fv-num">{r.borrowedUsd !== null ? fmtUsd(r.borrowedUsd) : r.borrowed.toLocaleString()}</span>
           <span className="fv-num fv-util"><i className="fv-util-bar"><em style={{ width: Math.min(100, r.utilization) + "%" }} className={r.utilization > 90 ? "is-hot" : ""} /></i>{r.utilization.toFixed(1)}%</span>
           <span className="fv-num">{mode === "earn" ? fmtRate(r.borrowApy) : r.ltv ? r.ltv + "%" : "—"}</span>
-          <span className="fv-screener-action">{usdc && onUsdc ? <button type="button" className="fv-buy" onClick={onUsdc}>{mode === "earn" ? "Supply" : "Borrow"}</button> : <a className="fv-row-link" href="https://app.rhea.finance/lending" target="_blank" rel="noopener noreferrer">Rhea <ArrowUpRight size={12} /></a>}</span>
+          <span className="fv-screener-action">{usdc && onUsdc ? <button type="button" className="fv-buy" onClick={onUsdc}>{mode === "earn" ? "Supply" : "Borrow"}</button> : <button type="button" className="fv-buy" onClick={() => setOpen(r)}>{mode === "earn" ? "Supply" : r.canBorrow ? "Borrow" : "Collateral"}</button>}</span>
         </div>;
       })}
     </div>
-    <div className="fv-panel-foot">Finalized Rhea view · USD totals at Ref prices. In-app {mode === "earn" ? "supply" : "borrowing"} covers USDC with your reserve and limits checked; other markets open Rhea.</div>
+    <div className="fv-panel-foot">Finalized Rhea view · USD totals at Ref prices. Every market runs in-app: prices from Rhea’s own oracle, your reserve, health and limits checked, approved in your wallet.</div>
+    {open && <RheaSheet tokenId={open.token} symbol={open.symbol} icon={open.icon} mode={mode} initial={mode === "borrow" && !open.canBorrow ? "collateral_add" : undefined} close={() => setOpen(null)} />}
   </section>;
 }
 function fmtRate(v: number | null) { return v === null ? "—" : v < 0.01 && v > 0 ? "<0.01%" : v.toFixed(2) + "%"; }
