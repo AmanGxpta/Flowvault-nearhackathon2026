@@ -1,5 +1,6 @@
 // Generated from docs/design/FlowVault.html by the design converter, then edited by hand.
 /* eslint-disable */
+import { AssistantSwapCard } from "../AssistantSwapCard";
 import { Fragment } from "react";
 import { tc } from "../theme";
 
@@ -148,6 +149,7 @@ export function AssistantView({ v }: { v: any }) {
                     >
                       {msg.text}
                     </div>
+                    <AssistantSwapCard text={String(msg.text ?? "")} open={(prefill) => { const u = new URL(window.location.href); for (const k of ["buy", "swap", "token"]) u.searchParams.delete(k); u.searchParams.set("swap", prefill); history.replaceState(null, "", u); v.closeAssistant?.(); v.navigate?.("swap"); window.dispatchEvent(new Event("fv-prefill")); }} />
                   </>
                 ) : null}
                 {msg.isAi ? (
