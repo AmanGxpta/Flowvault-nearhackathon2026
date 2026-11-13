@@ -21,6 +21,7 @@ import {
   ownerPositions,
 } from "../lib/flowvault/accounts.ts";
 import { readRpc } from "../lib/flowvault/rpc-transport.ts";
+import { NEAR_READ_PROVIDERS } from "../lib/flowvault/rpc-endpoints.ts";
 import { snapshot, clearSnapshots } from "../lib/flowvault/snapshot-cache.ts";
 const now = Date.parse("2026-11-12T12:00:00Z");
 test("design seed has exact fictional four-obligation story and relative dates", () => {
@@ -162,10 +163,11 @@ test("RPC 429 retries across fallback before bounded backoff and never fabricate
   const result = await readRpc(
     "query",
     {},
-    (async (url: any) => {
+    (async (url: string | URL | Request) => {
       urls.push(String(url));
       calls++;
-      return calls < 3
+      // Every provider throttles once; the next round (after one back-off) succeeds.
+      return calls <= NEAR_READ_PROVIDERS.length
         ? new Response("", { status: 429 })
         : Response.json({ result: { value: "exact" } });
     }) as typeof fetch,
@@ -174,9 +176,9 @@ test("RPC 429 retries across fallback before bounded backoff and never fabricate
     },
   );
   assert.equal(result.value, "exact");
-  assert.equal(calls, 3);
-  assert.notEqual(urls[0], urls[1]);
-  // One jittered back-off (250 ms ± 25%) before the third attempt succeeds.
+  assert.equal(calls, NEAR_READ_PROVIDERS.length + 1);
+  assert.equal(new Set(urls.slice(0, NEAR_READ_PROVIDERS.length)).size, NEAR_READ_PROVIDERS.length);
+  // One jittered back-off (250 ms ± 25%) after every provider throttled, then the retry succeeds.
   assert.equal(sleeps.length, 1);
   assert.ok(sleeps[0] >= 187 && sleeps[0] <= 313, String(sleeps[0]));
   await assert.rejects(
