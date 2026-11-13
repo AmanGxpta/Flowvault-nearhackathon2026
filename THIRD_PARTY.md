@@ -107,3 +107,6 @@ Newly authored BNB/Ethereum configuration and receipt verification use the live 
 ## Vault NEP-141 implementation (13 Nov 2026)
 - `near-sdk = 5.30.1`, `near-contract-standards = 5.30.1` (MIT OR Apache-2.0), from near/near-sdk-rs: standard fungible-token storage, NEP-141 transfer/callback and mint/burn event behavior. Pinned in contracts/vault/Cargo.toml/Cargo.lock; no upstream deployment/accounts/keys imported.
 - `uint = 0.9.5` (MIT OR Apache-2.0), full-width U256 arithmetic for raw-asset/share products. Vault accounting/permissions/queues/NAV/fees are original FlowVault code. No management fee is implemented; performance fees and authority are explicit immutable terms.
+
+### NEAR custody scoped runtime transport (Phase 4)
+Uses existing lockfile-resolved `@near-js/crypto` 2.5.1 and `@near-js/transactions` 2.5.1 (ISC; https://github.com/near/near-api-js), already present through the wallet stack. The installed type definitions for createTransaction, functionCall, Signature and SignedTransaction define the encoding path. No upstream signer/key/account is used. Optional runtime signer is owner-provisioned and must verify as a finite-allowance function-call key scoped only to this vault's two curator methods; never FullAccess. No key is generated, installed or used by the build agent.

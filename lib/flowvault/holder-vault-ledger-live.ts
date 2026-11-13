@@ -14,3 +14,13 @@ export async function recordHolderVaultReceipt(sessionId:string,w:Workspace,cont
  await ledgerOutbox(sessionId,`vault:${contractId}`,entries);
  return entries;
 }
+
+
+/** Statement refresh bridge for Stream A's standard wallet journal; no changes to its vault files. */
+export async function syncHolderVaultAttempts(sessionId:string,w:Workspace,attempts:import("./execution").WalletAttempt[],outbox:import("./contracts").LedgerEntry[],errors:string[]){
+ if(w.mode!=="live"||!w.accountId)return;
+ const jobs=attempts.filter(a=>a.accountId===w.accountId&&["confirmed","partial"].includes(a.state)&&!!(a.preparation as any).vault?.contractId).flatMap(a=>a.hashes.map(hash=>({a,hash,contractId:(a.preparation as any).vault.contractId as string}))).filter(j=>!outbox.some(e=>e.positionId===`vault:${j.contractId}:${w.accountId}`&&e.txHashes.includes(j.hash)));
+ if(jobs.length>12)errors.push("Older vault receipt history may be incomplete; import remaining receipts through Statement recovery.");
+ const results=await Promise.allSettled(jobs.slice(-12).map(j=>recordHolderVaultReceipt(sessionId,w,j.contractId,j.hash,j.a.accountId)));
+ for(const r of results)if(r.status==="fulfilled")outbox.push(...r.value);else errors.push("Vault holder receipt could not be recorded: "+String(r.reason?.message??r.reason));
+}

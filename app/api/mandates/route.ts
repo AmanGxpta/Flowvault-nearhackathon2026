@@ -1,3 +1,4 @@
+import {bindCustody} from "@/lib/flowvault/custody-service";
 import {perpLimitTermsSchema,applyPerpLimitTerms} from "@/lib/flowvault/perps-limits";
 // Autonomous mandates (owner: Stream C). Create a draft, change its terms, approve it with the owner's NEP-413
 // signature over the terms digest, activate/pause/revoke, run it now, clear a freeze, and the account-wide kill
@@ -80,6 +81,7 @@ const terms = z
   .strict();
 
 const body = z.discriminatedUnion("action", [
+  z.object({action:z.literal("custody_bind"),id:z.string().max(80),contractId:z.string().max(64),operatorId:z.string().max(64),publicKey:z.string().max(128)}).strict(),
   z.object({ action: z.literal("create"), strategyId: z.string().max(80) }).strict(),
   z.object({ action: z.literal("update"), id: z.string().max(80), terms }).strict(),
   z.object({ action: z.literal("challenge"), id: z.string().max(80) }).strict(),
@@ -154,6 +156,12 @@ export async function POST(r: Request) {
     const m = applyClock(stored.mandate, now);
     if (m.accountId !== accountId) throw new Error("This mandate belongs to another account.");
 
+    if(b.action === "custody_bind"){
+      const next=await bindCustody(m,b.contractId,b.operatorId,b.publicKey,now);
+      await mandateSave(s.id,next,stored.revision);
+      await lifecycleNote(s,next,"Custody authority changed; review custody/upgrade keys and sign this new mandate version.");
+      return json({mandate:next},s.cookie);
+    }
     if (b.action === "update") {
       if (!["draft", "approved", "paused"].includes(m.state)) throw new Error(`Pause the mandate before changing its terms (it is ${m.state}).`);
       const changed = applyTerms(m.state === "draft" ? m : transition(m, "draft", new Date(now).toISOString()), b.terms, now);

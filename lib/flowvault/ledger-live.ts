@@ -1,3 +1,4 @@
+import {syncHolderVaultAttempts} from "./holder-vault-ledger-live";
 import { proven } from "./account-registry.ts";
 // Engines E3: gathers the ledger's journal inputs for a session (read-only). Every row comes from a
 // journal table written by verified flows: wallet_attempts, payment_plans and plan_ledger_outbox.
@@ -64,6 +65,7 @@ export async function sessionLedger(sessionId: string, w: Workspace) {
     }),
   ]);
   const accountId = w.accountId ?? null;
+  await syncHolderVaultAttempts(sessionId,w,attempts,outbox,errors);
   return {
     source: "live" as const,
     accountId,

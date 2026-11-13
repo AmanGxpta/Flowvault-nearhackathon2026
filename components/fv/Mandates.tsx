@@ -1,4 +1,5 @@
 "use client";
+import {CustodyAuthorityEditor} from "./CustodyAuthorityEditor";
 // Autonomous mandates (Stream C). What FlowVault may decide and prepare on a schedule without asking again,
 // within limits you sign with your NEAR wallet. Today every transaction still needs your wallet: the authority
 // row says exactly what bounds it. Figures come from GET /api/mandates; nothing here computes a balance.
@@ -200,6 +201,7 @@ export function MandatesCard({ scope }: { scope: Scope }) {
             {isOpen ? (
               <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
                 <div>
+                  <CustodyAuthorityEditor scope={scope} mandateId={m.id} state={m.state} onChanged={()=>void read(m.id)} />
                   <div style={{ fontWeight: 600, fontSize: "12.5px" }}>Who can move money</div>
                   <ul style={{ ...muted, margin: "2px 0 0", paddingLeft: "18px" }}>
                     {m.authority.bounds.map((b) => <li key={b}>{b}</li>)}

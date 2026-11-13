@@ -79,7 +79,7 @@ export function mandateTerms(m: AgentMandate) {
     freshness: m.freshness,
     concentration: m.concentration,
     everyMinutes: m.schedule.everyMinutes,
-    authority: { kind: m.authority.kind, delegate: m.authority.delegate ?? null },
+    authority: { kind: m.authority.kind, delegate: m.authority.delegate ?? null, ...(m.authority.custodyContract ? {custodyContract:m.authority.custodyContract} : {}) },
   };
 }
 export function canonicalJson(v: unknown): string {
@@ -102,6 +102,7 @@ export function approvalMessage(m: AgentMandate) {
     `Valid: ${m.validFrom} to ${m.validUntil}`,
     `Capital limit: ${usdc(m.limits.capitalUsdcRaw)} USDC; per action ${usdc(m.limits.perActionUsdcRaw)}; per day ${usdc(m.limits.dailyUsdcRaw)}; lifetime ${usdc(m.limits.cumulativeUsdcRaw)}`,
     `Borrowing: ${m.borrowing.allowed ? "allowed up to " + usdc(m.borrowing.maxDebtUsdcRaw) + " USDC" : "not allowed"}. Spending to others: ${m.spending.allowed ? "allowed" : "not allowed"}.`,
+    ...(m.authority.custodyContract ? [`Custody vault: ${m.authority.custodyContract.contractId}; operator ${m.authority.custodyContract.operatorId}; policy version ${m.authority.custodyContract.operatorVersion}; code ${m.authority.custodyContract.codeHash}. Owner and contract full-access keys can upgrade custody code.`] : []),
     `Execution: ${m.authority.kind === "owner_signs_each" ? "FlowVault prepares; your wallet signs every transaction" : m.authority.kind}`,
     ...(m.perps ? [`Perpetuals: maximum leverage ${m.perps.maxLeverage}x; maximum order ${usdc(m.perps.maxNotionalUsdcRaw)} USDC; loss stop ${usdc(m.limits.maxStrategyLossUsdcRaw)} USDC; liquidation cushion ${m.perps.minLiquidationDistanceBps} bps.`] : []),
     `Terms digest: ${d}`,

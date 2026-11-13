@@ -63,7 +63,7 @@ export const DELEGATION_OPTIONS: DelegationOption[] = [
     ],
     custody: "The contract account. You deposit what the mandate may use; everything else stays in your wallet.",
     upgradeAuthority: "Whoever holds the contract account's full-access key (you, if you deploy it and delete other keys).",
-    verdict: "Chosen for autonomous NEAR execution once deployed by you; until then mandates fall back to owner signing.",
+    verdict: "Bind a verified single-depositor vault and operator policy, then re-sign the mandate. A separately provisioned scoped runtime key is required; there is no unbounded fallback.",
   },
   {
     kind: "near_function_call_key",
@@ -109,3 +109,6 @@ export function authorityFor(kind: DelegationKind): MandateAuthority {
     upgradeAuthority: o.upgradeAuthority,
   };
 }
+
+// Runtime custody checks live in a separate module so protocol limits stay testable without RPC.
+export {checkCustodyKey,custodyProblems,boundCustodyAuthority,custodyCall} from "./custody-authority.ts";

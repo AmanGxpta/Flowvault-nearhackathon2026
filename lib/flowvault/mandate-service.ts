@@ -1,3 +1,4 @@
+import {runCustodyMandate} from "./custody-runner";
 // Mandate runner (owner: Stream C). Observe → Decide → Check → Execute → Account, through the existing layers:
 // capitalView() for every figure, StrategySpec for what may run, ActionPlan + StepAdapter journals for execution,
 // plan ledger entries for results, and an append-only audit linking all of it. With owner_signs_each authority
@@ -208,6 +209,7 @@ export async function runMandate(s: MandateSession, id: string, trigger: "cron" 
   m = { ...m, updatedAt: at, schedule: { ...m.schedule, lastRunAt: at, nextRunAt: new Date(now + m.schedule.everyMinutes * 60_000).toISOString() } };
   revision = await mandateSave(s.id, m, revision);
 
+  if(m.authority.kind === "near_custody_contract") return runCustodyMandate(s,m,runId,now);
   if (m.authority.kind === "hyperliquid_agent") return runPerps(s, m, runId, now);
   const audit = await auditList(s.id, m.id);
   let observation: MandateObservation;

@@ -356,6 +356,7 @@ export type DelegationKind =
   | "near_function_call_key" // receiver+methods scoped key; cannot attach deposits (so no ft_transfer_call / Rhea execute)
   | "evm_session_key"; // EIP-7702 / ERC-7710 delegation; wallet-dependent
 export interface MandateAuthority {
+  custodyContract?: {contractId:string;operatorId:string;publicKey:string;operatorVersion:string;codeHash:string;configDigest:string};
   kind: DelegationKind;
   status: "not_provisioned" | "prepared" | "verified" | "revoked" | "unsupported";
   /** What the on-chain authority actually bounds, never stronger than the protocol enforces. */
