@@ -4,7 +4,7 @@
 
 A portfolio tracker shows what you own. It does not tell you what can pay next week's rent without touching protected assets or missing an exit window. FlowVault separates net worth, cash, dated liquidity, stress capacity and committed capital; protects the reserve and bills; compares earning/funding choices; and verifies an owner-approved result.
 
-Built on **NEAR**: Rhea USDC supply/withdrawal, NEAR Intents exact-output payment plumbing, native/LiNEAR/rNEAR reads, NEAR wallet signing, an optional NEAR AI Cloud intent parser, and a no-custody policy contract. **This checkout is local and uncommitted; nothing has been published or deployed by the agent.** Funded end-to-end execution still needs the owner's rehearsal. The frontend is being wired separately; API availability is not a claim that every visual control is connected.
+Built on **NEAR**: Rhea USDC supply/withdrawal, NEAR Intents exact-output payment plumbing, native/LiNEAR/rNEAR reads, NEAR wallet signing, an optional NEAR AI Cloud intent parser, and a no-custody policy contract. **This checkout is a local Git repository with no remote; nothing has been published or deployed by the agents.** Funded end-to-end execution still needs the owner's rehearsal. The frontend is being wired separately; API availability is not a claim that every visual control is connected.
 
 ## Run and see the pitch — no wallet or key required
 
@@ -51,11 +51,28 @@ For API-driven screening, send `X-FlowVault-Workspace: example` or `?workspace=e
 | **Live dry quote** | `dry:true`, exact output, no deposit address or funds moved. Current sanitized minimum/fee observations are recorded. | A reserved executable route, permanent minimum, realized fee or successful payout. |
 | **Fictional example** | Shared deterministic engines with clearly labeled fixture assets/rates/valuations and rolling dates. | Live holdings, returns, actual collateral capacity, or a funded execution. |
 | **SIMULATED replay** | Sanitized recorded/derived provider schemas plus synthetic NEAR receipt fixtures; 15 disconnected scenarios. | Fifteen funded executions. IDs are non-signable and separate from live attempts. |
-| **Built, undeployed contract** | Rust policy rules/proposals/approval/revocation, 13 unit tests, local WASM artifact. | A deployed on-chain mandate, asset custody, or verified outcome. Records say `unverified_record`. |
+| **Built, undeployed contracts** | Rust policy contract (rules/proposals/approval/revocation, 14 tests) and the pooled vault contract (NEP-141 shares, queued deposits, FIFO claims, owner-only fee crystallization, trusted NAV, bounded Rhea authority, 42 tests); local WASM artifacts. | A deployed contract, real custody, a security audit or a verified outcome. Policy records say `unverified_record`. |
 | **Read-only assistant / staking quote** | Strict intent schema, engine-only answer; verified SDK unsigned stake quotes with exit reserve. | Autonomous execution, cryptographically verified private inference, or a funded staking handoff. NEAR-to-USDC cap valuation remains gated. |
-| **Planned business/product** | Strategy vaults, performance fees, premium automation, deeper credit, exchange/card adapters and flow research are in the PRD. | Current fee revenue, forecast alpha, or a deployed pooled vault. |
+| **Implemented, not yet demonstrated (Phase 4)** | Cross-wallet funding, Solana USDC → NEAR, EVM fees in USDC, approved-asset sales, Aave v3 credit, autonomous mandates, Hyperliquid perpetuals and strategy vaults: code, tests and UI (see below). | Any funded, owner-signed or deployed run. The owner signs every step; see the owner actions below. |
+| **Planned business/product** | Performance-fee revenue, premium automation and flow research are in the PRD. Card spending is deferred to a future phase. | Current fee revenue, forecast alpha, or a deployed pooled vault. |
 
 A source deposit becoming `confirmed` does **not** mark a payment paid. `paid` requires a confirmed source deposit plus an independently checked canonical/finalized ERC-20 Transfer of the exact configured token amount to the recipient on Base/Arbitrum, BNB USDT or Ethereum USDC/USDT. Provider SUCCESS alone is insufficient. Refund reports, unknown status and source proof remain distinct.
+
+## Phase 4 capabilities — 13 November 2026
+
+Implemented code and tests; **nothing here has been funded, owner-signed or deployed**. Checks: 494 app tests, typecheck and build passed; 42 vault and 14 policy contract tests passed. Details: [`docs/PHASE4.md`](docs/PHASE4.md), [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md), [`docs/BACKEND_API.md`](docs/BACKEND_API.md).
+
+| Capability | What the code does | Where | Owner action before it is real |
+| --- | --- | --- | --- |
+| Cross-wallet orchestration | Funds a plan from one or several proven wallets (cheapest single vs mixed after costs), one wallet approval per leg, per-leg ledger and recovery, no atomicity claim | Plan panel | rehearse with their own wallets |
+| Solana USDC → NEAR | SPL transfer rebuilt and checked in the browser, signed in Phantom/Solflare, delivered through 1Click | Convert to NEAR | rehearse with a Solana wallet |
+| EVM fees in USDC | Circle Paymaster through the wallet's own call batching; only the reviewed transfer is sponsored; ETH stays the default | Convert to NEAR | HTTPS deployment + an ERC-7677 wallet |
+| Approved-asset sales | Sells only assets the policy allows, sized for exact net USDC, refund-aware | Credit | sale rows in policy; a signed sale |
+| Broader lending | Rhea and Aave v3 (Ethereum, Base, Arbitrum) with venue-local stressed capacity and a settlement proof gate | Credit | allow the venues in policy; a signed borrow/repay |
+| Autonomous mandates | Signed terms, deterministic checks, scheduled runs that prepare owner-signed plans; optional custody through a single-depositor vault | Policy | sign/activate; for custody, deploy a vault, provision a scoped key, set `FLOWVAULT_CUSTODY_SIGNERS` |
+| Perpetuals (Hyperliquid) | Trade-only agent under a signed mandate; unrealized gains never count as cash | Strategies | set `FLOWVAULT_AGENT_KEY_SECRET`, sign `approveAgent`, deposit on Hyperliquid |
+| Strategy vaults | NEAR vault contract plus holder/owner views and wallet-signed deposit, redeem, cancel, claim and settle | Strategies | deploy and register the vault, file NAV reports, allow it in policy, security review |
+| Card spending | Deferred by the owner | — | — |
 
 ## NEAR features by submission track
 
