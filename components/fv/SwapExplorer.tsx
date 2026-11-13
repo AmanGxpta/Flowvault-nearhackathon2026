@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowDownUp, ArrowUpRight, RefreshCw, Settings2, Zap, Wallet } from "lucide-react";
 import { useTokenCatalog } from "./useTokenCatalog";
 import { useWalletBalances } from "./useWalletBalances";
@@ -11,14 +11,11 @@ const netName = (n?: string) => (n && networkInfo(n)?.name) || n || "";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 import { swapVenueUrl } from "@/lib/flowvault/swap-explorer";
 import { units, decimal } from "@/lib/flowvault/money";
+import { useSwapQuote, ownAddress, runsInApp, type SwapRoute as Route } from "./useSwapQuote";
 
-interface Route { venue: string; output: string; minimum: string; eta: number | null; execution: string; url: string; feeNote: string }
-interface Preview { routes: Route[]; warnings: string[]; expiresAt: string; capturedAt: string }
 const USDC_NEAR = "near:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
 const NATIVE_KEEP = 100_000_000_000_000_000_000_000n; // 0.1 NEAR left for fees when using Max on native NEAR
 
-/** Exact comparison of decimal outputs in the output token's units (no float ordering). */
-function rawOf(v: string, decimals: number) { try { return units(v, decimals); } catch { return 0n; } }
 type Cta = { label: string; disabled?: boolean; spin?: boolean; onClick?: () => void; href?: string; icon?: React.ReactNode };
 
 export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }: { owner: string; example: boolean; onManaged: () => void; onConnect?: () => void; onSettled?: () => void }) {
@@ -27,19 +24,16 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   const [fromId, setFrom] = useState("near:native"), [toId, setTo] = useState(USDC_NEAR);
   const [amount, setAmount] = useState(""), [slippage, setSlippage] = useState("100");
   const [sender, setSender] = useState(owner), [recipient, setRecipient] = useState(owner);
-  const [preview, setPreview] = useState<Preview | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
-  const [selected, setSelected] = useState<string | null>(null), [now, setNow] = useState(() => Date.now());
   const [settings, setSettings] = useState(false), [review, setReview] = useState(false);
-  const request = useRef<AbortController | null>(null), revision = useRef(0);
-  const from = tokens.find(t => t.id === fromId), to = tokens.find(t => t.id === toId);
   const fromBal = holdings.balances[fromId], toBal = holdings.balances[toId];
 
   // Send from the connected wallet that holds the token, and receive into your wallet on the destination network.
   // An EVM address serves every EVM chain. The addresses stay editable under Slippage › Cross-chain addresses.
-  const EVM = ["eth", "base", "arb", "bsc", "op", "pol", "avax", "gnosis", "hypercore", "hood", "abs", "bera", "monad", "scroll", "xlayer", "plasma"];
   // A prefill may name the receiving address (e.g. funding one Hyperliquid account); it holds while that token is the destination.
   const [pin, setPin] = useState<{ to: string; address: string } | null>(null);
-  const addrFor = (n?: string) => !n ? "" : holdings.addresses[n] ?? (EVM.includes(n) ? holdings.addresses.eth ?? holdings.addresses.base ?? holdings.addresses.arb ?? "" : "");
+  const q = useSwapQuote({ tokens, holdings, owner, example, fromId, toId, amount, slippage, sender, recipient, paused: review });
+  const { from, to, preview, busy, error, routes, best, chosen, expires, validAmount, quote, rawOf } = q, setSelected = q.setSelected;
+  const addrFor = (n?: string) => ownAddress(holdings, n);
   const senderAuto = fromBal?.account ?? addrFor(from?.network), recipientAuto = pin && pin.to === toId ? pin.address : addrFor(to?.network);
   useEffect(() => { const t = setTimeout(() => { setSender(senderAuto); setRecipient(recipientAuto); }, 0); return () => clearTimeout(t); }, [senderAuto, recipientAuto]);
   useEffect(() => {
@@ -52,46 +46,10 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
     };
     const t = setTimeout(apply, 0);
     window.addEventListener("fv-prefill", apply);
-    return () => { clearTimeout(t); window.removeEventListener("fv-prefill", apply); request.current?.abort(); };
+    return () => { clearTimeout(t); window.removeEventListener("fv-prefill", apply); };
   }, []);
-  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
 
-  const toDecimals = to?.decimals;
-  const routes = !preview || toDecimals === undefined ? [] : [...preview.routes].sort((a, b) => { const x = rawOf(a.output, toDecimals), y = rawOf(b.output, toDecimals); return x === y ? 0 : x > y ? -1 : 1; });
-  const best = routes[0];
-  const chosen = routes.find(r => r.venue === selected) ?? best;
-  const expires = preview ? Math.max(0, Math.floor((Date.parse(preview.expiresAt) - now) / 1000)) : 0;
-  const validAmount = (() => { if (!from || !amount) return false; try { return units(amount, from.decimals) > 0n; } catch { return false; } })();
-  // Rhea / Ref swaps NEAR tokens; NEAR Intents deposits from NEAR, Ethereum, Base or Arbitrum into your own wallet
-  // on the destination network. Both run inside FlowVault with the review card; other origins open the venue.
-  const intentsInApp = !!from && !!to && ["near", "eth", "base", "arb"].includes(from.network) && !!sender && !!recipient;
-  const inApp = (r?: Route) => !!r && (r.venue === "Rhea / Ref" ? from?.network === "near" && to?.network === "near" : r.venue === "NEAR Intents" && intentsInApp);
-
-  async function quote() {
-    revision.current++; request.current?.abort();
-    const version = revision.current, abort = new AbortController(); request.current = abort;
-    setBusy(true); setError("");
-    try {
-      const r = await fetch("/api/swap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: fromId, to: toId, amount, slippage: Number(slippage), sender, recipient }), signal: abort.signal });
-      const b = await r.json() as Preview & { error?: string };
-      if (!r.ok) throw new Error(b.error);
-      if (version === revision.current) { setPreview(b); setNow(Date.now()); }
-    } catch (e) { if (!abort.signal.aborted && version === revision.current) { setPreview(null); setError((e as Error).message); } }
-    finally { if (version === revision.current) setBusy(false); }
-  }
-  // Quote as the owner types (debounced), and keep the quote fresh while it is on screen.
-  useEffect(() => {
-    revision.current++; request.current?.abort();
-    // Paying from another network needs the sending wallet's address; wait for the wallet read instead of quoting
-    // without it (which would show a misleading "add your addresses" warning).
-    const waitingForWallet = !!from && from.network !== "near" && !sender && !!owner && !example && !holdings.covered.has(from.network);
-    const t = setTimeout(() => { setPreview(null); setSelected(null); setError(""); if (validAmount && from && to && fromId !== toId && !waitingForWallet) void quote(); else setBusy(false); }, validAmount ? 550 : 0);
-    return () => clearTimeout(t);
-  }, [fromId, toId, amount, slippage, sender, recipient, validAmount, !!from, !!to]); // eslint-disable-line react-hooks/exhaustive-deps -- quote reads the same inputs
-  useEffect(() => {
-    if (!(preview && expires === 0 && !busy && !review && validAmount)) return;
-    const t = setTimeout(() => void quote(), 0); return () => clearTimeout(t);
-  }, [expires, preview, busy, review, validAmount]); // eslint-disable-line react-hooks/exhaustive-deps
+  const inApp = (r?: Route) => runsInApp(r, from, to, sender, recipient);
 
   function change(side: "from" | "to", t: SwapToken) {
     if (side === "from") { if (t.id === toId) setTo(fromId); setFrom(t.id); }

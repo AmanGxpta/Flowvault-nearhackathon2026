@@ -3,7 +3,7 @@
 // Borrow. Prepared and checked by the server (prices from Rhea's own oracle, health, liquidity, storage, policy),
 // then approved by the owner in their own NEAR wallet. FlowVault never signs.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { ReviewFrame } from "./ReviewFrame";
 import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw, Wallet } from "lucide-react";
 import { TokenIcon } from "./AssetIdentity";
 import { api } from "./live";
@@ -30,22 +30,42 @@ const pct = (v?: number | null) => v === null || v === undefined ? "—" : v > 0
 const TAB: Record<Action, string> = { supply: "Supply", withdraw: "Withdraw", collateral_add: "Add collateral", collateral_release: "Release collateral", borrow: "Borrow", repay: "Repay" };
 const SOURCE: Record<Action, string> = { supply: "From your wallet", collateral_add: "From your wallet", repay: "From your wallet", withdraw: "From your Rhea supply", collateral_release: "From your Rhea collateral", borrow: "Paid to your wallet" };
 
-export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, onSettled }: { tokenId: string; symbol: string; icon?: string | null; mode: "earn" | "borrow"; initial?: Action; rates?: { supply: number | null; borrow: number | null }; close: () => void; onSettled?: () => void }) {
+export type RheaAction = Action;
+export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, onSettled, inline, initialAmount, draftKey, onDraft, onAttempt, disabledReason }: { tokenId: string; symbol: string; icon?: string | null; mode: "earn" | "borrow"; initial?: Action; rates?: { supply: number | null; borrow: number | null }; close: () => void; onSettled?: () => void;
+  /** Ask FlowVault: render inside a chat card, start from the card's draft, report the owner's edits and the prepared attempt. */
+  inline?: boolean; initialAmount?: string | null; draftKey?: string; onDraft?: (d: { action: Action; amount: string }) => void; onAttempt?: (a: WalletAttempt) => void; disabledReason?: string | null }) {
   const actions: Action[] = mode === "earn" ? ["supply", "withdraw"] : ["borrow", "repay", "collateral_add", "collateral_release"];
   const [action, setAction] = useState<Action>(initial ?? actions[0]);
   const [pos, setPos] = useState<Position | null>(null), [posError, setPosError] = useState("");
-  const [amount, setAmount] = useState(""), [native, setNative] = useState(tokenId === WRAP), [debtOk, setDebtOk] = useState(false);
+  const [amount, setAmount] = useState(initialAmount ?? ""), [native, setNative] = useState(tokenId === WRAP), [debtOk, setDebtOk] = useState(false);
   const [phase, setPhase] = useState<Phase>("form"), [prep, setPrep] = useState<Prepared | null>(null), [attempt, setAttempt] = useState<WalletAttempt | null>(null);
   const [error, setError] = useState(""), [now, setNow] = useState(() => Date.now());
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  // A new version of the chat draft (the assistant changed it) replaces the form and drops any prepared review.
+  const lastDraft = useRef(draftKey);
+  useEffect(() => {
+    if (!draftKey || draftKey === lastDraft.current) return;
+    lastDraft.current = draftKey;
+    if (["wallet", "settling"].includes(phase)) return;
+    const t = setTimeout(() => { if (initial) setAction(initial); setAmount(initialAmount ?? ""); setPrep(null); setPhase("form"); }, 0);
+    return () => clearTimeout(t);
+  }, [draftKey, initial, initialAmount, phase]);
+  const onDraftRef = useRef(onDraft), firstDraft = useRef(true);
+  useEffect(() => { onDraftRef.current = onDraft; }, [onDraft]);
+  useEffect(() => {
+    if (firstDraft.current) { firstDraft.current = false; return; }
+    const t = setTimeout(() => onDraftRef.current?.({ action, amount }), 700);
+    return () => clearTimeout(t);
+  }, [action, amount]);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const load = useCallback(() => api("/api/lend?token=" + encodeURIComponent(tokenId), undefined, "GET").then(p => { if (alive.current) { setPos(p as Position); setPosError(""); } }).catch(e => { if (alive.current) setPosError((e as Error).message); }), [tokenId]);
   useEffect(() => { const t = setTimeout(() => void load(), 0); return () => clearTimeout(t); }, [load]);
   useEffect(() => {
+    if (inline) return;
     const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !["wallet", "settling"].includes(phase)) close(); };
     document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key);
-  }, [phase, close]);
+  }, [phase, close, inline]);
 
   const shown = tokenId === WRAP ? (native ? "NEAR" : "wNEAR") : symbol;
   const unit = tokenId === WRAP ? "NEAR" : symbol; // Rhea's own balances, named as people know the asset
@@ -61,7 +81,7 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
     try {
       const r = await api("/api/lend", { op: "prepare", action, tokenId, amount, native: tokenId === WRAP && native, ...(action === "borrow" ? { approveNewDebt: debtOk } : {}) }) as Prepared;
       if (!alive.current) return;
-      setPrep(r); setAttempt(r.attempt); setPhase("review");
+      setPrep(r); setAttempt(r.attempt); setPhase("review"); onAttempt?.(r.attempt);
     } catch (e) { if (alive.current) { setError((e as Error).message); setPhase("error"); } }
   }
   async function allow() {
@@ -110,9 +130,8 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
   const busy = ["wallet", "settling"].includes(phase);
   const disabledAction = (a: Action) => !pos ? false : a === "supply" ? !pos.canDeposit : a === "collateral_add" ? !(pos.canDeposit && pos.canCollateral) : a === "borrow" ? !pos.canBorrow : a === "withdraw" || a === "collateral_release" ? !pos.canWithdraw : false;
 
-  return createPortal(<div className="fv-dialog-backdrop" onClick={() => { if (!busy) close(); }}>
-    <div className={"fv-dialog fv-swap-confirm fv-rhea-sheet is-" + phase} role="dialog" aria-modal="true" aria-label={LABEL[action] + " " + symbol} onClick={e => e.stopPropagation()}>
-      {!busy && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
+  return <ReviewFrame inline={inline} busy={busy} close={close} className={"fv-dialog fv-swap-confirm fv-rhea-sheet is-" + phase} label={LABEL[action] + " " + symbol}>
+      {!busy && !inline && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
       <div className="fv-confirm-pair"><TokenIcon symbol={symbol} image={icon ?? undefined} network="near" core={["USDC", "USDT", "USDt", "NEAR", "wNEAR"].includes(symbol)} size={52} /></div>
       <h2>{phase === "form" ? `${tokenId === WRAP ? "NEAR" : symbol} on Rhea` : phase === "preparing" ? "Checking" : phase === "allowing" ? "Updating your policy" : phase === "wallet" ? "Confirm in your wallet" : phase === "settling" ? "Settling on NEAR" : phase === "done" ? "Done" : phase === "failed" ? "Didn’t complete" : phase === "error" ? "Not sent" : `${LABEL[action]} ${fmtAmount(amount)} ${shown}`}</h2>
       <p className="fv-confirm-sub">{phase === "form" ? `Supply APY ${pct(rates?.supply)} · Borrow APY ${pct(rates?.borrow)} · variable` : phase === "preparing" ? "Fresh balances, prices, health, liquidity and your limits." : phase === "wallet" ? "Approve the transactions in your wallet. This card stays until NEAR finalizes them." : phase === "settling" ? "Waiting for final receipts." : phase === "done" || phase === "failed" ? attempt?.message : phase === "error" ? error : "Exact transactions, checked against your limits before your wallet opens."}</p>
@@ -139,7 +158,8 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
         {pos && !pos.priced && <p className="fv-notice">Rhea’s oracle has no verified price for {symbol} right now, so FlowVault can’t check your limits. Try again shortly.</p>}
         {tokenId === WRAP && <label className="fv-rhea-check"><input type="checkbox" checked={native} onChange={e => setNative(e.target.checked)} /><span>{action === "repay" ? "Repay from native NEAR" : "Use native NEAR"}<small>{action === "supply" || action === "collateral_add" || action === "repay" ? "Wraps it to wNEAR in the same transaction." : "Unwraps the wNEAR Rhea pays out."}</small></span></label>}
         {action === "borrow" && <label className="fv-rhea-check is-warn"><input type="checkbox" checked={debtOk} onChange={e => setDebtOk(e.target.checked)} /><span>I’m taking on new debt<small>It accrues variable interest, and your collateral can be liquidated if prices fall.</small></span></label>}
-        <div className="fv-confirm-actions"><button type="button" className="fv-button fv-primary fv-wide-button" disabled={!valid || (action === "borrow" && !debtOk) || (pos !== null && !pos.priced)} onClick={() => void prepare()}>{!valid ? "Enter an amount" : action === "borrow" && !debtOk ? "Confirm the new debt above" : `Review ${TAB[action].toLowerCase()}`}</button></div>
+        {disabledReason && <p role="status" className="fv-notice">{disabledReason}</p>}
+        <div className="fv-confirm-actions"><button type="button" className="fv-button fv-primary fv-wide-button" disabled={!valid || (action === "borrow" && !debtOk) || (pos !== null && !pos.priced) || !!disabledReason} onClick={() => void prepare()}>{!valid ? "Enter an amount" : action === "borrow" && !debtOk ? "Confirm the new debt above" : `Review ${TAB[action].toLowerCase()}`}</button></div>
       </>}
 
       {review && !["form", "error"].includes(phase) && <div className="fv-confirm-table">
@@ -166,6 +186,5 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
         {(phase === "done" || phase === "failed") && <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}
         {phase === "error" && <div className="fv-actions"><button type="button" className="fv-button" onClick={() => setPhase("form")}>Back</button><button type="button" className="fv-button fv-primary" onClick={() => void prepare()}>Try again</button></div>}
       </div>}
-    </div>
-  </div>, document.body);
+  </ReviewFrame>;
 }

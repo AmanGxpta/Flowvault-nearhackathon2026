@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { ReviewFrame } from "./ReviewFrame";
 import { ArrowRight, Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw } from "lucide-react";
 import { TokenIcon } from "./AssetIdentity";
 import { coreIdentity } from "./useTokenCatalog";
@@ -26,7 +26,7 @@ const explorerFor = (network: string, h: string) => h.startsWith("0x") ? (EXPLOR
 const short = (a?: string) => !a ? "" : a.length > 18 ? a.slice(0, 8) + "…" + a.slice(-6) : a;
 const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", sol: "Solana", bsc: "BNB Chain" };
 
-export function SwapReview({ from, to, amount, slippage, close, onSettled, route = "ref", sender, recipient }: { from: SwapToken; to: SwapToken; amount: string; slippage: number; close: () => void; onSettled: () => void; route?: "ref" | "intents"; sender?: string; recipient?: string }) {
+export function SwapReview({ from, to, amount, slippage, close, onSettled, route = "ref", sender, recipient, inline, onAttempt }: { from: SwapToken; to: SwapToken; amount: string; slippage: number; close: () => void; onSettled: () => void; route?: "ref" | "intents"; sender?: string; recipient?: string; inline?: boolean; onAttempt?: (a: WalletAttempt) => void }) {
   const intents = route === "intents";
   const explorer = (h: string) => explorerFor(from.network, h);
   const [phase, setPhase] = useState<Phase>("preparing");
@@ -34,6 +34,8 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
   const [attempt, setAttempt] = useState<WalletAttempt | null>(null);
   const [error, setError] = useState(""), [now, setNow] = useState(() => Date.now());
   const alive = useRef(true);
+  const onAttemptRef = useRef(onAttempt);
+  useEffect(() => { onAttemptRef.current = onAttempt; }, [onAttempt]);
   // The wallet that holds the token (already proven to FlowVault); looked up again whenever the window regains focus.
   const [senderSession, setSenderSession] = useState<WalletSession | null>(null);
   const holder = intents && from.network !== "near" ? (prep?.attempt.preparation as unknown as IntentsPreparation | undefined)?.accountId : undefined;
@@ -52,14 +54,15 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
     try {
       const r = await api("/api/swap/execute", { action: "prepare", route, from: from.id, to: to.id, amount, slippage, ...(intents ? { sender, recipient } : {}) }) as Prepared;
       if (!alive.current) return;
-      setPrep(r); setAttempt(r.attempt); setPhase("review");
+      setPrep(r); setAttempt(r.attempt); setPhase("review"); onAttemptRef.current?.(r.attempt);
     } catch (e) { if (alive.current) { setError((e as Error).message); setPhase("error"); } }
   }, [from.id, to.id, amount, slippage, route, sender, recipient, intents]);
   useEffect(() => { const t = setTimeout(() => void prepare(), 0); return () => clearTimeout(t); }, [prepare]);
   useEffect(() => {
+    if (inline) return;
     const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !["wallet", "settling"].includes(phase)) close(); };
     document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key);
-  }, [phase, close]);
+  }, [phase, close, inline]);
 
   async function allow() {
     if (!prep) return;
@@ -145,10 +148,9 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
   const fixable = blocked && prep.policy.violations.every(v => FIXABLE.has(v.code));
   const stage = phase === "done" ? 4 : phase === "settling" ? 3 : phase === "wallet" ? 2 : 1;
 
-  return createPortal(<div className="fv-dialog-backdrop" onClick={() => { if (!["wallet", "settling"].includes(phase)) close(); }}>
-    <div className={"fv-dialog fv-swap-confirm is-" + phase} role="dialog" aria-modal="true" aria-label="Review swap" onClick={e => e.stopPropagation()}>
+  return <ReviewFrame inline={inline} busy={["wallet", "settling"].includes(phase)} close={close} className={"fv-dialog fv-swap-confirm is-" + phase} label="Review swap">
       <div className="fv-confirm-progress"><span style={{ width: `${stage * 25}%` }} /></div>
-      {!["wallet", "settling"].includes(phase) && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
+      {!["wallet", "settling"].includes(phase) && !inline && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
       <div className="fv-confirm-pair">
         <TokenIcon symbol={from.symbol} network={from.network} core={coreIdentity(from)} image={from.icon} size={52} />
         <span className={"fv-confirm-arrow" + (["preparing", "allowing", "wallet", "settling"].includes(phase) ? " is-moving" : "")}>{phase === "done" ? <Check size={20} /> : <ArrowRight size={20} />}</span>
@@ -192,6 +194,5 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
           ? <button type="button" className="fv-button fv-primary" disabled={checking} onClick={() => void checkEarlier()}>{checking ? <><RefreshCw size={15} className="fv-spin" /> Checking…</> : "Check it now"}</button>
           : <button type="button" className="fv-button fv-primary" onClick={() => void prepare()}>Try again</button>}</div>}
       </div>
-    </div>
-  </div>, document.body);
+  </ReviewFrame>;
 }

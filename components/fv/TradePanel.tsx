@@ -3,7 +3,7 @@
 // and to your own proven wallets (EVM chains and Solana). A live quote previews as you type; Review prepares the
 // exact transactions, checks your balance, fees and limits, and your own wallet signs.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { ReviewFrame } from "./ReviewFrame";
 import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw, ArrowRight } from "lucide-react";
 import { api } from "./live";
 import { fmtAmount, fmtUsd } from "./swap-format";
@@ -23,7 +23,7 @@ const feeText = (f: { name: string; usd: string | null; included: boolean }) => 
 const short = (a?: string) => !a ? "" : a.length > 14 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
 const best = (o?: Option) => o?.balances.slice().sort((a, b) => Number(b.amount) - Number(a.amount))[0];
 
-export function TradePanel({ chain, address, symbol }: { chain: string; address: string; symbol: string }) {
+export function TradePanel({ chain, address, symbol, inline, onAttempt }: { chain: string; address: string; symbol: string; inline?: boolean; onAttempt?: (a: WalletAttempt) => void }) {
   const chainId = DS_CHAINS[chain];
   const { sessions } = useMultiWallets();
   const evmWallets = sessions.filter(s => s.chain === "evm").map(s => s.address), solWallets = sessions.filter(s => s.chain === "solana").map(s => s.address);
@@ -98,22 +98,23 @@ export function TradePanel({ chain, address, symbol }: { chain: string; address:
     <button type="button" className="fv-button fv-primary fv-wide-button" style={{ marginTop: 10 }} disabled={!body || !preview || preview.enough === false || loading} onClick={() => body && setReview({ body })}>
       {loading ? <><RefreshCw size={14} className="fv-spin" /> Quoting…</> : preview?.enough === false ? "Not enough balance" : !amount ? "Enter an amount" : `Review ${side} ${symbol}`}</button>
     <p className="fv-muted" style={{ fontSize: 12, marginTop: 6 }}>Routed by LI.FI from your own wallets{sender ? ` (${short(sender)}${recipient && recipient !== sender ? " → " + short(recipient) : ""})` : ""}. Your wallet signs; FlowVault never holds funds.</p>
-    {review && <TradeReview body={review.body} sessions={sessions} close={() => setReview(null)} />}
+    {review && <TradeReview body={review.body} sessions={sessions} close={() => setReview(null)} inline={inline} onAttempt={onAttempt} />}
   </div>;
 }
 
 type Phase = "preparing" | "review" | "allowing" | "wallet" | "settling" | "done" | "failed" | "error";
 const FIXABLE = new Set(["VENUE_NOT_ALLOWED", "METHOD_NOT_ALLOWED", "ASSET_USE_NOT_ALLOWED", "ASSET_SCOPE_UNVERIFIED"]);
 
-function TradeReview({ body, sessions, close }: { body: Record<string, unknown>; sessions: WalletSession[]; close: () => void }) {
+function TradeReview({ body, sessions, close, inline, onAttempt }: { body: Record<string, unknown>; sessions: WalletSession[]; close: () => void; inline?: boolean; onAttempt?: (a: WalletAttempt) => void }) {
   const [phase, setPhase] = useState<Phase>("preparing"), [prep, setPrep] = useState<Prepared | null>(null), [attempt, setAttempt] = useState<WalletAttempt | null>(null);
   const [error, setError] = useState(""), [now, setNow] = useState(() => Date.now()), [step, setStep] = useState("");
-  const alive = useRef(true);
+  const alive = useRef(true), onAttemptRef = useRef(onAttempt);
+  useEffect(() => { onAttemptRef.current = onAttempt; }, [onAttempt]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const prepare = useCallback(async () => {
     setPhase("preparing"); setError("");
-    try { const r = await api("/api/trade", { op: "prepare", ...body }) as Prepared; if (alive.current) { setPrep(r); setAttempt(r.attempt); setPhase("review"); } }
+    try { const r = await api("/api/trade", { op: "prepare", ...body }) as Prepared; if (alive.current) { setPrep(r); setAttempt(r.attempt); setPhase("review"); onAttemptRef.current?.(r.attempt); } }
     catch (e) { if (alive.current) { setError((e as Error).message); setPhase("error"); } }
   }, [body]);
   useEffect(() => { const t = setTimeout(() => void prepare(), 0); return () => clearTimeout(t); }, [prepare]);
@@ -176,9 +177,8 @@ function TradeReview({ body, sessions, close }: { body: Record<string, unknown>;
   const blocked = prep && !prep.policy.allowed, fixable = blocked && prep.policy.violations.every(v => FIXABLE.has(v.code));
   const busy = ["wallet", "settling"].includes(phase);
   const link = (h: string) => p?.solanaTx ? "https://solscan.io/tx/" + h : (p?.explorer ?? "https://etherscan.io/").replace(/\/?$/, "/") + "tx/" + h;
-  return createPortal(<div className="fv-dialog-backdrop" onClick={() => { if (!busy) close(); }}>
-    <div className={"fv-dialog fv-swap-confirm is-" + phase} role="dialog" aria-modal="true" aria-label="Review trade" onClick={e => e.stopPropagation()}>
-      {!busy && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
+  return <ReviewFrame inline={inline} busy={busy} close={close} className={"fv-dialog fv-swap-confirm is-" + phase} label="Review trade">
+      {!busy && !inline && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
       <h2>{phase === "preparing" ? "Preparing your trade" : phase === "allowing" ? "Updating your policy" : phase === "wallet" ? "Confirm in your wallet" : phase === "settling" ? "Settling" : phase === "done" ? "Trade complete" : phase === "failed" ? "Trade did not complete" : phase === "error" ? "Trade not sent" : "Review trade"}</h2>
       <p className="fv-confirm-sub">{phase === "preparing" ? "Fresh route, balance, allowance, fees and your limits." : phase === "wallet" ? step || "Approve in your wallet." : phase === "settling" || phase === "done" || phase === "failed" ? attempt?.message : phase === "error" ? error : "Exact transactions, checked against your limits before your wallet opens."}</p>
       {r && p && phase !== "error" && <div className="fv-confirm-table">
@@ -206,6 +206,5 @@ function TradeReview({ body, sessions, close }: { body: Record<string, unknown>;
         {(phase === "done" || phase === "failed") && <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}
         {phase === "error" && <div className="fv-actions"><button type="button" className="fv-button" onClick={close}>Close</button><button type="button" className="fv-button fv-primary" onClick={() => void prepare()}>Try again</button></div>}
       </div>
-    </div>
-  </div>, document.body);
+  </ReviewFrame>;
 }
