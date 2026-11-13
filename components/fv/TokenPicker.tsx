@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Search, X, ChevronDown } from "lucide-react";
+import { Search, X, ChevronDown, Check } from "lucide-react";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 import { TokenIcon, NetworkLabel, networkInfo } from "./AssetIdentity";
 import { coreIdentity } from "./useTokenCatalog";
@@ -30,7 +30,7 @@ function PickerDialog({ tokens, label, balances, choose, close }: { tokens: Swap
     const previous = document.activeElement as HTMLElement;
     ref.current?.querySelector("input")?.focus();
     const listener = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onEscape();
+      if (e.key === "Escape" && !e.defaultPrevented) onEscape();
       if (e.key === "Tab") {
         const els = Array.from(ref.current?.querySelectorAll<HTMLElement>("button:not([disabled]),input,select") ?? []), first = els[0], last = els.at(-1);
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
@@ -56,9 +56,7 @@ function PickerDialog({ tokens, label, balances, choose, close }: { tokens: Swap
       <div className="fv-section-head"><h2>{label}</h2><button type="button" className="fv-icon-button" aria-label="Close token picker" onClick={close}><X size={19} /></button></div>
       <label className="fv-search-input fv-picker-search"><Search size={16} /><input aria-label="Search token name or contract" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, symbol or paste a contract" /></label>
       <div className="fv-picker-quick">{popular.map(t => <button type="button" key={t.id} onClick={() => choose(t)}><TokenIcon symbol={t.symbol} network={t.network} core image={t.icon} size={20} />{t.symbol}</button>)}</div>
-      <div className="fv-picker-networks" role="radiogroup" aria-label="Network">
-        {networks.map(n => { const info = n === "all" ? null : networkInfo(n); return <button type="button" role="radio" key={n} aria-checked={network === n} onClick={() => setNetwork(n)}>{n !== "all" && <NetworkLabel network={n} iconOnly />}{n === "all" ? "All networks" : info?.name ?? n.toUpperCase()}<small>{n === "all" ? tokens.length : counts.get(n) ?? 0}</small></button>; })}
-      </div>
+      <div className="fv-picker-network"><span>Network</span><NetworkDropdown networks={networks} counts={counts} total={tokens.length} value={network} onChange={setNetwork} /></div>
       <div className="fv-token-options">
         {owned > 0 && !q && <p className="fv-picker-group">Your tokens</p>}
         {rows.slice(0, 120).map((t, i) => {
@@ -76,5 +74,45 @@ function PickerDialog({ tokens, label, balances, choose, close }: { tokens: Swap
         {!rows.length && <p className="fv-empty">No matching listed token. Check the contract address.</p>}
       </div>
     </div>
+  </div>;
+}
+
+/** Network dropdown with logo rows. A custom listbox (a native select can't show logos), keyboard operable:
+ * arrows move, Enter picks, Escape closes the list without closing the token picker, typing filters. */
+function NetworkDropdown({ networks, counts, total, value, onChange }: { networks: string[]; counts: Map<string, number>; total: number; value: string; onChange: (n: string) => void }) {
+  const [open, setOpen] = useState(false), [filter, setFilter] = useState(""), [active, setActive] = useState(0);
+  const box = useRef<HTMLDivElement>(null), list = useRef<HTMLDivElement>(null);
+  const label = (n: string) => n === "all" ? "All networks" : networkInfo(n)?.name ?? n.toUpperCase();
+  const shown = networks.filter(n => !filter || (label(n) + " " + n).toLowerCase().includes(filter.toLowerCase()));
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", away);
+    return () => document.removeEventListener("mousedown", away);
+  }, [open]);
+  useEffect(() => { list.current?.querySelector<HTMLElement>(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [active, open]);
+  function toggle() { setFilter(""); setActive(Math.max(0, networks.indexOf(value))); setOpen(o => !o); }
+  function pick(n: string) { onChange(n); setOpen(false); }
+  function key(e: React.KeyboardEvent) {
+    if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); setOpen(false); return; }
+    if (!open && (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(); return; }
+    if (!open) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(a => Math.min(shown.length - 1, a + 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(a => Math.max(0, a - 1)); }
+    else if (e.key === "Enter") { e.preventDefault(); if (shown[active]) pick(shown[active]); }
+  }
+  return <div className="fv-net-dd" ref={box} onKeyDown={key}>
+    <button type="button" className="fv-net-dd-button" aria-haspopup="listbox" aria-expanded={open} onClick={toggle}>
+      {value !== "all" && <NetworkLabel network={value} iconOnly />}<span>{label(value)}</span><ChevronDown size={15} />
+    </button>
+    {open && <div className="fv-net-dd-menu">
+      <label className="fv-net-dd-filter"><Search size={13} /><input autoFocus aria-label="Filter networks" value={filter} onChange={e => { setFilter(e.target.value); setActive(0); }} placeholder="Find a network" /></label>
+      <div className="fv-net-dd-list" role="listbox" aria-label="Network" ref={list}>
+        {shown.map((n, i) => <div key={n} data-i={i} role="option" aria-selected={n === value} className={"fv-net-dd-row" + (i === active ? " is-active" : "")} onMouseEnter={() => setActive(i)} onMouseDown={e => e.preventDefault()} onClick={() => pick(n)}>
+          {n === "all" ? <span className="fv-net-dd-all">∗</span> : <NetworkLabel network={n} iconOnly />}<span>{label(n)}</span><small>{n === "all" ? total : counts.get(n) ?? 0}</small>{n === value ? <Check size={14} /> : <i />}
+        </div>)}
+        {!shown.length && <p className="fv-muted">No matching network.</p>}
+      </div>
+    </div>}
   </div>;
 }
