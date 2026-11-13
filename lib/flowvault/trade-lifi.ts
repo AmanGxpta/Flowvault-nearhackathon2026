@@ -62,13 +62,18 @@ export function readLifiQuote(body: unknown, sent: TradeRequest): LifiQuote {
     evmTx = { chainId: sent.fromChain, from: sent.fromAddress, to: String(t.to), value: "0x" + value.toString(16), data: String(t.data), gasLimit: /^0x[0-9a-fA-F]+$/.test(String(t.gasLimit)) ? String(t.gasLimit) : null };
   }
   const usd = (v: unknown) => typeof v === "string" && /^\d+(\.\d+)?$/.test(v) ? v : null;
-  const gas = (e.gasCosts ?? []).reduce((n: number, g: { amountUSD?: string }) => n + (Number(g.amountUSD) || 0), 0);
+  // Gas is known only when LI.FI lists gas costs and prices every one of them; otherwise it stays unknown (null),
+  // never zero, so the policy's moving-cost check fails closed.
+  const gasList: { amountUSD?: string }[] = Array.isArray(e.gasCosts) ? e.gasCosts : [];
+  const gasKnown = gasList.length > 0 && gasList.every(g => usd(g.amountUSD) !== null);
+  const gas = gasKnown ? gasList.reduce((n, g) => n + Number(g.amountUSD), 0) : null;
   return {
     id: String(b.id ?? ""), tool: String(b.tool ?? e.tool ?? "LI.FI").slice(0, 40), from: side(a.fromToken, sent.fromChain), to: side(a.toToken, sent.toChain),
     outputRaw: e.toAmount, minOutRaw: e.toAmountMin, durationSec: Number.isFinite(e.executionDuration) ? Number(e.executionDuration) : null,
     approvalAddress: typeof e.approvalAddress === "string" && isEvmAddress(e.approvalAddress) ? e.approvalAddress : null,
-    fromUsd: usd(e.fromAmountUSD), toUsd: usd(e.toAmountUSD), gasUsd: gas > 0 ? gas.toFixed(4) : null,
-    feesUsd: (e.feeCosts ?? []).slice(0, 6).map((f: { name?: string; amountUSD?: string; included?: boolean }) => ({ name: String(f.name ?? "Fee").slice(0, 40), usd: usd(f.amountUSD) ?? "0", included: f.included !== false })),
+    fromUsd: usd(e.fromAmountUSD), toUsd: usd(e.toAmountUSD), gasUsd: gas === null ? null : gas.toFixed(6),
+    // An unpriced fee keeps usd null (shown as unknown, and it blocks the cost check if it's charged on top).
+    feesUsd: (e.feeCosts ?? []).slice(0, 8).map((f: { name?: string; amountUSD?: string; included?: boolean }) => ({ name: String(f.name ?? "Fee").slice(0, 40), usd: usd(f.amountUSD), included: f.included !== false })),
     evmTx, solanaTx,
   };
 }
@@ -81,10 +86,13 @@ export function approveTx(chainId: number, owner: string, token: string, spender
 }
 
 /** Policy view: a trade sells its input asset at the LI.FI venue; delivery goes to the owner's own wallet. */
-export function tradePolicyAction(p: { accountId: string; recipient: string; from: TradeSide; fromUsd: string | null; minOutUsd: string | null; gasUsd: string | null; receivers: { receiver: string; method: string }[] }): PolicyAction {
-  const u6 = (v: string | null) => { if (v === null) return null; const [w, f = ""] = v.split("."); return BigInt(w) * 1000000n + BigInt(f.slice(0, 6).padEnd(6, "0")); };
-  const input = u6(p.fromUsd), out = u6(p.minOutUsd), gas = u6(p.gasUsd);
-  const moving = input !== null && out !== null ? (input > out ? input - out : 0n) + (gas ?? 0n) : null;
+/** Moving cost = input value − minimum received (covers slippage and fees taken from the output) + gas + fees
+ * charged on top. Any unknown part makes the whole cost unknown (null), which the policy refuses. */
+export function tradePolicyAction(p: { accountId: string; recipient: string; from: TradeSide; fromUsd: string | null; minOutUsd: string | null; gasUsd: string | null; extraFeesUsd?: (string | null)[]; receivers: { receiver: string; method: string }[] }): PolicyAction {
+  const u6 = (v: string | null) => { if (v === null || !/^\d+(\.\d+)?$/.test(v)) return null; const [w, f = ""] = v.split("."); return BigInt(w) * 1000000n + BigInt(f.slice(0, 6).padEnd(6, "0")); };
+  const input = u6(p.fromUsd), out = u6(p.minOutUsd), gas = u6(p.gasUsd), extras = (p.extraFeesUsd ?? []).map(u6);
+  const moving = input === null || out === null || gas === null || extras.some(x => x === null) ? null
+    : (input > out ? input - out : 0n) + gas + extras.reduce((n: bigint, x) => n + x!, 0n);
   return {
     kind: "swap", asset: p.from.symbol, amount: input !== null && input > 0n ? decimal(input) : "0.000001", recipient: p.accountId, venue: LIFI_VENUE,
     movingCost: moving === null ? null : decimal(moving), gasNear: "0", source: "live", accountId: p.accountId, methods: p.receivers,
@@ -108,11 +116,18 @@ export function tradeReceivers(fromChain: number, evm: { to: string; data: strin
 
 /** LI.FI /v1/status → journal state. Delivery is DONE/COMPLETED; PARTIAL delivered another token; REFUNDED and
  * FAILED returned or kept the input. */
-export function readLifiStatus(body: unknown) {
-  const b = body as { status?: string; substatus?: string; substatusMessage?: string; receiving?: { amount?: string; token?: { symbol?: string; decimals?: number }; txHash?: string } };
+export function readLifiStatus(body: unknown, expect: { chainId: number; token: string }) {
+  const b = body as { status?: string; substatus?: string; substatusMessage?: string; receiving?: { amount?: string; chainId?: number; token?: { address?: string; symbol?: string; decimals?: number; chainId?: number }; txHash?: string } };
   const recv = b?.receiving;
   const amount = isRaw(recv?.amount) ? recv!.amount! : null;
-  if (b?.status === "DONE" && b.substatus === "COMPLETED") return { state: "confirmed" as const, receivedRaw: amount, destinationHash: recv?.txHash ?? null, note: b.substatusMessage ?? "" };
+  const hash = typeof recv?.txHash === "string" && /^(0x[0-9a-fA-F]{64}|[1-9A-HJ-NP-Za-km-z]{64,90})$/.test(recv.txHash) ? recv.txHash : null;
+  if (b?.status === "DONE" && b.substatus === "COMPLETED") {
+    // Delivered only with proof: the amount, the destination transaction, and the reviewed token on the reviewed chain.
+    const chainOk = (recv?.chainId ?? recv?.token?.chainId) === expect.chainId;
+    const tokenOk = same(expect.chainId, recv?.token?.address, expect.token);
+    if (!amount || !hash || !chainOk || !tokenOk) return { state: "unverified" as const, receivedRaw: amount, destinationHash: hash, note: "LI.FI reports the route done, but hasn't shown the delivered amount, token and transaction yet. Still checking." };
+    return { state: "confirmed" as const, receivedRaw: amount, destinationHash: hash, note: b.substatusMessage ?? "" };
+  }
   if (b?.status === "DONE" && b.substatus === "PARTIAL") return { state: "partial" as const, receivedRaw: amount, destinationHash: recv?.txHash ?? null, note: `Delivered ${recv?.token?.symbol ?? "another token"} instead of the reviewed token.` };
   if (b?.status === "DONE" && b.substatus === "REFUNDED") return { state: "failed" as const, receivedRaw: null, destinationHash: recv?.txHash ?? null, note: "The route was refunded to your wallet." };
   if (b?.status === "FAILED") return { state: "failed" as const, receivedRaw: null, destinationHash: null, note: b.substatusMessage ?? "LI.FI reports the route failed." };

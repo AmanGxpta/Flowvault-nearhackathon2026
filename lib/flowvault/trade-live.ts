@@ -2,7 +2,7 @@
 // public RPC, a fresh quote that must echo the request, the policy check and the wallet_attempts journal
 // (authorize → wallet → attach/check, with LI.FI's status for delivery). FlowVault never signs or holds funds.
 import { session } from "./store.ts";
-import { createAttempt, readAttempt, saveAttempt } from "./attempts.ts";
+import { createAttempt, readAttempt, saveAttempt, listActiveAttempts, listAttempts } from "./attempts.ts";
 import { assertSignable } from "./execution.ts";
 import { evaluatePolicy, defaultPolicy } from "./policy.ts";
 import { checkPolicy, readLedger, reservePolicy, releasePolicy } from "./policy-store.ts";
@@ -29,7 +29,7 @@ export interface TradePreparation {
   evmTxs: EvmTx[]; solanaTx: string | null; policyAction: ReturnType<typeof tradePolicyAction>;
   /** NEAR transactions: none (the journal's shared shape); the route is signed on its own chain. */
   transactions: never[];
-  walletAskedAt?: string; result?: { status: string; receivedRaw: string | null; received: string | null; hashes: string[]; destinationHash: string | null };
+  walletAskedAt?: string; nonceAtAsk?: string; closedUnsentAt?: string; result?: { status: string; receivedRaw: string | null; received: string | null; hashes: string[]; destinationHash: string | null };
 }
 
 async function lifi(path: string) {
@@ -88,7 +88,9 @@ async function owner(request: Request) {
 }
 function own(s: Awaited<ReturnType<typeof session>>, chainId: number, address: string | undefined) {
   if (!address || !addressOk(chainId, address)) return null;
-  return mayRead(s.workspace, chainId === SOLANA_ID ? "solana" : "evm", address) ? address : null;
+  // EVM addresses are kept lowercase so one wallet is one journal account (the overlap guard compares exactly).
+  const a = chainId === SOLANA_ID ? address : address.toLowerCase();
+  return mayRead(s.workspace, chainId === SOLANA_ID ? "solana" : "evm", a) ? a : null;
 }
 
 export interface TradeBody { fromChain: number; fromToken: string; toChain: number; toToken: string; amount: string; sender?: string; recipient?: string; slippageBps: number }
@@ -136,6 +138,7 @@ export async function prepareTrade(request: Request, body: TradeBody) {
   if (balance === null) throw new Error(`Couldn't read your ${lq.from.symbol} balance on ${from.name}.`);
   if (balance < amountRaw) throw new Error(`Your ${lq.from.symbol} balance on ${from.name} is lower than ${body.amount}.`);
   const evmTxs: EvmTx[] = [];
+  let ownGasUsd: string | null = null;
   if (lq.evmTx) {
     if (!from.rpc) throw new Error(`No public RPC for ${from.name}; fees and allowance can't be checked.`);
     if (body.fromToken !== EVM_NATIVE) {
@@ -149,6 +152,9 @@ export async function prepareTrade(request: Request, body: TradeBody) {
     const gas = evmTxs.reduce((n, t) => n + (t.gasLimit ? BigInt(t.gasLimit) : 70_000n), 0n) * gasPrice;
     const value = BigInt(lq.evmTx.value);
     if (native < value + gas) throw new Error(`Add a little ${from.native.symbol} on ${from.name} for network fees first.`);
+    // Our own bound for every transaction here (approvals included), at the chain's gas price and LI.FI's native price.
+    const nativePrice = await tokenInfo(from.id, from.native.address).then(t => t.priceUsd).catch(() => null);
+    if (nativePrice && Number(nativePrice) > 0) ownGasUsd = (Number(gas) / 10 ** from.native.decimals * Number(nativePrice)).toFixed(6);
   } else if (lq.solanaTx) {
     assertOwnerOnly(lq.solanaTx, sender);
     const { solana } = await import("./solana-funding.ts");
@@ -157,22 +163,27 @@ export async function prepareTrade(request: Request, body: TradeBody) {
   }
   const receivers = tradeReceivers(from.id, evmTxs, !!lq.solanaTx);
   const minOutUsd = usdOf(lq.minOutRaw, lq.to);
+  // Gas: the larger of our bound and LI.FI's estimate; unknown when neither is known (the policy then refuses).
+  const gasUsd = ownGasUsd !== null && lq.gasUsd !== null ? (Number(ownGasUsd) > Number(lq.gasUsd) ? ownGasUsd : lq.gasUsd) : ownGasUsd ?? lq.gasUsd;
+  const extraFeesUsd = lq.feesUsd.filter(f => !f.included).map(f => f.usd);
   const preparation: TradePreparation = {
     kind: "trade", route: "lifi", accountId: sender, recipient, amount: dec(amountRaw, lq.from.decimals), amountRaw: amountRaw.toString(),
     expiresAt: new Date(now + QUOTE_TTL_MS).toISOString(), capturedAt: new Date(now).toISOString(), from: lq.from, to: lq.to,
     outputRaw: lq.outputRaw, minOutRaw: lq.minOutRaw, slippageBps: body.slippageBps, tool: lq.tool, quoteId: lq.id, durationSec: lq.durationSec,
-    fromUsd: lq.fromUsd ?? usdOf(amountRaw.toString(), lq.from), minOutUsd, gasUsd: lq.gasUsd, feesUsd: lq.feesUsd,
+    fromUsd: lq.fromUsd ?? usdOf(amountRaw.toString(), lq.from), minOutUsd, gasUsd, feesUsd: lq.feesUsd,
     fromChainName: from.name, toChainName: to.name, explorer: from.explorer, chainParams: from.metamask,
     evmTxs, solanaTx: lq.solanaTx, policyAction: undefined as never, transactions: [],
   };
-  preparation.policyAction = tradePolicyAction({ accountId: sender, recipient, from: lq.from, fromUsd: preparation.fromUsd, minOutUsd, gasUsd: lq.gasUsd, receivers });
+  preparation.policyAction = tradePolicyAction({ accountId: sender, recipient, from: lq.from, fromUsd: preparation.fromUsd, minOutUsd, gasUsd, extraFeesUsd, receivers });
   const policy = s.workspace.policy ?? defaultPolicy();
   const check = evaluatePolicy(preparation.policyAction, policy, await readLedger(s.id), now);
   const missing = tradePolicyEntries(receivers, from.name).filter(e => e.type === "venue" ? !policy.venues.includes(e.venue) : !policy.methods.some(m => m.receiver === e.receiver && m.method === e.method));
+  const closed = await recentlyClosed(s.id, sender);
   const attempt = await createAttempt(s.id, s.workspace.mandate.version, preparation as never, "trade");
   return {
     attempt,
-    review: { tool: lq.tool, output: dec(lq.outputRaw, lq.to.decimals), minimum: dec(lq.minOutRaw, lq.to.decimals), fromUsd: preparation.fromUsd, minOutUsd, gasUsd: lq.gasUsd, fees: lq.feesUsd, durationSec: lq.durationSec, approvals: evmTxs.length - (lq.evmTx ? 1 : 0), sender, recipient, fromChain: from.name, toChain: to.name, expiresAt: preparation.expiresAt },
+    review: { tool: lq.tool, output: dec(lq.outputRaw, lq.to.decimals), minimum: dec(lq.minOutRaw, lq.to.decimals), fromUsd: preparation.fromUsd, minOutUsd, gasUsd, fees: lq.feesUsd, durationSec: lq.durationSec, approvals: evmTxs.length - (lq.evmTx ? 1 : 0), sender, recipient, fromChain: from.name, toChain: to.name, expiresAt: preparation.expiresAt,
+      ...(closed.length ? { warning: `An earlier trade request from this wallet (${ago(closed[0].createdAt)}) was closed as not sent, but its wallet prompt may still be open. Reject it in your wallet before approving this one.` } : {}) },
     policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version },
   };
 }
@@ -223,6 +234,34 @@ async function origin(p: TradePreparation, hash: string) {
   return receipt.status === "0x1" ? "ok" : "failed";
 }
 
+const NONCE_GRACE_MS = 20_000, SOLANA_LAND_MS = 3 * 60_000;
+const ago = (iso: string) => { const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000)); return m === 0 ? "just now" : m === 1 ? "a minute ago" : `${m} minutes ago`; };
+/** A trade whose wallet request never reported back. Solana: once the transaction's blockhash is past (a few
+ * minutes) it can never land, so it's closed for certain. EVM: the wallet's nonce unchanged since the request
+ * means nothing left yet; it closes, but the prompt may still be open, so the next trade warns. */
+async function resolveTrade(a: import("./execution.ts").WalletAttempt, p: TradePreparation) {
+  if (!["awaiting_wallet", "unknown"].includes(a.state) || a.hashes.length) return false;
+  const asked = Date.parse(p.walletAskedAt ?? a.createdAt);
+  if (p.solanaTx) {
+    if (Date.now() - asked < SOLANA_LAND_MS) return false;
+    a.state = "failed"; a.message = "Not sent. The Solana transaction expired unsigned, so it can no longer land.";
+    return true;
+  }
+  if (!p.nonceAtAsk || Date.now() - asked < NONCE_GRACE_MS) return false;
+  const c = await chain(p.from.chainId);
+  if (!c.rpc) return false;
+  const pending = await evmCall(c.rpc, "eth_getTransactionCount", [p.accountId, "pending"]).then(hex).catch(() => null);
+  if (pending === null || pending !== BigInt(p.nonceAtAsk)) return false;
+  a.state = "failed"; p.closedUnsentAt = new Date().toISOString();
+  a.message = "Not sent. No transaction left your wallet, so the request was closed. If its wallet prompt is still open, reject it there.";
+  return true;
+}
+/** Earlier trades from this wallet closed as not sent within the last 30 minutes (their prompt may still be open). */
+async function recentlyClosed(sessionId: string, sender: string) {
+  return (await listAttempts(sessionId)).filter(o => o.kind === "trade" && o.accountId === sender && o.state === "failed" && !o.hashes.length
+    && (o.preparation as unknown as TradePreparation).closedUnsentAt && Date.now() - Date.parse((o.preparation as unknown as TradePreparation).closedUnsentAt!) < 30 * 60_000);
+}
+
 export async function tradeJournalAction(request: Request, id: string, action: string, hashes: string[] = []) {
   const s = await session(request), { attempt: a, previous } = await readAttempt(s.id, id), p = a.preparation as unknown as TradePreparation;
   if (a.kind !== "trade" || s.workspace.mode !== "live") throw new Error("Trade not in this live workspace.");
@@ -230,12 +269,20 @@ export async function tradeJournalAction(request: Request, id: string, action: s
   let revision: number | undefined;
   if (action === "authorize") {
     assertSignable(a, s.workspace.accountId, s.workspace.mode, s.workspace.mandate.version);
+    // One outgoing request per wallet: resolve earlier ones that provably sent nothing, else say which one blocks.
+    for (const other of await listActiveAttempts(s.id)) {
+      if (other.id === a.id || other.accountId !== p.accountId) continue;
+      const before = JSON.stringify(other);
+      if (other.kind === "trade" && await resolveTrade(other, other.preparation as unknown as TradePreparation)) { await releasePolicy(s.id, other.id); await saveAttempt(s.id, other, before); continue; }
+      throw new Error(`An earlier ${other.kind === "trade" ? "trade" : other.kind} from this wallet (started ${ago(other.createdAt)}) is still unresolved, so FlowVault won't send another yet. Check it in Activity first.`);
+    }
     const policy = s.workspace.policy ?? defaultPolicy();
     const policyAction = { ...p.policyAction, id: a.id };
     await checkPolicy(s.id, policyAction, policy);
     await reservePolicy(s.id, policyAction, policy, s.revision);
     revision = s.revision;
     p.walletAskedAt = new Date().toISOString();
+    if (p.evmTxs.length) { const c = await chain(p.from.chainId); if (c.rpc) p.nonceAtAsk = String(await evmCall(c.rpc, "eth_getTransactionCount", [p.accountId, "pending"]).then(hex)); }
     a.state = "awaiting_wallet";
     a.message = "Waiting for your wallet. Approve the reviewed trade there. If the result is unclear, check its status before trading again.";
   } else if (action === "declined") {
@@ -247,6 +294,8 @@ export async function tradeJournalAction(request: Request, id: string, action: s
     }
   } else if (action === "uncertain") {
     if (a.state === "awaiting_wallet") { a.state = "unknown"; a.message = "The wallet did not report a result. Check this trade's status before trading again."; }
+  } else if (action === "check" && !hashes.length && !a.hashes.length) {
+    if (await resolveTrade(a, p)) await releasePolicy(s.id, a.id);
   } else {
     if (a.state === "prepared") throw new Error("This trade has not reached your wallet.");
     const all = [...new Set([...a.hashes, ...hashes])];
@@ -262,14 +311,15 @@ export async function tradeJournalAction(request: Request, id: string, action: s
         a.state = "failed"; a.message = `The trade transaction failed on ${p.fromChainName}. Network fees were spent; the ${p.from.symbol} stayed in your wallet.`;
         await releasePolicy(s.id, a.id);
       } else if (o === "ok") {
-        const st = await lifi(`/status?txHash=${encodeURIComponent(routeHash)}&fromChain=${p.from.chainId}&toChain=${p.to.chainId}`).then(readLifiStatus).catch(() => null);
-        if (st) {
+        const st = await lifi(`/status?txHash=${encodeURIComponent(routeHash)}&fromChain=${p.from.chainId}&toChain=${p.to.chainId}`).then(b => readLifiStatus(b, { chainId: p.to.chainId, token: p.to.address })).catch(() => null);
+        if (st?.state === "unverified") a.message = st.note;
+        else if (st) {
           const received = st.receivedRaw ? dec(st.receivedRaw, p.to.decimals) : null;
           p.result = { status: st.state, receivedRaw: st.receivedRaw, received, hashes: all, destinationHash: st.destinationHash };
           appendStep(a, "lifi:" + routeHash, st.state, "Trade " + st.state, { evidence: st });
           a.state = st.state;
           a.message = st.state === "confirmed" ? `Received ${received ?? "the"} ${p.to.symbol} on ${p.toChainName}.` : st.note;
-          if (st.state === "confirmed" && st.receivedRaw && BigInt(st.receivedRaw) < BigInt(p.minOutRaw)) { a.state = "partial"; a.message = `Received ${received} ${p.to.symbol}, below the reviewed minimum.`; }
+          if (st.state === "confirmed" && BigInt(st.receivedRaw!) < BigInt(p.minOutRaw)) { a.state = "partial"; a.message = `Received ${received} ${p.to.symbol}, below the reviewed minimum.`; }
         } else a.message = p.from.chainId === p.to.chainId ? "Confirmed on chain; waiting for LI.FI to report the delivered amount." : `Sent on ${p.fromChainName}; delivering on ${p.toChainName}.`;
       } else a.message = "Submitted. Waiting for the network to confirm.";
     } else a.message = "Approval sent. Waiting for the trade transaction.";

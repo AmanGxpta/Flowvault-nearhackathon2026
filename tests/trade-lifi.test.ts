@@ -20,7 +20,7 @@ test("a LI.FI quote must echo the request and send exactly the reviewed value", 
   const q = readLifiQuote(body, sent);
   assert.equal(q.evmTx?.to, ROUTER);
   assert.equal(BigInt(q.evmTx!.value), 3000000000000000n);
-  assert.equal(q.gasUsd, "0.2100");
+  assert.equal(q.gasUsd, "0.210000");
   assert.throws(() => readLifiQuote({ ...body, action: { ...body.action, toAddress: TOKEN } }, sent), /does not match/);
   assert.throws(() => readLifiQuote({ ...body, transactionRequest: { ...body.transactionRequest, value: "0x1" } }, sent), /different amount/);
   assert.throws(() => readLifiQuote({ ...body, transactionRequest: { ...body.transactionRequest, from: TOKEN } }, sent), /doesn't match/);
@@ -48,9 +48,26 @@ test("trades sell the input at the LI.FI venue and need an explicit allow for ea
   assert.equal(evaluatePolicy(action, policy, []).allowed, true);
 });
 
-test("delivery comes only from LI.FI's DONE status", () => {
-  assert.equal(readLifiStatus({ status: "DONE", substatus: "COMPLETED", receiving: { amount: "100", txHash: "0xabc" } })?.state, "confirmed");
-  assert.equal(readLifiStatus({ status: "DONE", substatus: "PARTIAL", receiving: { amount: "90", token: { symbol: "USDC" } } })?.state, "partial");
-  assert.equal(readLifiStatus({ status: "DONE", substatus: "REFUNDED" })?.state, "failed");
-  assert.equal(readLifiStatus({ status: "PENDING" }), null);
+test("delivery is confirmed only with the amount, destination transaction and the reviewed token", () => {
+  const want = { chainId: 4663, token: TOKEN };
+  const recv = { amount: "100", txHash: "0x" + "ab".repeat(32), chainId: 4663, token: { address: TOKEN, chainId: 4663 } };
+  assert.equal(readLifiStatus({ status: "DONE", substatus: "COMPLETED", receiving: recv }, want)?.state, "confirmed");
+  assert.equal(readLifiStatus({ status: "DONE", substatus: "COMPLETED" }, want)?.state, "unverified");
+  assert.equal(readLifiStatus({ status: "DONE", substatus: "COMPLETED", receiving: { ...recv, txHash: undefined } }, want)?.state, "unverified");
+  assert.equal(readLifiStatus({ status: "DONE", substatus: "COMPLETED", receiving: { ...recv, token: { address: OWNER, chainId: 4663 } } }, want)?.state, "unverified");
+  assert.equal(readLifiStatus({ status: "DONE", substatus: "PARTIAL", receiving: { amount: "90", token: { symbol: "USDC" } } }, want)?.state, "partial");
+  assert.equal(readLifiStatus({ status: "DONE", substatus: "REFUNDED" }, want)?.state, "failed");
+  assert.equal(readLifiStatus({ status: "PENDING" }, want), null);
+});
+
+test("unknown gas or an unpriced fee charged on top leaves the moving cost unknown, never zero", () => {
+  const q = readLifiQuote({ ...body, estimate: { ...body.estimate, gasCosts: [] } }, sent);
+  assert.equal(q.gasUsd, null);
+  assert.equal(readLifiQuote({ ...body, estimate: { ...body.estimate, gasCosts: [{ amountUSD: "0.2" }, {}] } }, sent).gasUsd, null);
+  const base = { accountId: OWNER, recipient: OWNER, from: q.from, fromUsd: "5.89", minOutUsd: "5.5", receivers: [] };
+  assert.equal(tradePolicyAction({ ...base, gasUsd: null }).movingCost, null);
+  assert.equal(tradePolicyAction({ ...base, gasUsd: "0.2", extraFeesUsd: [null] }).movingCost, null);
+  assert.equal(tradePolicyAction({ ...base, gasUsd: "0.2", extraFeesUsd: ["0.1"] }).movingCost, "0.69");
+  const action = tradePolicyAction({ ...base, gasUsd: null, receivers: [{ receiver: "1:x", method: "lifi-route" }] });
+  assert.ok(evaluatePolicy(action, { ...defaultPolicy(), venues: ["lifi"], methods: [{ receiver: "1:x", method: "lifi-route" }] }, []).violations.some(v => v.code === "COST_UNVERIFIED"));
 });

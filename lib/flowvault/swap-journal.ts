@@ -216,7 +216,8 @@ const usdOf = (amountRaw: string, decimals: number, price?: string) => {
 function ownWallet(w: import("./types.ts").Workspace, network: string, address: string | undefined) {
   if (network === "near") return w.accountId ?? null;
   if (!address) return null;
-  if (EVM_FAMILY.includes(network)) return mayRead(w, "evm", address) ? address : null;
+  // Lowercase: one EVM wallet is one journal account, so the one-request-per-wallet guard matches it exactly.
+  if (EVM_FAMILY.includes(network)) return mayRead(w, "evm", address.toLowerCase()) ? address.toLowerCase() : null;
   if (network === "sol") return mayRead(w, "solana", address) ? address : null;
   return null;
 }

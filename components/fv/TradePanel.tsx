@@ -13,12 +13,13 @@ import type { WalletAttempt } from "@/lib/flowvault/execution";
 import type { TradePreparation } from "@/lib/flowvault/trade-live";
 
 interface Option { chainId: number; chain: string; token: string; symbol: string; decimals: number; logo: string | null; balances: { address: string; amount: string }[] }
-interface Preview { tool: string; output: string; minimum: string; fromUsd: string | null; toUsd: string | null; gasUsd: string | null; fees: { name: string; usd: string; included: boolean }[]; durationSec: number | null; from: { symbol: string }; to: { symbol: string }; fromChain: string; toChain: string; balance: string | null; enough: boolean | null }
+interface Preview { tool: string; output: string; minimum: string; fromUsd: string | null; toUsd: string | null; gasUsd: string | null; fees: { name: string; usd: string | null; included: boolean }[]; durationSec: number | null; from: { symbol: string }; to: { symbol: string }; fromChain: string; toChain: string; balance: string | null; enough: boolean | null }
 interface Prepared {
   attempt: WalletAttempt;
-  review: { tool: string; output: string; minimum: string; fromUsd: string | null; minOutUsd: string | null; gasUsd: string | null; fees: { name: string; usd: string; included: boolean }[]; durationSec: number | null; approvals: number; sender: string; recipient: string; fromChain: string; toChain: string; expiresAt: string };
+  review: { tool: string; output: string; minimum: string; fromUsd: string | null; minOutUsd: string | null; gasUsd: string | null; fees: { name: string; usd: string | null; included: boolean }[]; durationSec: number | null; approvals: number; warning?: string; sender: string; recipient: string; fromChain: string; toChain: string; expiresAt: string };
   policy: { allowed: boolean; violations: { code: string; message: string }[]; missingEntries: { label: string }[]; revision: number; version: number };
 }
+const feeText = (f: { name: string; usd: string | null; included: boolean }) => `${f.name} ${f.usd === null ? "unknown" : fmtUsd(f.usd)}${f.included ? "" : " (on top)"}`;
 const short = (a?: string) => !a ? "" : a.length > 14 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
 const best = (o?: Option) => o?.balances.slice().sort((a, b) => Number(b.amount) - Number(a.amount))[0];
 
@@ -90,7 +91,7 @@ export function TradePanel({ chain, address, symbol }: { chain: string; address:
       <div><span>You get</span><strong>≈ {fmtAmount(preview.output)} {preview.to.symbol}{preview.toUsd ? <small> · {fmtUsd(preview.toUsd)}</small> : null}</strong></div>
       <div><span>Minimum</span><strong>{fmtAmount(preview.minimum)} {preview.to.symbol}</strong></div>
       <div><span>Route</span><strong>{preview.tool} · {preview.fromChain === preview.toChain ? preview.fromChain : `${preview.fromChain} → ${preview.toChain}`}{preview.durationSec ? ` · ~${preview.durationSec}s` : ""}</strong></div>
-      <div><span>Fees</span><strong>{preview.fees.length ? preview.fees.map(f => `${f.name} ${fmtUsd(f.usd)}`).join(" · ") : "none listed"}{preview.gasUsd ? ` · gas ${fmtUsd(preview.gasUsd)}` : ""}</strong></div>
+      <div><span>Fees</span><strong>{preview.fees.length ? preview.fees.map(feeText).join(" · ") : "none listed"}{preview.gasUsd ? ` · gas ${fmtUsd(preview.gasUsd)}` : " · gas unknown"}</strong></div>
       {preview.balance !== null && <div><span>Your balance</span><strong className={preview.enough === false ? "fv-down" : ""}>{fmtAmount(preview.balance)} {preview.from.symbol}</strong></div>}
     </div>}
     {pvError && <p role="alert" className="fv-notice">{/no available quotes|No available quotes|no route/i.test(pvError) ? `No route for this amount right now. Try another amount or pay token.` : pvError}</p>}
@@ -186,9 +187,10 @@ function TradeReview({ body, sessions, close }: { body: Record<string, unknown>;
         {phase !== "done" && <div><span>Minimum</span><strong>{fmtAmount(r.minimum)} {p.to.symbol}{r.minOutUsd ? <small> · {fmtUsd(r.minOutUsd)}</small> : null}</strong></div>}
         <div><span>Route</span><strong>{r.tool} via LI.FI · {r.fromChain === r.toChain ? r.fromChain : <>{r.fromChain} <ArrowRight size={12} /> {r.toChain}</>}</strong></div>
         <div><span>From → to</span><strong>{short(r.sender)} → {short(r.recipient)}</strong></div>
-        <div><span>Fees</span><strong>{r.fees.map(f => `${f.name} ${fmtUsd(f.usd)}`).join(" · ") || "none listed"}{r.gasUsd ? ` · gas ≈ ${fmtUsd(r.gasUsd)}` : ""}</strong></div>
+        <div><span>Fees</span><strong>{r.fees.map(feeText).join(" · ") || "none listed"}{r.gasUsd ? ` · gas up to ${fmtUsd(r.gasUsd)}` : " · gas unknown"}</strong></div>
         {r.approvals > 0 && phase === "review" && <div><span>Approval</span><strong>Exactly {fmtAmount(p.amount)} {p.from.symbol} for the LI.FI router (not unlimited)</strong></div>}
       </div>}
+      {r?.warning && phase === "review" && <p role="status" className="fv-notice">{r.warning}</p>}
       {prep && phase === "review" && (prep.policy.allowed
         ? <div className="fv-policy-check is-ok"><ShieldCheck size={17} /><div><strong>Within your limits</strong><small>Per-action cap, daily cap, cost limit and approved venues checked · policy v{prep.policy.version}</small></div></div>
         : <div className="fv-policy-check is-blocked"><ShieldAlert size={17} /><div><strong>{fixable ? "LI.FI trades aren’t in your policy yet" : "Your policy blocks this trade"}</strong>
