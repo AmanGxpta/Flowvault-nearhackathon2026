@@ -245,3 +245,8 @@ export function verifyRheaReceipts(results: unknown[], p: { kind: RheaKind; acco
   const unwrapFailed = p.native && (p.kind === "withdraw" || p.kind === "borrow" || p.kind === "collateral_release") && statusFailed;
   return { state: unwrapFailed ? "partial" as const : "confirmed" as const, movedInner: moved.toString(), message: unwrapFailed ? "Rhea paid out wNEAR, but unwrapping to NEAR failed. Your wNEAR is in your wallet." : "Rhea recorded it; finalized on NEAR." };
 }
+
+/** True when any access key's nonce advanced (or a key was added) since the snapshot: a NEAR transaction was sent. */
+export function noncesMoved(before: Record<string, string>, now: Record<string, string>) {
+  return Object.entries(now).some(([k, n]) => before[k] === undefined || BigInt(n) > BigInt(before[k]));
+}

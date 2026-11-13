@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRheaAction, rheaHealth, rheaPolicyAction, rheaPolicyEntries, verifyRheaReceipts, RHEA, WRAP, type RheaMarket, type RheaAccount, type RheaWallet } from "../lib/flowvault/rhea-markets.ts";
+import { noncesMoved, buildRheaAction, rheaHealth, rheaPolicyAction, rheaPolicyEntries, verifyRheaReceipts, RHEA, WRAP, type RheaMarket, type RheaAccount, type RheaWallet } from "../lib/flowvault/rhea-markets.ts";
 import { evaluatePolicy, defaultPolicy } from "../lib/flowvault/policy.ts";
 
 const E12 = 10n ** 12n;
@@ -77,4 +77,11 @@ test("receipts confirm only with Rhea's own events for this account and token", 
   assert.equal(verifyRheaReceipts([{ final_execution_status: "FINAL", status: { SuccessValue: "" }, receipts_outcome: [ev("borrow"), ev("withdraw_failed")] }], p)?.state, "failed");
   assert.equal(verifyRheaReceipts([{ final_execution_status: "FINAL", status: { SuccessValue: "" }, receipts_outcome: [ev("borrow", USDC), ev("withdraw_succeeded", USDC)] }], p)?.state, "failed");
   assert.equal(verifyRheaReceipts([{ final_execution_status: "EXECUTED_OPTIMISTIC" }], p), null);
+});
+
+test("an unchanged set of access-key nonces means nothing was sent", () => {
+  const before = { "ed25519:A": "100", "ed25519:B": "7" };
+  assert.equal(noncesMoved(before, { ...before }), false);
+  assert.equal(noncesMoved(before, { ...before, "ed25519:A": "101" }), true);
+  assert.equal(noncesMoved(before, { ...before, "ed25519:C": "1" }), true);
 });

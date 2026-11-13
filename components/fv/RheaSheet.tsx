@@ -17,7 +17,7 @@ type Action = "supply" | "withdraw" | "collateral_add" | "collateral_release" | 
 interface Position { symbol: string; decimals: number; priced: boolean; wallet: string; nativeNear: string; supplied: string; collateral: string; borrowed: string; available: string; canDeposit: boolean; canWithdraw: boolean; canCollateral: boolean; canBorrow: boolean; health: string; otherPositions: string[] }
 interface Prepared {
   attempt: WalletAttempt;
-  review: { action: Action; symbol: string; amount: string; usdValue: string; healthBefore: string; healthAfter: string; stressedAfter: string | null; gasNearBound: string; steps: { receiver: string; methods: string[] }[]; expiresAt: string; newDebt: boolean };
+  review: { action: Action; symbol: string; amount: string; usdValue: string; healthBefore: string; healthAfter: string; stressedAfter: string | null; gasNearBound: string; steps: { receiver: string; methods: string[] }[]; expiresAt: string; newDebt: boolean; warning?: string };
   policy: { allowed: boolean; violations: { code: string; message: string }[]; missingEntries: { label: string }[]; revision: number; version: number };
 }
 type Phase = "form" | "preparing" | "review" | "allowing" | "wallet" | "settling" | "done" | "failed" | "error";
@@ -148,6 +148,7 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
         <div><span>Network fees</span><strong>up to {fmtAmount(review.gasNearBound)} NEAR</strong></div>
       </div>}
       {review && phase === "review" && <ol className="fv-confirm-steps">{review.steps.map((s, i) => <li key={i}><span>{i + 1}</span>{s.methods.map(m => STEP[m] ?? m).join(" + ")}<small>{s.receiver}</small></li>)}</ol>}
+      {review?.warning && phase === "review" && <p role="status" className="fv-notice">{review.warning}</p>}
       {prep && phase === "review" && (prep.policy.allowed
         ? <div className="fv-policy-check is-ok"><ShieldCheck size={17} /><div><strong>Within your limits</strong><small>Per-action cap, daily cap, gas and approved venues checked · policy v{prep.policy.version}</small></div></div>
         : <div className="fv-policy-check is-blocked"><ShieldAlert size={17} /><div><strong>{fixable ? `Rhea ${symbol} isn’t in your policy yet` : "Your policy blocks this"}</strong>

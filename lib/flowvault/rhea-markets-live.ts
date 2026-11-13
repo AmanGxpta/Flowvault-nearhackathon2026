@@ -2,7 +2,7 @@
 // storage, Rhea's own Pyth prices), the policy check and the wallet_attempts journal (authorize → wallet →
 // attach/check). FlowVault never signs; the owner approves the exact reviewed transactions in their own wallet.
 import { session } from "./store.ts";
-import { createAttempt, readAttempt, saveAttempt } from "./attempts.ts";
+import { createAttempt, readAttempt, saveAttempt, listActiveAttempts, listAttempts } from "./attempts.ts";
 import { assertSignable } from "./execution.ts";
 import { evaluatePolicy, defaultPolicy } from "./policy.ts";
 import { checkPolicy, readLedger, reservePolicy, releasePolicy } from "./policy-store.ts";
@@ -14,7 +14,7 @@ import { availableLiquidity } from "./withdraw.ts";
 import { pythToE12, PRICE_MAX_AGE_MS } from "./valuation-evidence.ts";
 import { nearFeeBound } from "./swap-exec.ts";
 import {
-  RHEA, WRAP, NEAR_RESERVE, buildRheaAction, rheaPolicyAction, rheaPolicyEntries, verifyRheaReceipts,
+  RHEA, WRAP, NEAR_RESERVE, noncesMoved, buildRheaAction, rheaPolicyAction, rheaPolicyEntries, verifyRheaReceipts,
   type RheaAccount, type RheaKind, type RheaMarket, type RheaWallet,
 } from "./rhea-markets.ts";
 import type { SwapTx } from "./swap-exec.ts";
@@ -31,6 +31,10 @@ export interface RheaPreparation {
   healthBefore: string; healthAfter: string; stressedAfter: string | null; newDebt: boolean; approvedNewDebt: boolean;
   usdValue: string; gasNearBound: string; transactions: SwapTx[]; policyAction: ReturnType<typeof rheaPolicyAction>;
   evidence: string; result?: { movedInner: string; hashes: string[] };
+  /** When the wallet was asked, and every access key's nonce then: if none moves, nothing left the wallet. */
+  walletAskedAt?: string; keyNonces?: Record<string, string>;
+  /** Closed as not sent while the wallet prompt might still be open; watched for a late approval for a day. */
+  closedUnsentAt?: string;
 }
 
 type Bal = { token_id: string; balance: string };
@@ -167,10 +171,12 @@ export async function prepareRhea(request: Request, body: { action: RheaKind; to
   };
   const check = evaluatePolicy(policyAction, policy, await readLedger(s.id), now);
   const missing = rheaPolicyEntries(b.transactions, m.symbol).filter(e => e.type === "venue" ? !policy.venues.includes(e.venue) : !policy.methods.some(x => x.receiver === e.receiver && x.method === e.method));
+  const closed = await recentlyClosed(s.id, accountId);
   const attempt = await createAttempt(s.id, s.workspace.mandate.version, preparation as never, "lend");
   return {
     attempt,
-    review: { action: body.action, symbol: m.symbol, amount: preparation.amount, usdValue: preparation.usdValue, healthBefore: b.healthBefore, healthAfter: b.healthAfter, stressedAfter: b.stressedAfter, gasNearBound: preparation.gasNearBound, steps: b.transactions.map(t => ({ receiver: t.receiverId, methods: t.actions.map(x => x.params.methodName) })), expiresAt: preparation.expiresAt, newDebt: b.newDebt },
+    review: { action: body.action, symbol: m.symbol, amount: preparation.amount, usdValue: preparation.usdValue, healthBefore: b.healthBefore, healthAfter: b.healthAfter, stressedAfter: b.stressedAfter, gasNearBound: preparation.gasNearBound, steps: b.transactions.map(t => ({ receiver: t.receiverId, methods: t.actions.map(x => x.params.methodName) })), expiresAt: preparation.expiresAt, newDebt: b.newDebt,
+      ...(closed.length ? { warning: `An earlier Rhea request from this account (${ago(closed[0].createdAt)}) was closed as not sent, but its wallet prompt may still be open. Reject it in your wallet before approving this one.` } : {}) },
     policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version },
   };
 }
@@ -207,50 +213,149 @@ export async function allowRheaInPolicy(request: Request, id: string, revision: 
 }
 
 const VERB: Record<RheaKind, string> = { supply: "Supplied", withdraw: "Withdrew", collateral_add: "Added collateral:", collateral_release: "Released collateral:", borrow: "Borrowed", repay: "Repaid" };
+type Attempt = import("./execution.ts").WalletAttempt;
+const NONCE_GRACE_MS = 20_000, LATE_WATCH_MS = 24 * 3600_000;
+const ago = (iso: string) => { const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000)); return m === 0 ? "just now" : m === 1 ? "a minute ago" : `${m} minutes ago`; };
+
+/** Every access key's nonce now. A NEAR transaction always advances its signing key's nonce, so an unchanged set
+ * proves nothing has been sent since the snapshot. */
+async function keyNonces(accountId: string) {
+  const r = await networkRpc("query", { request_type: "view_access_key_list", finality: "optimistic", account_id: accountId }) as { keys?: { public_key: string; access_key: { nonce: number | string } }[] };
+  if (!Array.isArray(r?.keys)) throw new Error("Access keys unreadable.");
+  return Object.fromEntries(r.keys.map(k => [k.public_key, String(k.access_key.nonce)]));
+}
+
+
+/** Transactions this account signed since the wallet was asked, to the prepared receivers in the prepared order,
+ * found through NearBlocks and then confirmed against the chain itself (signer, receiver, methods). */
+async function findSent(p: RheaPreparation) {
+  const since = BigInt(Date.parse(p.walletAskedAt ?? p.capturedAt) - 2000) * 1_000_000n;
+  const body = await fetch(`https://api.nearblocks.io/v1/account/${encodeURIComponent(p.accountId)}/txns?per_page=25`, { signal: AbortSignal.timeout(10_000) }).then(r => r.ok ? r.json() : null).catch(() => null) as { txns?: { transaction_hash?: string; predecessor_account_id?: string; receiver_account_id?: string; block_timestamp?: string }[] } | null;
+  const receivers = new Set(p.transactions.map(t => t.receiverId));
+  const seen = new Map<string, bigint>();
+  for (const t of body?.txns ?? []) {
+    if (t.predecessor_account_id !== p.accountId || !receivers.has(String(t.receiver_account_id)) || !/^\d+$/.test(String(t.block_timestamp)) || !/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(String(t.transaction_hash))) continue;
+    const at = BigInt(t.block_timestamp!);
+    if (at >= since && !seen.has(t.transaction_hash!)) seen.set(t.transaction_hash!, at);
+  }
+  const hashes = [...seen.entries()].sort((x, y) => (x[1] < y[1] ? -1 : 1)).map(([h]) => h);
+  const out: string[] = [];
+  for (const h of hashes) {
+    const want = p.transactions[out.length];
+    if (!want) break;
+    const r = await networkRpc("EXPERIMENTAL_tx_status", { tx_hash: h, sender_account_id: p.accountId, wait_until: "NONE" }).catch(() => null) as { transaction?: { signer_id?: string; receiver_id?: string; actions?: { FunctionCall?: { method_name?: string } }[] } } | null;
+    const tx = r?.transaction;
+    const methods = (tx?.actions ?? []).map(x => x.FunctionCall?.method_name);
+    if (tx?.signer_id === p.accountId && tx.receiver_id === want.receiverId && methods.join() === want.actions.map(x => x.params.methodName).join()) out.push(h);
+  }
+  return out;
+}
+
+/** An unanswered or closed request: nonce unchanged → nothing sent (close, or keep closed); nonce moved → find the
+ * transactions and hand them to verification. Returns hashes found, or "closed" when it was closed now. */
+async function resolveRhea(a: Attempt, p: RheaPreparation): Promise<string[] | "closed" | null> {
+  if (a.hashes.length || !p.keyNonces) return null;
+  const open = ["awaiting_wallet", "unknown"].includes(a.state);
+  const watched = a.state === "failed" && !!p.closedUnsentAt && Date.now() - Date.parse(p.closedUnsentAt) < LATE_WATCH_MS;
+  if (!open && !watched) return null;
+  const now = await keyNonces(p.accountId).catch(() => null);
+  if (!now) return null;
+  if (!noncesMoved(p.keyNonces, now)) {
+    if (!open || Date.now() - Date.parse(p.walletAskedAt ?? a.createdAt) < NONCE_GRACE_MS) return null;
+    a.state = "failed"; p.closedUnsentAt = new Date().toISOString();
+    a.message = "Not sent. No transaction left your account, so the request was closed. If its wallet prompt is still open, reject it there; if it's approved later, FlowVault picks it up and tracks it.";
+    return "closed";
+  }
+  const found = await findSent(p);
+  if (found.length) return found;
+  // The nonce moved but no matching transaction shows up (something else was sent, or the indexer lags). After
+  // 10 minutes close it; the 24-hour watch still finds a late match.
+  if (open && Date.now() - Date.parse(p.walletAskedAt ?? a.createdAt) > 10 * 60_000) {
+    a.state = "failed"; p.closedUnsentAt = new Date().toISOString();
+    a.message = "Not sent. Your account sent other transactions, but none of this action's, so the request was closed. If its wallet prompt is still open, reject it there.";
+    return "closed";
+  }
+  if (open) a.message = "A transaction left your account. Looking for this action's transactions on NEAR…";
+  return null;
+}
+async function recentlyClosed(sessionId: string, accountId: string) {
+  return (await listAttempts(sessionId)).filter(o => o.kind === "lend" && o.accountId === accountId && o.state === "failed" && !o.hashes.length
+    && (o.preparation as unknown as RheaPreparation).closedUnsentAt && Date.now() - Date.parse((o.preparation as unknown as RheaPreparation).closedUnsentAt!) < 30 * 60_000);
+}
+
+/** Verify attached hashes from finalized receipts and set the outcome. */
+async function settle(sessionId: string, a: Attempt, p: RheaPreparation, all: string[]) {
+  a.hashes = all;
+  const results = await Promise.all(all.map(h => networkRpc("EXPERIMENTAL_tx_status", { tx_hash: h, sender_account_id: p.accountId, wait_until: "FINAL" }).catch(() => null)));
+  for (const r of results) {
+    if (!r?.transaction_outcome?.block_hash) continue;
+    const block = await networkRpc("block", { block_id: r.transaction_outcome.block_hash });
+    if (BigInt(block.header.timestamp_nanosec) / 1000000n < BigInt(Date.parse(a.createdAt)) - 1000n) throw new Error("A transaction predates this action.");
+  }
+  const proof = results.every(Boolean) && all.length === p.transactions.length ? verifyRheaReceipts(results, { kind: p.action, accountId: p.accountId, tokenId: p.tokenId, native: p.native, transactions: p.transactions }) : null;
+  if (["awaiting_wallet", "unknown", "failed"].includes(a.state)) a.state = "submitted";
+  if (!proof) { a.message = "Submitted. Waiting for the network to finalize every transaction."; return; }
+  p.result = { movedInner: "movedInner" in proof ? String(proof.movedInner) : "0", hashes: all };
+  a.verificationEvidence = [proof];
+  appendStep(a, "receipt:" + all.at(-1), proof.state, "Rhea " + proof.state, { evidence: proof });
+  a.state = proof.state;
+  a.message = proof.state === "confirmed" ? `${VERB[p.action]} ${p.amount} ${p.symbol} on Rhea. ${proof.message}` : proof.message;
+  if (proof.state === "failed") await releasePolicy(sessionId, a.id);
+}
 
 export async function rheaJournalAction(request: Request, id: string, action: string, hashes: string[] = []) {
   const s = await session(request), { attempt: a, previous } = await readAttempt(s.id, id), p = a.preparation as unknown as RheaPreparation;
   if (a.kind !== "lend" || s.workspace.mode !== "live") throw new Error("Rhea action not in this live workspace.");
-  if ((action === "check" || action === "attach") && a.state === "confirmed") return a;
+  // A closed request may have been approved late: look before reporting it as final.
+  if ((action === "check" || action === "attach") && a.state === "failed" && !a.hashes.length && p.closedUnsentAt) {
+    const r = await resolveRhea(a, p).catch(() => null);
+    if (Array.isArray(r)) { a.message = "The wallet request was approved after FlowVault closed it. Tracking it now."; await settle(s.id, a, p, r); await saveAttempt(s.id, a, previous); }
+    return a;
+  }
+  if ((action === "check" || action === "attach") && ["confirmed", "failed"].includes(a.state)) return a;
   let revision: number | undefined;
   if (action === "authorize") {
     assertSignable(a, s.workspace.accountId, s.workspace.mode, s.workspace.mandate.version);
     if (s.account !== p.accountId) throw new Error("Sign in with the wallet that prepared this.");
+    // Late approvals of closed requests first, then one outgoing request per account (resolve what provably sent nothing).
+    for (const other of await recentlyClosed(s.id, p.accountId)) {
+      const op = other.preparation as unknown as RheaPreparation, before = JSON.stringify(other);
+      const r = await resolveRhea(other, op).catch(() => null);
+      if (Array.isArray(r)) { await settle(s.id, other, op, r); await saveAttempt(s.id, other, before); throw new Error(`An earlier Rhea request (started ${ago(other.createdAt)}) was approved in your wallet after it was closed. FlowVault is tracking it now; check Activity before sending another.`); }
+    }
+    for (const other of await listActiveAttempts(s.id)) {
+      if (other.id === a.id || other.accountId !== p.accountId) continue;
+      if (other.kind === "lend") {
+        const op = other.preparation as unknown as RheaPreparation, before = JSON.stringify(other);
+        const r = await resolveRhea(other, op).catch(() => null);
+        if (r === "closed") { await releasePolicy(s.id, other.id); await saveAttempt(s.id, other, before); continue; }
+        if (Array.isArray(r)) { await settle(s.id, other, op, r); await saveAttempt(s.id, other, before); }
+      }
+      throw new Error(`An earlier ${other.kind === "lend" ? "Rhea action" : other.kind} from this account (started ${ago(other.createdAt)}) is still unresolved, so FlowVault won't send another yet. Check it in Activity; if nothing left your wallet it clears within a minute.`);
+    }
     const policy = s.workspace.policy ?? defaultPolicy();
     const policyAction = { ...p.policyAction, id: a.id };
     await checkPolicy(s.id, policyAction, policy);
     await reservePolicy(s.id, policyAction, policy, s.revision);
     revision = s.revision;
+    p.walletAskedAt = new Date().toISOString();
+    p.keyNonces = await keyNonces(p.accountId);
     a.state = "awaiting_wallet";
     a.message = "Waiting for your wallet. Approve the reviewed Rhea transactions there. If the result is unclear, check its status before trying again.";
   } else if (action === "declined") {
     if (a.state === "awaiting_wallet" && !a.hashes.length) { a.state = "failed"; a.message = "Not sent. The wallet request was declined or never opened."; await releasePolicy(s.id, a.id); }
   } else if (action === "uncertain") {
-    if (a.state === "awaiting_wallet") { a.state = "unknown"; a.message = "The wallet did not report a result. Check the status before trying again."; }
+    if (a.state === "awaiting_wallet") { a.state = "unknown"; a.message = "The wallet did not report a result. FlowVault checks your account for the transactions; if none left your wallet it clears within a minute."; }
+  } else if (action === "check" && !hashes.length && !a.hashes.length) {
+    const r = await resolveRhea(a, p);
+    if (r === "closed") await releasePolicy(s.id, a.id);
+    else if (Array.isArray(r)) await settle(s.id, a, p, r);
   } else {
     if (a.state === "prepared") throw new Error("This hasn't reached your wallet.");
     const all = [...new Set([...a.hashes, ...hashes])];
     if (all.length > p.transactions.length) throw new Error("More transactions than this action prepared.");
     if (all.some(h => !/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(h))) throw new Error("Invalid NEAR transaction hash.");
-    a.hashes = all;
-    if (all.length) {
-      const results = await Promise.all(all.map(h => networkRpc("EXPERIMENTAL_tx_status", { tx_hash: h, sender_account_id: p.accountId, wait_until: "FINAL" }).catch(() => null)));
-      for (const r of results) {
-        if (!r?.transaction_outcome?.block_hash) continue;
-        const block = await networkRpc("block", { block_id: r.transaction_outcome.block_hash });
-        if (BigInt(block.header.timestamp_nanosec) / 1000000n < BigInt(Date.parse(a.createdAt)) - 1000n) throw new Error("A transaction predates this action.");
-      }
-      const proof = results.every(Boolean) && all.length === p.transactions.length ? verifyRheaReceipts(results, { kind: p.action, accountId: p.accountId, tokenId: p.tokenId, native: p.native, transactions: p.transactions }) : null;
-      if (a.state === "awaiting_wallet" || a.state === "unknown") a.state = "submitted";
-      if (proof) {
-        p.result = { movedInner: "movedInner" in proof ? String(proof.movedInner) : "0", hashes: all };
-        a.verificationEvidence = [proof];
-        appendStep(a, "receipt:" + all.at(-1), proof.state, "Rhea " + proof.state, { evidence: proof });
-        a.state = proof.state;
-        a.message = proof.state === "confirmed" ? `${VERB[p.action]} ${p.amount} ${p.symbol} on Rhea. ${proof.message}` : proof.message;
-        if (proof.state === "failed") await releasePolicy(s.id, a.id);
-      } else a.message = "Submitted. Waiting for the network to finalize every transaction.";
-    }
+    if (all.length) await settle(s.id, a, p, all);
   }
   await saveAttempt(s.id, a, previous, revision);
   return a;
