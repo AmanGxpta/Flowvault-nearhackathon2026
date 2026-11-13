@@ -12,18 +12,18 @@ const NEAR:VenueAsset[]=[{id:"wrap.near",symbol:"wNEAR",decimals:24,chain:"near"
 export function ApprovedAssetSales({scope,accounts}:{scope:Scope;accounts:LinkedAccount[]}){
   const [chain,setChain]=useState<"near"|AaveChain>("near"),[token,setToken]=useState("wrap.near"),[qty,setQty]=useState(""),[maxValue,setMaxValue]=useState(""),[slippage,setSlippage]=useState("100"),[priority,setPriority]=useState("P2"),[net,setNet]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
   const [canSave,setCanSave]=useState(false);
-  useEffect(()=>{let active=true;setCanSave(false);api("/api/policy",undefined,"GET",scope).then(r=>{if(active)setCanSave(r.salePermissionsWritable===true);}).catch(()=>{});return()=>{active=false;};},[scope,accounts]);
+  useEffect(()=>{let active=true;const t=setTimeout(()=>{if(active)setCanSave(false);},0);api("/api/policy",undefined,"GET",scope).then(r=>{if(active)setCanSave(r.salePermissionsWritable===true);}).catch(()=>{});return()=>{active=false;clearTimeout(t);};},[scope,accounts]);
   const assets=chain==="near"?NEAR:AAVE_MARKETS[chain].collateral,asset=assets.find(a=>a.id===token)??assets[0];
   async function configure(){setBusy(true);setMessage("");try{
     const r=await api("/api/policy",undefined,"GET",scope),policy=r.policy;
     if(!r.salePermissionsWritable){setCanSave(false);throw new Error("Connect and sign in to your workspace’s NEAR account before saving sale permissions.");}
     if(!asset||!qty||!maxValue)throw new Error("Choose an asset, maximum quantity and maximum USDC value.");
-    const old=policy.assetRows?.find((x:any)=>x.asset===asset.symbol&&x.chain===chain);
+    const old=policy.assetRows?.find((x:{asset:string;chain?:string})=>x.asset===asset.symbol&&x.chain===chain);
     const sale={tokenId:asset.id,decimals:asset.decimals,maxQuantityRaw:units(qty,asset.decimals).toString(),maxValueUsdc:maxValue,maxSlippageBps:Number(slippage)};
     const row={...(old??{}),asset:asset.symbol,chain,priority,uses:[...new Set([...(old?.uses??["hold"]),"sell"])],sale};
     const methods=chain==="near"?[{receiver:asset.id,method:"ft_transfer"},{receiver:asset.id,method:"ft_transfer_call"}]:[{receiver:asset.id,method:"0xa9059cbb"}];
     const venues=chain==="near"?["1click","v2.ref-finance.near"]:["1click"];
-    await api("/api/policy",{revision:r.revision,policy:{...policy,assetRows:[...(policy.assetRows??[]).filter((x:any)=>!(x.asset===asset.symbol&&x.chain===chain)),row],venues:[...new Set([...policy.venues,...venues])],methods:[...policy.methods,...methods.filter(m=>!policy.methods.some((x:any)=>x.receiver===m.receiver&&x.method===m.method))]}},"PUT",scope);
+    await api("/api/policy",{revision:r.revision,policy:{...policy,assetRows:[...(policy.assetRows??[]).filter((x:{asset:string;chain?:string})=>!(x.asset===asset.symbol&&x.chain===chain)),row],venues:[...new Set([...policy.venues,...venues])],methods:[...policy.methods,...methods.filter(m=>!policy.methods.some((x:{receiver:string;method:string})=>x.receiver===m.receiver&&x.method===m.method))]}},"PUT",scope);
     setMessage("Sale permission saved as a new policy revision. Protected assets stay protected. Refresh your plan before execution.");
     window.dispatchEvent(new Event("fv:plans-refresh"));
   }catch(e){setMessage(explainSaleError((e as Error).message));}finally{setBusy(false);}}

@@ -81,7 +81,8 @@ export function MandatesCard({ scope }: { scope: Scope }) {
     }
   }, [scope, open]);
   useEffect(() => {
-    void read();
+    const t = setTimeout(() => void read(), 0);
+    return () => clearTimeout(t);
   }, [read]);
 
   const act = async (label: string, body: Record<string, unknown>) => {
