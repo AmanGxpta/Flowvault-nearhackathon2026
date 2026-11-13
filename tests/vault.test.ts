@@ -197,6 +197,8 @@ test("adapter: contract views become the model book with no differences; disclos
   const un = disclosures(fx.config, { ...fx.nav, unresolved: { operation: { kind: "supply" }, since_ms: "1000" }, exit_nav_raw: "40000000" }, [], 0).find((d) => d.label === "Operation unresolved")!;
   assert.equal(un.risk, "urgent");
   assert.match(un.value, /Exits continue.*available now/);
+  assert.match(un.value, /external supply operation/);
+  assert.match(un.value, /curator report never opens exit pricing/);
   assert.match(disclosures({ ...fx.config, settlement_timing: "Settlement is permissionless." }, fx.nav, [], 0).find((d) => d.label === "Settlement timing")!.value, /at most 900 s/);
   const q: RequestView[] = [
     { ...fx.requests[3], id: "7", owner_id: "zed.near", status: "queued", amount_raw: "4" },
@@ -224,6 +226,9 @@ test("example vault: built through the model, consistent with its own contract v
   assert.ok(BigInt(you.queued.redemptionSharesRaw) > 0n);
   assert.deepEqual(v.roles.map((r) => r.role), ["curator"]);
   assert.ok(v.disclosures.every((d) => d.risk !== "urgent"));
+  assert.match(v.disclosures.find((d) => d.label === "NAV is attested, not proven")!.value, /external assets\. Only owner reports crystallize performance fees\. Reports expire/);
+  assert.ok(v.disclosures.some((d) => d.label === "Settlement timing"), "v1.5 settlement timing shown in the example");
+  assert.ok(!v.disclosures.some((d) => d.label === "Operation unresolved"), "no unresolved operation in the example");
 });
 
 test("snapshots are JSON-safe (no bigints reach the API response)", async () => {

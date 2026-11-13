@@ -28,7 +28,7 @@ import { effectsOf } from "@/lib/flowvault/vault-ops-live";
 import { isVaultKind, isVaultPreparation, vaultInPolicy, vaultPolicyEntries, type VaultPreparation } from "@/lib/flowvault/vault-ops";
 
 /** Custody rests on the v1 contract interface (local implementation; not deployed or audited). Deployment re-checks the code. */
-const READINESS = () => readiness({ interfaceDoc: "docs/handoff/vault-interface.md v1.2 (contracts/vault, not deployed, no security review)", verifiedMethods: CUSTODY_METHODS });
+const READINESS = () => readiness({ interfaceDoc: "docs/handoff/vault-interface.md v1.5 (contracts/vault, not deployed, no security review)", verifiedMethods: CUSTODY_METHODS });
 
 function nearAccounts(s: Awaited<ReturnType<typeof session>>): string[] {
   const ids = (s.workspace.accounts ?? []).filter((a) => a.chain === "near" && proven(a)).map((a) => a.address);

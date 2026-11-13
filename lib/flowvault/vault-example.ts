@@ -22,7 +22,10 @@ export function exampleVault(now = Date.now()): VaultSnapshot {
     disclosed_upgrade_keys: ["ed25519:ExampleOwnerKeyNotReal1111111111111111111"], share_decimals: 18, virtual_assets_raw: "1", virtual_shares_raw: "1000000000000", management_fee_bps: 0,
     queue_storage_yocto: "20000000000000000000000",
     upgrade_authority: "owner + contract full-access keys (owner-disclosed; verify actual keys through NEAR RPC)",
-    nav_authority: "Owner/curator trusted valuation attestation; not independent proof of external assets",
+    nav_authority: "Owner/curator trusted valuation attestation; not independent proof of external assets. Only owner reports crystallize performance fees.",
+    // v1.5 disclosures, as the contract's get_config words them.
+    max_nav_age_limit_ms: "900000",
+    settlement_timing: "Permissionless: any account may settle a queued deposit or due redemptions at any moment while the latest report is younger than max_nav_age_ms; min_shares / min_assets bound the price each holder accepts.",
   };
   const t = termsFromConfig(config, EXAMPLE_VAULT);
   const requests: RequestView[] = [];
