@@ -3,6 +3,8 @@ import { swapTokenCatalog as catalog } from "@/lib/flowvault/swap-catalog";
 import { swapAmount, swapVenueUrl, preview1Click } from "@/lib/flowvault/swap-explorer";
 import { researchAddress } from "@/lib/flowvault/research";
 import { decimal } from "@/lib/flowvault/money";
+const EVM_DEST=["eth","base","arb","bsc","op","pol","avax","gnosis","hypercore","hood","abs","bera","monad","scroll","xlayer","plasma"];
+const evmAddress=(v:string)=>{const a=v.trim();if(!/^0x[0-9a-fA-F]{40}$/.test(a))throw new Error("Enter a valid Ethereum-style address.");return a.toLowerCase();};
 export async function GET(){try{return Response.json({tokens:await catalog(),capturedAt:new Date().toISOString(),coverage:"1Click listed assets and Ref metadata. A listing is not a safety endorsement or a guarantee of liquidity."},{headers:{"Cache-Control":"no-store"}});}catch(e){return Response.json({error:(e as Error).message},{status:503});}}
 /** Dry public quotes only. Never generates a deposit address, signs, or alters personal policy. */
 export async function POST(request:Request){try{
@@ -31,10 +33,11 @@ export async function POST(request:Request){try{
   }
   async function intents(){
     if(!from!.assetId||!to!.assetId)return;
-    if(!["near","eth","base","arb"].includes(from!.network)||!["near","eth","base","arb"].includes(to!.network)){warnings.push("Cross-chain previews currently support NEAR, Ethereum, Base and Arbitrum addresses.");return;}
+    // Deposits start from NEAR, Ethereum, Base or Arbitrum; delivery can go to NEAR or any network with Ethereum addresses (incl. Hyperliquid).
+    if(!["near","eth","base","arb"].includes(from!.network)||!(to!.network==="near"||EVM_DEST.includes(to!.network))){warnings.push("Cross-chain previews start from NEAR, Ethereum, Base or Arbitrum and deliver to NEAR or Ethereum-address networks.");return;}
     if(!body.sender||!body.recipient){warnings.push("Add your sending and receiving addresses for a NEAR Intents quote.");return;}
     try{
-      const sender=researchAddress(from!.network,body.sender),recipient=researchAddress(to!.network,body.recipient);
+      const sender=researchAddress(from!.network,body.sender),recipient=to!.network==="near"?researchAddress("near",body.recipient):evmAddress(body.recipient);
       const sent={dry:true,swapType:"EXACT_INPUT",slippageTolerance:bps,originAsset:from!.assetId,destinationAsset:to!.assetId,amount,depositType:"ORIGIN_CHAIN",recipient,recipientType:"DESTINATION_CHAIN",refundTo:sender,refundType:"ORIGIN_CHAIN",deadline:new Date(now+180000).toISOString()};
       const r=await fetch("https://1click.chaindefuser.com/v0/quote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(sent),signal:AbortSignal.timeout(10000)});
       const data=await r.json() as {message?:string};if(!r.ok)throw new Error(typeof data.message==="string"?data.message:"NEAR Intents quote unavailable.");

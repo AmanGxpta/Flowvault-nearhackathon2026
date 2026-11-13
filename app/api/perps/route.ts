@@ -5,8 +5,8 @@
 import { z } from "zod";
 import { session, mutation, json, failure, type SessionInfo } from "@/lib/flowvault/store";
 import { proven } from "@/lib/flowvault/account-registry";
-import { cloidFor, finishLink, getLink, listLinks, listOrders, placeOrder, prepareWithdraw, readPerps, reconcileOrders, relayUserAction, revokeLink, startLink, syncPerpLedger, verifyLink } from "@/lib/flowvault/perps-service";
-import { draftPerpMandate, fromRaw, HL_BRIDGE_ARBITRUM, HL_MIN_DEPOSIT_RAW } from "@/lib/flowvault/hyperliquid";
+import { cloidFor, finishLink, getLink, listLinks, listOrders, placeOrder, prepareToPerp, prepareWithdraw, readPerps, reconcileOrders, relayUserAction, revokeLink, startLink, syncPerpLedger, verifyLink } from "@/lib/flowvault/perps-service";
+import { draftPerpMandate, HL_INTENTS_USDC } from "@/lib/flowvault/hyperliquid";
 import { draftMandate } from "@/lib/flowvault/mandate";
 import { STRATEGY_SPECS } from "@/lib/flowvault/strategy-spec";
 import { killSwitch, mandateGet, mandateInsert, auditAppend } from "@/lib/flowvault/mandate-store";
@@ -30,6 +30,8 @@ export async function GET(r: Request) {
           return {
             master,
             snapshot: view.snapshot,
+            spotUsdcRaw: view.spotUsdcRaw,
+            funded: BigInt(view.snapshot.accountValueUsdcRaw) > 0n || view.spotHeld,
             agentsOnHyperliquid: view.agents,
             link: links.find((l) => l.master === master) ?? null,
             orders: await listOrders(s.id, master, 20),
@@ -46,8 +48,8 @@ export async function GET(r: Request) {
         agentsAvailable: !!(await serverSetting("FLOWVAULT_AGENT_KEY_SECRET")),
         accounts,
         deposit: {
-          observedOnly: true,
-          note: `FlowVault doesn't prepare deposits. Hyperliquid documents its Arbitrum bridge (${HL_BRIDGE_ARBITRUM}) as deprecated in favour of CCTP, and deposits under ${fromRaw(HL_MIN_DEPOSIT_RAW, 6)} USDC are lost. Deposit from Hyperliquid's own app with your master address; FlowVault then reads the balance and books the deposit.`,
+          token: HL_INTENTS_USDC,
+          note: "Funding runs as an in-app NEAR Intents swap that delivers USDC to your own address on Hyperliquid (spot). You sign the deposit in your wallet; FlowVault then moves it to perps margin with a second signature.",
         },
       },
       s.cookie,
@@ -77,6 +79,7 @@ const body = z.discriminatedUnion("action", [
   z.object({ action: z.enum(["link_verify", "sync", "mandate_create"]), master: addr }).strict(),
   z.object({ action: z.literal("revoke"), master: addr, chainId }).strict(),
   z.object({ action: z.literal("withdraw_prepare"), master: addr, amount: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/), chainId }).strict(),
+  z.object({ action: z.literal("to_perp_prepare"), master: addr, amount: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/), chainId }).strict(),
   z.object({ action: z.literal("relay"), master: addr, userAction: z.record(z.string(), z.unknown()), signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict(),
   order,
   z.object({ action: z.literal("close"), mandateId: z.string().max(80), master: addr, coin: z.string().regex(/^[A-Z0-9]{1,12}$/), key: z.string().uuid() }).strict(),
@@ -101,6 +104,7 @@ export async function POST(r: Request) {
     if (b.action === "link_verify") return json({ link: await verifyLink(s, b.master) }, s.cookie);
     if (b.action === "revoke") return json(await revokeLink(s, b.master, b.chainId), s.cookie);
     if (b.action === "relay") return json({ response: await relayUserAction(s, b.master, b.userAction as never, b.signature) }, s.cookie);
+    if (b.action === "to_perp_prepare") return json(prepareToPerp(await readPerps(b.master), b.amount, b.chainId), s.cookie);
     if (b.action === "withdraw_prepare") return json(prepareWithdraw(await readPerps(b.master), b.master, b.amount, b.chainId), s.cookie);
     if (b.action === "sync") {
       const row = await getLink(s.id, b.master);

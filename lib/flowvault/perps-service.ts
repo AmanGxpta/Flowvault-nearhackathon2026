@@ -7,7 +7,7 @@ import type { AgentMandate, LedgerEntry, MandateCheck } from "./contracts";
 import type { Workspace } from "./types";
 import {
   HL_API, HL_MAX_AGENT_DAYS, HL_WITHDRAW_FEE_RAW, approveAgentAction, checkPerpOrder, fromRaw, l1TypedData, orderAction,
-  orderStatus, orderWire, parseClearinghouse, parseMeta, perpLedger, protectiveOrders, realizedPerpResult, recoverTyped,
+  hlRefusal, readSpot, orderStatus, orderWire, parseClearinghouse, usdClassTransferAction, parseMeta, perpLedger, protectiveOrders, realizedPerpResult, recoverTyped,
   signTyped, splitSig, toRaw, updateLeverageAction, userTypedData, withdrawAction,
   type AssetMeta, type OrderIntent, type PerpSnapshot, type TypedData,
 } from "./hyperliquid";
@@ -46,16 +46,29 @@ export interface PerpView {
   meta: AssetMeta[];
   mids: Record<string, string>;
   agents: { name: string; address: string; validUntil: number }[];
+  /** USDC on the master's Hyperliquid spot balance (where NEAR Intents deliveries land), 6 decimals. */
+  spotUsdcRaw: string;
+  /** Any spot balance at all: Hyperliquid accepts user actions only from an account that has deposited. */
+  spotHeld: boolean;
 }
+
 export async function readPerps(master: string): Promise<PerpView> {
   const user = master.toLowerCase();
-  const [meta, mids, ch, agents] = await Promise.all([
+  const [meta, mids, ch, agents, spot] = await Promise.all([
     hlPost("/info", { type: "meta" }),
     hlPost("/info", { type: "allMids" }),
     hlPost("/info", { type: "clearinghouseState", user }),
     hlPost("/info", { type: "extraAgents", user }),
+    hlPost("/info", { type: "spotClearinghouseState", user }).catch(() => null),
   ]);
-  return { snapshot: parseClearinghouse(user, ch), meta: parseMeta(meta), mids, agents: (agents ?? []).map((a: { name: string; address: string; validUntil: number }) => ({ ...a, address: a.address.toLowerCase() })) };
+  return { snapshot: parseClearinghouse(user, ch), meta: parseMeta(meta), mids, agents: (agents ?? []).map((a: { name: string; address: string; validUntil: number }) => ({ ...a, address: a.address.toLowerCase() })), ...readSpot(spot) };
+}
+/** True when the master has any balance on Hyperliquid (perps or spot); with none, Hyperliquid refuses every
+ * user action with "Must deposit before performing actions", so FlowVault doesn't ask the wallet to sign. */
+export async function hasHyperliquidFunds(master: string, fetcher: typeof fetch = fetch) {
+  const user = master.toLowerCase();
+  const [ch, spot] = await Promise.all([hlPost("/info", { type: "clearinghouseState", user }, fetcher), hlPost("/info", { type: "spotClearinghouseState", user }, fetcher).catch(() => null)]);
+  return BigInt(parseClearinghouse(user, ch).accountValueUsdcRaw) > 0n || readSpot(spot).spotHeld;
 }
 
 /* ───────────── agent link ───────────── */
@@ -102,6 +115,7 @@ export async function startLink(s: { id: string; workspace: Workspace }, master:
   if (!secret) throw new Error(NO_SECRET);
   const m = assertOwnedEvm(s.workspace, master);
   const prior = await getLink(s.id, m);
+  if (!(await hasHyperliquidFunds(m))) throw new Error(hlRefusal({ response: "Must deposit before performing actions" }));
   if (prior?.link.status === "verified") throw new Error("An agent is already approved for this account. Revoke it before creating another.");
   const key = await newAgentKey(secret, (address) => binding(s.id, m, address));
   const validUntil = now + Math.min(days, HL_MAX_AGENT_DAYS) * 864e5;
@@ -123,7 +137,7 @@ export async function finishLink(s: { id: string; workspace: Workspace }, master
   await saveLink(s.id, link, row.sealed, row.revision);
   const resp = await hlPost("/exchange", { action: row.link.action, nonce: row.link.action.nonce, signature: sig }, fetcher);
   if (resp?.status !== "ok") {
-    const failed: PerpLink = { ...link, status: "awaiting_master_signature", note: "Hyperliquid refused: " + JSON.stringify(resp).slice(0, 200) };
+    const failed: PerpLink = { ...link, status: "awaiting_master_signature", note: hlRefusal(resp) };
     await saveLink(s.id, failed, row.sealed, row.revision + 1);
     throw new Error(failed.note);
   }
@@ -159,13 +173,15 @@ export async function revokeLink(s: { id: string; workspace: Workspace }, master
 /** Relays a master-signed user action after verifying the signer (deregistration or withdrawal). */
 export async function relayUserAction(s: { workspace: Workspace }, master: string, action: { type: string; signatureChainId: string } & Record<string, unknown>, signatureHex: string, fetcher: typeof fetch = fetch) {
   const m = assertOwnedEvm(s.workspace, master);
-  if (!["approveAgent", "withdraw3"].includes(action.type)) throw new Error("Only agent approval and withdrawal are relayed.");
+  if (!["approveAgent", "withdraw3", "usdClassTransfer"].includes(action.type)) throw new Error("Only agent approval, withdrawal and moves between your own spot and perps balances are relayed.");
   if (action.type === "withdraw3" && String(action.destination).toLowerCase() !== m) throw new Error("Withdrawals go only to your own master address.");
   const sig = splitSig(signatureHex);
   const signer = recoverTyped(userTypedData(action), sig);
   if (signer !== m) throw new Error("The signature is not from your master account.");
   const nonce = Number(action.type === "withdraw3" ? action.time : action.nonce);
-  return hlPost("/exchange", { action, nonce, signature: sig }, fetcher);
+  const resp = await hlPost("/exchange", { action, nonce, signature: sig }, fetcher);
+  if (resp?.status !== "ok") throw new Error(hlRefusal(resp));
+  return resp;
 }
 
 export function prepareWithdraw(view: PerpView, master: string, amount: string, chainId: number, now = Date.now()) {
@@ -179,6 +195,15 @@ export function prepareWithdraw(view: PerpView, master: string, amount: string, 
     youReceiveUsdc: fromRaw(raw - HL_WITHDRAW_FEE_RAW, 6),
     note: "Arrives on Arbitrum at your own address in about 5 minutes; Hyperliquid charges 1 USDC (per its docs at the time of writing).",
   };
+}
+
+/** Spot USDC → perps margin (both the master's own balances on Hyperliquid), signed by the master wallet. */
+export function prepareToPerp(view: PerpView, amount: string, chainId: number, now = Date.now()) {
+  const raw = toRaw(amount, 6);
+  if (raw <= 0n) throw new Error("Enter an amount above zero.");
+  if (raw > BigInt(view.spotUsdcRaw)) throw new Error(`Only ${fromRaw(BigInt(view.spotUsdcRaw), 6)} USDC is on your Hyperliquid spot balance.`);
+  const action = usdClassTransferAction(fromRaw(raw, 6), true, now, chainId);
+  return { action, typedData: userTypedData(action) as TypedData };
 }
 
 /* ───────────── orders ───────────── */

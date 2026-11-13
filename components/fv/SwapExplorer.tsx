@@ -6,6 +6,8 @@ import { useWalletBalances } from "./useWalletBalances";
 import { TokenPicker } from "./TokenPicker";
 import { SwapReview } from "./SwapReview";
 import { fmtAmount, fmtUsd } from "./swap-format";
+import { networkInfo } from "./AssetIdentity";
+const netName = (n?: string) => (n && networkInfo(n)?.name) || n || "";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 import { swapVenueUrl } from "@/lib/flowvault/swap-explorer";
 import { units, decimal } from "@/lib/flowvault/money";
@@ -34,15 +36,17 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
 
   // Send from the connected wallet that holds the token, and receive into your wallet on the destination network.
   // An EVM address serves every EVM chain. The addresses stay editable under Slippage › Cross-chain addresses.
-  const EVM = ["eth", "base", "arb", "bsc", "op", "pol", "avax", "gnosis"];
+  const EVM = ["eth", "base", "arb", "bsc", "op", "pol", "avax", "gnosis", "hypercore", "hood", "abs", "bera", "monad", "scroll", "xlayer", "plasma"];
+  // A prefill may name the receiving address (e.g. funding one Hyperliquid account); it holds while that token is the destination.
+  const [pin, setPin] = useState<{ to: string; address: string } | null>(null);
   const addrFor = (n?: string) => !n ? "" : holdings.addresses[n] ?? (EVM.includes(n) ? holdings.addresses.eth ?? holdings.addresses.base ?? holdings.addresses.arb ?? "" : "");
-  const senderAuto = fromBal?.account ?? addrFor(from?.network), recipientAuto = addrFor(to?.network);
+  const senderAuto = fromBal?.account ?? addrFor(from?.network), recipientAuto = pin && pin.to === toId ? pin.address : addrFor(to?.network);
   useEffect(() => { const t = setTimeout(() => { setSender(senderAuto); setRecipient(recipientAuto); }, 0); return () => clearTimeout(t); }, [senderAuto, recipientAuto]);
   useEffect(() => {
     // Prefill from links and commands (?swap=from|to|amount, ?buy=id, ?buy=sell:id). Prefill only; review still applies.
     const apply = () => {
       const q = new URL(location.href).searchParams, cmd = q.get("swap"), id = q.get("buy");
-      if (cmd) { const [a, b, amt] = cmd.split("|"); if (a) setFrom(a); if (b) setTo(b); if (amt && /^\d+(\.\d+)?$/.test(amt)) setAmount(amt); return; }
+      if (cmd) { const [a, b, amt, rcpt] = cmd.split("|"); if (a) setFrom(a); if (b) setTo(b); if (amt && /^\d+(\.\d+)?$/.test(amt)) setAmount(amt); setPin(b && rcpt && /^0x[0-9a-fA-F]{40}$/.test(rcpt) ? { to: b, address: rcpt } : null); return; }
       if (id?.startsWith("sell:")) { setFrom(id.slice(5)); setTo(id.slice(5) === USDC_NEAR ? "near:native" : USDC_NEAR); }
       else if (id) { setTo(id); if (id === "near:native") setFrom(USDC_NEAR); }
     };
@@ -125,7 +129,7 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
     <section className="fv-panel fv-swap-explorer">
       <div className="fv-section-head"><h2>Swap</h2><button type="button" className="fv-chip fv-chip-button" aria-expanded={settings} onClick={() => setSettings(!settings)}><Settings2 size={14} /> Slippage {Number(slippage) / 100}%</button></div>
       {settings && <div className="fv-swap-settings-row" role="group" aria-label="Slippage">{["50", "100", "300", "500"].map(v => <button type="button" key={v} aria-pressed={slippage === v} onClick={() => setSlippage(v)}>{Number(v) / 100}%</button>)}
-        <details><summary>Cross-chain addresses</summary><p className="fv-muted">Needed for NEAR Intents routes to other networks. Use addresses you control.</p><label>Send / refund on {from?.network}<input value={sender} onChange={e => setSender(e.target.value)} placeholder={from?.network === "near" ? "your-account.near" : "Your address"} /></label><label>Receive on {to?.network}<input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder={to?.network === "near" ? "your-account.near" : "Your address"} /></label></details></div>}
+        <details><summary>Cross-chain addresses</summary><p className="fv-muted">Needed for NEAR Intents routes to other networks. Use addresses you control.</p><label>Send / refund on {netName(from?.network)}<input value={sender} onChange={e => setSender(e.target.value)} placeholder={from?.network === "near" ? "your-account.near" : "Your address"} /></label><label>Receive on {netName(to?.network)}<input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder={to?.network === "near" ? "your-account.near" : "Your address"} /></label></details></div>}
       <div className="fv-swap-amount">
         <div className="fv-swap-box-head"><label htmlFor="swap-pay">You pay</label>{fromBal ? <span className="fv-swap-balance"><Wallet size={13} /> {fmtAmount(fromBal.amount)} {from?.symbol}{[25n, 50n, 100n].map(p => <button type="button" key={String(p)} onClick={() => fraction(p)}>{p === 100n ? "Max" : p + "%"}</button>)}</span> : balanceKnown ? <span className="fv-swap-balance">No {from?.symbol} in your connected wallets</span> : null}</div>
         <div className="fv-swap-line"><input id="swap-pay" value={amount} inputMode="decimal" placeholder="0" autoComplete="off" onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ""))} /><TokenPicker label="Choose token to sell" tokens={tokens} balances={holdings.balances} covered={holdings.covered} value={from} onChange={t => change("from", t)} /></div>

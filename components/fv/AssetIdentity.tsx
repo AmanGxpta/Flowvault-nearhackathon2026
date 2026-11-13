@@ -18,7 +18,7 @@ const CHAIN_FILES: Record<string, [string, string]> = {
   near: ["NEAR", "/assets/tokens/near.jpg"], eth: ["Ethereum", "/assets/tokens/eth.png"], base: ["Base", "/assets/chains/base.png"],
   arb: ["Arbitrum", "/assets/chains/arbitrum.png"], solana: ["Solana", "/assets/chains/solana.png"], sol: ["Solana", "/assets/chains/solana.png"],
   bnb: ["BNB Chain", "/assets/chains/bnb.png"], bsc: ["BNB Chain", "/assets/chains/bnb.png"], btc: ["Bitcoin", "/assets/chains/bitcoin.png"],
-  hyperliquid: ["Hyperliquid", "/assets/chains/hyperliquid.png"], avax: ["Avalanche", "/assets/chains/avalanche.png"], pol: ["Polygon", "/assets/chains/polygon.png"],
+  hyperliquid: ["Hyperliquid", "/assets/chains/hyperliquid.png"], hypercore: ["Hyperliquid", "/assets/chains/hyperliquid.png"], avax: ["Avalanche", "/assets/chains/avalanche.png"], pol: ["Polygon", "/assets/chains/polygon.png"],
   op: ["Optimism", "/assets/chains/optimism.png"], gnosis: ["Gnosis", "/assets/chains/gnosis.png"], tron: ["Tron", "/assets/chains/tron.png"],
   ton: ["TON", "/assets/chains/ton.png"], sui: ["Sui", "/assets/chains/sui.png"], aptos: ["Aptos", "/assets/chains/aptos.png"], doge: ["Dogecoin", "/assets/chains/doge.png"],
   xrp: ["XRP Ledger", "/assets/chains/xrp.png"], zec: ["Zcash", "/assets/chains/zec.png"], ltc: ["Litecoin", "/assets/chains/ltc.png"], bera: ["Berachain", "/assets/chains/bera.png"],

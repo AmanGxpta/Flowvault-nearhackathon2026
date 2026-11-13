@@ -16,6 +16,8 @@ export const HL_BRIDGE_ARBITRUM = "0x2df1c51e09aecf9cacb7bc98cb1742757f163df7";
 export const HL_MIN_DEPOSIT_RAW = 5_000000n;
 export const HL_WITHDRAW_FEE_RAW = 1_000000n;
 export const HL_MAX_AGENT_DAYS = 180;
+/** HyperCore spot USDC as NEAR Intents (1Click) lists it: funding a Hyperliquid account in-app delivers here. */
+export const HL_INTENTS_USDC = "hypercore:0x6d1e7cde53ba9467b783cb7c530ce054";
 const ZERO = "0x0000000000000000000000000000000000000000";
 
 /* ───────────── decimals (strings ↔ bigint; never floats) ───────────── */
@@ -167,6 +169,10 @@ function word(type: string, v: unknown): Uint8Array {
     out.set(b, 12);
     return out;
   }
+  if (type === "bool") {
+    out[31] = v === true ? 1 : 0;
+    return out;
+  }
   if (/^uint\d+$/.test(type)) {
     let n = BigInt(v as string | number);
     for (let i = 31; i >= 0 && n > 0n; i--) (out[i] = Number(n & 0xffn), (n >>= 8n));
@@ -204,6 +210,23 @@ export function approveAgentAction(agentAddress: string, agentName: string, nonc
 export function withdrawAction(destination: string, amount: string, time: number, signatureChainId: number) {
   return { type: "withdraw3", hyperliquidChain: "Mainnet", signatureChainId: "0x" + signatureChainId.toString(16), destination: destination.toLowerCase(), amount: wire(amount), time };
 }
+/** Moves USDC between the master's spot and perps balances on Hyperliquid (both are the owner's own). */
+export function usdClassTransferAction(amount: string, toPerp: boolean, nonce: number, signatureChainId: number) {
+  return { type: "usdClassTransfer", hyperliquidChain: "Mainnet", signatureChainId: "0x" + signatureChainId.toString(16), amount: wire(amount), toPerp, nonce };
+}
+/** Spot balances → USDC total in 6-decimal base units, and whether anything is held. */
+export function readSpot(spot: unknown) {
+  const balances = ((spot as { balances?: { coin?: string; total?: string }[] })?.balances ?? []).filter((b) => /^\d+(\.\d+)?$/.test(String(b.total ?? "")));
+  const usdc = balances.find((b) => b.coin === "USDC");
+  return { spotUsdcRaw: usdc ? toRaw(String(usdc.total), 6).toString() : "0", spotHeld: balances.some((b) => Number(b.total) > 0) };
+}
+/** Hyperliquid's refusals in words a person can act on; anything unrecognised is shown as Hyperliquid sent it. */
+export function hlRefusal(resp: unknown) {
+  const text = typeof (resp as { response?: unknown })?.response === "string" ? (resp as { response: string }).response : JSON.stringify(resp);
+  if (/must deposit before performing actions/i.test(text)) return "Hyperliquid hasn't seen a deposit from this wallet yet, and it only accepts an agent (or any action) after one. Add trading funds first, then approve the agent.";
+  if (/insufficient/i.test(text)) return "Hyperliquid says the balance is too low for this: " + text.slice(0, 160);
+  return "Hyperliquid refused: " + text.slice(0, 200);
+}
 const USER_TYPES: Record<string, { primary: string; fields: { name: string; type: string }[] }> = {
   approveAgent: {
     primary: "HyperliquidTransaction:ApproveAgent",
@@ -212,6 +235,10 @@ const USER_TYPES: Record<string, { primary: string; fields: { name: string; type
   withdraw3: {
     primary: "HyperliquidTransaction:Withdraw",
     fields: [{ name: "hyperliquidChain", type: "string" }, { name: "destination", type: "string" }, { name: "amount", type: "string" }, { name: "time", type: "uint64" }],
+  },
+  usdClassTransfer: {
+    primary: "HyperliquidTransaction:UsdClassTransfer",
+    fields: [{ name: "hyperliquidChain", type: "string" }, { name: "amount", type: "string" }, { name: "toPerp", type: "bool" }, { name: "nonce", type: "uint64" }],
   },
 };
 export function userTypedData(action: { type: string; signatureChainId: string } & Record<string, unknown>): TypedData {

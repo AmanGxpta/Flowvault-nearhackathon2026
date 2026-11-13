@@ -17,14 +17,14 @@ export function OrderTicket({ coin, scope, onDraft, example }: { coin: string; s
   const mid = data?.mid ? Number(data.mid) : null;
   const [side, setSide] = useState<"buy" | "sell">("buy"), [usd, setUsd] = useState("50"), [lev, setLev] = useState(5), [margin, setMargin] = useState<"cross" | "isolated">("isolated");
   const [kind, setKind] = useState<"market" | "limit">("market"), [price, setPrice] = useState(""), [tp, setTp] = useState(""), [sl, setSl] = useState("");
-  const [ready, setReady] = useState<{ key: boolean; wallet: boolean; linked: boolean; mandate: boolean } | null>(null);
+  const [ready, setReady] = useState<{ key: boolean; wallet: boolean; funded: boolean; linked: boolean; mandate: boolean } | null>(null);
   useEffect(() => {
     if (example) return;
     Promise.all([api("/api/perps", undefined, "GET", scope), api("/api/mandates", undefined, "GET", scope)]).then(([p, m]) => {
-      const accts = (p.accounts ?? []) as { master: string; link?: { status: string } | null }[];
+      const accts = (p.accounts ?? []) as { master: string; funded?: boolean; link?: { status: string } | null }[];
       const mands = ((m.mandates ?? []) as { state: string; frozen?: boolean; authority: { kind: string } }[]).filter(x => x.authority?.kind === "hyperliquid_agent");
-      setReady({ key: !!p.agentsAvailable, wallet: accts.length > 0, linked: accts.some(a => a.link?.status === "verified"), mandate: mands.some(x => x.state === "active" && !x.frozen) });
-    }).catch(() => setReady({ key: false, wallet: false, linked: false, mandate: false }));
+      setReady({ key: !!p.agentsAvailable, wallet: accts.length > 0, funded: accts.some(a => a.funded), linked: accts.some(a => a.link?.status === "verified"), mandate: mands.some(x => x.state === "active" && !x.frozen) });
+    }).catch(() => setReady({ key: false, wallet: false, funded: false, linked: false, mandate: false }));
   }, [scope, example]);
   const max = MAX_LEV[coin] ?? 10;
   const leverage = Math.min(lev, max);
@@ -38,6 +38,7 @@ export function OrderTicket({ coin, scope, onDraft, example }: { coin: string; s
   const steps = ready ? [
     { done: ready.key, label: "Trading enabled for this installation", hint: "The owner adds the agent key secret on the server." },
     { done: ready.wallet, label: "Hyperliquid wallet connected", hint: "Connect and prove your Ethereum wallet." },
+    { done: ready.funded, label: "Trading funds on Hyperliquid", hint: "Add funds below: an in-app NEAR Intents swap delivers USDC to your Hyperliquid account." },
     { done: ready.linked, label: "FlowVault agent approved", hint: "Approve the agent in your wallet below." },
     { done: ready.mandate, label: "Trading limits signed", hint: "Sign the perps mandate under Risk & permissions." },
   ] : [];

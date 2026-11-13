@@ -204,7 +204,8 @@ export async function allowSwapInPolicy(request: Request, id: string, revision: 
 /* ───────────── Cross-chain swaps through NEAR Intents (1Click) ───────────── */
 
 const ONECLICK = "https://1click.chaindefuser.com/v0";
-const EVM_FAMILY = ["eth", "base", "arb", "bsc", "op", "pol", "avax", "gnosis"];
+// 1Click networks that use Ethereum addresses (HyperCore = Hyperliquid accounts, hood = Robinhood Chain).
+const EVM_FAMILY = ["eth", "base", "arb", "bsc", "op", "pol", "avax", "gnosis", "hypercore", "hood", "abs", "bera", "monad", "scroll", "xlayer", "plasma"];
 const usdOf = (amountRaw: string, decimals: number, price?: string) => {
   if (!price || !/^\d+(\.\d+)?$/.test(price)) return null;
   const p = units(Number(price).toFixed(12).replace(/\.?0+$/, "") || "0", 12);

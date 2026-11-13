@@ -16,8 +16,9 @@ interface Pos { coin: string; szi: string; entryPx: string | null; markPx: strin
 interface Snapshot { accountValueUsdcRaw: string; withdrawableUsdcRaw: string; marginUsedUsdcRaw: string; unrealizedPnlUsdcRaw: string; realizedEquityUsdcRaw: string; positions: Pos[]; capturedAt: string }
 interface Link { master: string; agentAddress: string; status: string; validUntil: number; note?: string }
 interface Order { cloid: string; intent: { coin: string; isBuy: boolean; size: string; reduceOnly: boolean; kind: string }; state: string; error?: string; checks: Check[]; createdAt: string }
-interface Account { master: string; snapshot: Snapshot | null; link: Link | null; orders: Order[]; error: string | null }
-interface State { source: string; agentsAvailable: boolean; accounts: Account[]; deposit: { note: string } }
+interface Account { master: string; snapshot: Snapshot | null; spotUsdcRaw?: string; funded?: boolean; link: Link | null; orders: Order[]; error: string | null }
+interface State { source: string; agentsAvailable: boolean; accounts: Account[]; deposit: { token: string; note: string } }
+const USDC_ETH = "eth:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
 type MandateLite = AgentMandate;
 
 const u = (raw: string) => {
@@ -26,12 +27,14 @@ const u = (raw: string) => {
   const a = neg ? -n : n;
   return (neg ? "−" : "") + (a / 1000000n).toLocaleString("en-US") + "." + (a % 1000000n).toString().padStart(6, "0").slice(0, 2);
 };
+/** USDC base units → a plain amount with 2 decimals, rounded down (what the spot → perps move signs). */
+const cents = (raw: bigint) => { const c = raw / 10000n; return `${c / 100n}.${(c % 100n).toString().padStart(2, "0")}`; };
 const short = (a: string) => a.slice(0, 6) + "…" + a.slice(-4);
 const btn: React.CSSProperties = { padding: "7px 12px", borderRadius: "9px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", fontSize: "12.5px", fontWeight: 500, cursor: "pointer" };
 const muted: React.CSSProperties = { color: "var(--fvc-5B6458)", fontSize: "12.5px", lineHeight: 1.45 };
 const input: React.CSSProperties = { padding: "6px 8px", borderRadius: "8px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", fontSize: "12.5px", minWidth: 0 };
 
-export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft }: { scope: Scope; selectedMarket?: string; onMarket?: (coin: string) => void; onShare?: (value: { title: string; subtitle: string; lines: string[]; amount?: string }) => void; draft?: { coin: string; side: string; size: string; leverage: string; kind: string; price: string; n: number } | null }) {
+export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onNavigate }: { scope: Scope; onNavigate?: (view: string) => void; selectedMarket?: string; onMarket?: (coin: string) => void; onShare?: (value: { title: string; subtitle: string; lines: string[]; amount?: string }) => void; draft?: { coin: string; side: string; size: string; leverage: string; kind: string; price: string; n: number } | null }) {
   const [st, setSt] = useState<State | null>(null);
   const [mandates, setMandates] = useState<MandateLite[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -74,10 +77,30 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft }: {
       setBusy(null);
     }
   };
+  // Funding: open the in-app swap prefilled to deliver USDC to this master's own Hyperliquid account (NEAR Intents).
+  const fund = (master: string) => {
+    if (!st || !onNavigate) return;
+    const u = new URL(window.location.href);
+    for (const k of ["buy", "swap", "token"]) u.searchParams.delete(k);
+    u.searchParams.set("swap", [USDC_ETH, st.deposit.token, "", master].join("|"));
+    history.replaceState(null, "", u);
+    onNavigate("swap");
+    window.dispatchEvent(new Event("fv-prefill"));
+  };
+  const toPerp = (master: string, amount: string) =>
+    run("perp:" + master, async () => {
+      const w = walletFor(master);
+      if (!w) throw new Error("Connect this Ethereum wallet in this browser first (wallet menu).");
+      const chainId = await evmChainId(w);
+      const p = await api("/api/perps", { action: "to_perp_prepare", master, amount, chainId }, "POST", scope);
+      const signature = await signTypedData(w, p.typedData);
+      await api("/api/perps", { action: "relay", master, userAction: p.action, signature }, "POST", scope);
+      return `Moved ${amount} USDC to perps margin.`;
+    });
   const walletFor = (master: string) => sessions.find((s) => s.chain === "evm" && s.address.toLowerCase() === master);
 
   const approve = (master: string) =>
-    run("approve", async () => {
+    run("approve:" + master, async () => {
       const w = walletFor(master);
       if (!w) throw new Error("Connect this Ethereum wallet in this browser first (wallet menu).");
       const chainId = await evmChainId(w);
@@ -108,7 +131,7 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft }: {
       const p = await api("/api/perps", { action: "withdraw_prepare", master, amount, chainId }, "POST", scope);
       const signature = await signTypedData(w, p.typedData);
       const r = await api("/api/perps", { action: "relay", master, userAction: p.action, signature }, "POST", scope);
-      return r.response?.status === "ok" ? `Withdrawal accepted: you receive ${p.youReceiveUsdc} USDC. ${p.note}` : "Hyperliquid refused: " + JSON.stringify(r.response);
+      return r.response?.status === "ok" ? `Withdrawal accepted: you receive ${p.youReceiveUsdc} USDC. ${p.note}` : "Hyperliquid didn't confirm the withdrawal.";
     });
   const order = (mandateId: string, master: string, close?: string) =>
     run("order", async () => {
@@ -136,12 +159,14 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft }: {
         const s = a.snapshot;
         const m = mandates.find((x) => x.scope.accounts.includes("evm:" + a.master) && ["active", "approved", "draft", "paused"].includes(x.state));
         const activeM = m && m.state === "active" && !m.frozen ? m : null;
+        const spot = BigInt(a.spotUsdcRaw ?? "0"), unfunded = a.funded === false;
         return (
           <div key={a.master} style={{ borderTop: "1px solid var(--fvb-EEF0E8)", padding: "12px 0 4px", fontSize: "13px" }}>
             <div style={{ fontWeight: 600, overflowWrap: "anywhere" }}>{short(a.master)}</div>
             {a.error ? <div style={{ ...muted, color: "var(--fvc-8A5F25)" }}>Hyperliquid read failed: {a.error}</div> : null}
+            {unfunded ? <div className="fv-notice" style={{ marginTop: "6px" }}>Hyperliquid accepts an agent (or any action) only from a wallet that has deposited there. Add trading funds to this address first; the agent approval comes after.</div> : null}
             {s ? (
-              <div className="fv-perp-stats"><div><small>Account value (USDC)</small><strong>{u(s.accountValueUsdcRaw)}</strong></div><div><small>Withdrawable (USDC)</small><strong>{u(s.withdrawableUsdcRaw)}</strong></div><div><small>Unrealized PnL (USDC)</small><strong>{u(s.unrealizedPnlUsdcRaw)}</strong></div></div>
+              <div className="fv-perp-stats"><div><small>Account value (USDC)</small><strong>{u(s.accountValueUsdcRaw)}</strong></div><div><small>Withdrawable (USDC)</small><strong>{u(s.withdrawableUsdcRaw)}</strong></div><div><small>Unrealized PnL (USDC)</small><strong>{u(s.unrealizedPnlUsdcRaw)}</strong></div>{spot > 0n ? <div><small>Spot USDC (not margin yet)</small><strong>{u(spot.toString())}</strong></div> : null}</div>
             ) : null}
             {s?.positions.length ? (
               <div>
@@ -157,8 +182,10 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft }: {
               {m ? ` · mandate “${m.title}” ${m.state}${m.frozen ? " (frozen)" : ""} — manage it under Risk & permissions › Automations` : ""}
             </div>
             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px" }}>
-              {st.agentsAvailable && (!a.link || ["revoked", "expired", "awaiting_master_signature"].includes(a.link.status)) ? (
-                <button type="button" style={btn} disabled={!!busy} onClick={() => void approve(a.master)}>{busy === "approve" ? "Waiting for wallet…" : "Approve FlowVault agent…"}</button>
+              {onNavigate ? <button type="button" style={unfunded ? { ...btn, background: "var(--fvc-1E2A22)", color: "var(--fvb-FFFFFF)" } : btn} disabled={!!busy} onClick={() => fund(a.master)}>Add trading funds…</button> : null}
+              {spot >= 1000000n ? <button type="button" style={btn} disabled={!!busy} onClick={() => void toPerp(a.master, cents(spot))}>{busy === "perp:" + a.master ? "Waiting for wallet…" : `Move ${cents(spot)} USDC to perps margin…`}</button> : null}
+              {st.agentsAvailable && !unfunded && (!a.link || ["revoked", "expired", "awaiting_master_signature"].includes(a.link.status)) ? (
+                <button type="button" style={btn} disabled={!!busy} onClick={() => void approve(a.master)}>{busy === "approve:" + a.master ? "Waiting for wallet…" : "Approve FlowVault agent…"}</button>
               ) : null}
               {a.link?.status === "verified" && !m ? <button type="button" style={btn} disabled={!!busy} onClick={() => void run("mandate", async () => { await api("/api/perps", { action: "mandate_create", master: a.master }, "POST", scope); return "Draft mandate created. Review and sign it under Risk & permissions › Automations."; })}>Create perps mandate</button> : null}
               {a.link && a.link.status !== "revoked" ? <button type="button" style={btn} disabled={!!busy} onClick={() => void revoke(a.master)}>Revoke agent</button> : null}
@@ -194,7 +221,7 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft }: {
           </div>
         );
       })}
-      {st ? <details style={{...muted,marginTop:18}}><summary style={{cursor:"pointer"}}>Add trading funds</summary><p>Use Hyperliquid’s official deposit flow to see supported networks and minimum amounts. FlowVault reads the resulting balance; it does not prepare the deposit.</p><a href="https://app.hyperliquid.xyz/" target="_blank" rel="noopener noreferrer">Open Hyperliquid ↗</a></details> : null}
+      {st ? <details style={{...muted,marginTop:18}}><summary style={{cursor:"pointer"}}>How funding works</summary><p>{st.deposit.note}</p></details> : null}
     </section>
   );
 }
