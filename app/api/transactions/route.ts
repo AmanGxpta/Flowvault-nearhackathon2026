@@ -1,4 +1,5 @@
 import { saleJournalAction } from "@/lib/flowvault/sale-journal";
+import { swapJournalAction } from "@/lib/flowvault/swap-journal";
 import { vaultJournalAction } from "@/lib/flowvault/vault-ops-live"; // Stream A
 import { isAave } from "@/lib/flowvault/aave";
 import { aaveJournalAction } from "@/lib/flowvault/aave-journal";
@@ -76,12 +77,14 @@ export async function POST(request: Request) {
         action: z.enum(["authorize", "attach", "check", "uncertain"]),
         hashes: z
           .array(z.string().regex(/^(?:[1-9A-HJ-NP-Za-km-z]{43,44}|0x[0-9a-fA-F]{64})$/))
-          .max(2)
+          .max(4)
           .optional(),
       })
       .parse(await request.json());
     const { attempt, previous } = await readAttempt(s.id, b.id);
     if (attempt.kind === "sell") return json({attempt:await saleJournalAction(request,b.id,b.action,b.hashes)},s.cookie);
+    if (attempt.kind === "swap") return json({ attempt: await swapJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
+    if ((b.hashes?.length ?? 0) > 2) throw new Error("This operation accepts at most two transaction hashes.");
     if (isAave(attempt.preparation)) return json({ attempt: await aaveJournalAction(request, b.id, b.action, b.hashes) }, s.cookie);
     if (attempt.kind.startsWith("vault_")) return json({ attempt: await vaultJournalAction(request, b.id, b.action, b.hashes) }, s.cookie); // Stream A
     if (b.hashes?.some(h => h.startsWith("0x"))) throw new Error("NEAR attempts require NEAR transaction hashes.");

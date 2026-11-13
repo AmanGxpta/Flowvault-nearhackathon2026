@@ -303,3 +303,17 @@ export async function signSale(preparation: import("./sale").SalePreparation) {
   if(preparation.sale.evmTx) throw new Error("Use the prepared EVM account for this sale.");
   return signPrepared(preparation);
 }
+
+/** In-app swap, only after /api/transactions authorize. Guarded to the reviewed shape: the Ref exchange, wrap.near
+ * and the swap's own input/output tokens, with ft_transfer_call addressed to Ref. */
+export async function signSwap(preparation: import("./swap-exec").SwapPreparation) {
+  if (preparation.kind !== "swap") throw new Error("Use a swap preparation for swap signing.");
+  const allowed = new Set(["v2.ref-finance.near", "wrap.near", preparation.tokenIn, preparation.tokenOut]);
+  for (const tx of preparation.transactions) {
+    if (!allowed.has(tx.receiverId)) throw new Error("A swap may call only Ref, wrap.near and its own tokens.");
+    for (const a of tx.actions)
+      if (a.params.methodName === "ft_transfer_call" && a.params.args.receiver_id !== "v2.ref-finance.near")
+        throw new Error("A swap transfer must go to the Ref exchange.");
+  }
+  return signPrepared(preparation as unknown as WalletPreparation);
+}

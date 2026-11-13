@@ -140,6 +140,7 @@ export function evaluatePolicy(
       "pledge",
       "borrow",
       "repay",
+      "swap",
     ].includes(action.kind) ||
     !["live", "demo"].includes(action.source) ||
     !action.asset ||
@@ -205,8 +206,9 @@ export function evaluatePolicy(
     rows.find((r) => r.chain === action.chain) ?? rows.find((r) => !r.chain);
   if (policy.assetRows && !scoped)
     fail("ASSET_SCOPE_UNVERIFIED", "No matching asset/chain permission row.");
+  // A swap sells its input asset, so it needs the same asset permission as a sale.
   const required =
-    action.kind === "withdraw" || action.kind === "repay" ? "hold" : action.kind;
+    action.kind === "withdraw" || action.kind === "repay" ? "hold" : action.kind === "swap" ? "sell" : action.kind;
   if (scoped && !scoped.uses.includes(required as any))
     fail(
       "ASSET_USE_NOT_ALLOWED",

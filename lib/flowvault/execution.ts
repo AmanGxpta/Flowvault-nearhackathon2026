@@ -19,6 +19,7 @@ export function supplyHoldback(mandate: Mandate) {
 }
 export type SupplyPreparation = ReturnType<typeof prepareSupply>;
 export type PreparationKind =
+  | "swap"
   | "sell"
   | "supply"
   | "withdraw"
@@ -42,6 +43,7 @@ export type PreparationKind =
   | "vault_claim"
   | "vault_settle";
 export type WalletPreparation =
+  | import("./swap-exec.ts").SwapPreparation
   | import("./sale.ts").SalePreparation
   | SupplyPreparation
   | WithdrawPreparation
