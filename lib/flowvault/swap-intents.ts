@@ -20,7 +20,7 @@ export interface IntentsPreparation {
   from: IntentsSide; to: IntentsSide; recipient: string; depositAddress: string; depositMemo: string | null;
   outputRaw: string; minOutRaw: string; slippageBps: number; eta: number | null; quoteDeadline: string;
   inputUsd: string | null; minOutUsd: string | null; capturedAt: string; venue: "NEAR Intents";
-  transactions: SwapTx[]; evmTx: EvmDepositTx | null; policyAction: PolicyAction; quote: unknown; walletAskedAt?: string;
+  transactions: SwapTx[]; evmTx: EvmDepositTx | null; policyAction: PolicyAction; quote: unknown; walletAskedAt?: string; nonceAtAsk?: string;
   result?: { status: string; deliveredRaw: string | null; delivered: string | null; refundedRaw: string | null; originHashes: string[]; destinationHashes: string[] };
 }
 

@@ -315,11 +315,26 @@ async function resolveUnhashed(sessionId: string, a: import("./execution.ts").Wa
     a.message = "NEAR Intents received a deposit for this swap. Tracking delivery…";
     return true;
   }
+  // EVM: the wallet's transaction count (nonce) is the proof. Unchanged since the wallet was asked means nothing
+  // left the wallet, so the swap can close at once (after a short grace for a broadcast still propagating).
+  if (p.evmTx && p.nonceAtAsk) {
+    const pending = await evmRpc(p.from.network as "eth" | "base" | "arb", "eth_getTransactionCount", [p.accountId, "pending"]).then(hexQuantity).catch(() => null);
+    const askedAt = Date.parse(p.walletAskedAt ?? a.createdAt);
+    if (pending !== null && pending === BigInt(p.nonceAtAsk) && Date.now() - askedAt >= NONCE_GRACE_MS) {
+      a.state = "failed"; a.message = "Not sent. No transaction left your wallet, so the request was closed.";
+      await releasePolicy(sessionId, a.id);
+      return true;
+    }
+    if (pending !== null && pending > BigInt(p.nonceAtAsk)) { a.message = "A transaction left your wallet. Waiting for NEAR Intents to see the deposit…"; return false; }
+  }
   if (unsentAt(a) > Date.now()) return false;
   a.state = "failed"; a.message = "Not sent. Nothing reached the NEAR Intents deposit address, so the request was closed.";
   await releasePolicy(sessionId, a.id);
   return true;
 }
+const NONCE_GRACE_MS = 20_000;
+const minutesFrom = (ms: number) => { const m = Math.round((ms - Date.now()) / 60_000); return m <= 0 ? "now" : m === 1 ? "in about a minute" : `in about ${m} minutes`; };
+const minutesAgo = (iso: string) => { const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000)); return m === 0 ? "just now" : m === 1 ? "a minute ago" : `${m} minutes ago`; };
 
 export async function intentsJournalAction(request: Request, id: string, action: string, hashes: string[] = []) {
   const s = await session(request), { attempt: a, previous } = await readAttempt(s.id, id), p = a.preparation as unknown as IntentsPreparation;
@@ -338,8 +353,9 @@ export async function intentsJournalAction(request: Request, id: string, action:
       if (other.id === a.id || other.accountId.toLowerCase() !== p.accountId.toLowerCase()) continue;
       const op = other.preparation as unknown as IntentsPreparation, before = JSON.stringify(other);
       if (op.route === "intents" && await resolveUnhashed(s.id, other, op)) { await saveAttempt(s.id, other, before); if (!["awaiting_wallet", "submitted", "unknown", "partial"].includes(other.state)) continue; }
-      const until = op.route === "intents" && !other.hashes.length ? " If nothing was sent, it clears automatically after " + new Date(unsentAt(other)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + "." : "";
-      throw new Error(`An earlier ${other.kind} from this wallet (started ${new Date(other.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}) is still unresolved, so FlowVault won't send another yet.${until} Check it in Activity.`);
+      const evmOther = !!op.evmTx && !!op.nonceAtAsk && !other.hashes.length;
+      const until = op.route === "intents" && !other.hashes.length ? (evmOther ? " If no transaction left your wallet, Check it now clears it." : " If nothing was sent, it clears " + minutesFrom(unsentAt(other)) + ".") : "";
+      throw new Error(`An earlier ${other.kind} from this wallet (started ${minutesAgo(other.createdAt)}) is still unresolved, so FlowVault won't send another yet.${until}`);
     }
     const policy = s.workspace.policy ?? defaultPolicy(), policyAction = { ...p.policyAction, id: a.id };
     await checkPolicy(s.id, policyAction, policy);
@@ -347,6 +363,7 @@ export async function intentsJournalAction(request: Request, id: string, action:
     revision = s.revision;
     a.state = "awaiting_wallet";
     p.walletAskedAt = new Date().toISOString();
+    if (evm) p.nonceAtAsk = String(hexQuantity(await evmRpc(p.from.network as "eth" | "base" | "arb", "eth_getTransactionCount", [p.accountId, "pending"])));
     a.message = "Waiting for your wallet. Approve the deposit there; NEAR Intents delivers after it lands.";
   } else if (action === "declined") {
     if (a.state === "awaiting_wallet" && !a.hashes.length) { a.state = "failed"; a.message = "Not sent. The wallet request was declined or never opened."; await releasePolicy(s.id, a.id); }

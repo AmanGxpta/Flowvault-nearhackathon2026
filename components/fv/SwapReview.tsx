@@ -121,6 +121,20 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
     }
   }
 
+  // An earlier swap from the same wallet is unresolved: ask the journal to check it (wallet nonce + NEAR Intents
+  // status), then start this swap again. If it is still genuinely open, the message says why.
+  const [checking, setChecking] = useState(false);
+  async function checkEarlier() {
+    setChecking(true);
+    try {
+      const sender = (prep?.attempt.preparation as unknown as { accountId?: string } | undefined)?.accountId?.toLowerCase();
+      const list = await api("/api/transactions", undefined, "GET") as { attempts?: WalletAttempt[] };
+      for (const other of list.attempts ?? [])
+        if (other.kind === "swap" && ["awaiting_wallet", "unknown", "submitted"].includes(other.state) && (!sender || other.accountId.toLowerCase() === sender) && other.id !== prep?.attempt.id)
+          await api("/api/transactions", { id: other.id, action: "check" }).catch(() => null);
+    } finally { setChecking(false); }
+    await prepare();
+  }
   const review = prep?.review;
   // EVM deposits are sent by the wallet that holds the token; say so before Approve if it isn't available here.
   const evmSender = intents && from.network !== "near" ? (prep?.attempt.preparation as unknown as IntentsPreparation | undefined)?.accountId : undefined;
@@ -173,7 +187,9 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
           : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void approve()}>Approve in wallet · {left}s</button>)}
         {(phase === "preparing" || phase === "allowing") && <button type="button" className="fv-button fv-primary fv-wide-button" disabled><RefreshCw size={15} className="fv-spin" /> {phase === "allowing" ? "Saving a new policy revision…" : "Checking…"}</button>}
         {(phase === "done" || phase === "failed") && <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}
-        {phase === "error" && <div className="fv-actions"><button type="button" className="fv-button" onClick={close}>Close</button><button type="button" className="fv-button fv-primary" onClick={() => void prepare()}>Try again</button></div>}
+        {phase === "error" && <div className="fv-actions"><button type="button" className="fv-button" onClick={close}>Close</button>{/still unresolved/.test(error)
+          ? <button type="button" className="fv-button fv-primary" disabled={checking} onClick={() => void checkEarlier()}>{checking ? <><RefreshCw size={15} className="fv-spin" /> Checking…</> : "Check it now"}</button>
+          : <button type="button" className="fv-button fv-primary" onClick={() => void prepare()}>Try again</button>}</div>}
       </div>
     </div>
   </div>, document.body);
