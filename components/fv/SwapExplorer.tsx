@@ -58,7 +58,10 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   const chosen = routes.find(r => r.venue === selected) ?? best;
   const expires = preview ? Math.max(0, Math.floor((Date.parse(preview.expiresAt) - now) / 1000)) : 0;
   const validAmount = (() => { if (!from || !amount) return false; try { return units(amount, from.decimals) > 0n; } catch { return false; } })();
-  const inApp = (r?: Route) => !!r && r.venue === "Rhea / Ref" && from?.network === "near" && to?.network === "near";
+  // Rhea / Ref swaps NEAR tokens; NEAR Intents deposits from NEAR, Ethereum, Base or Arbitrum into your own wallet
+  // on the destination network. Both run inside FlowVault with the review card; other origins open the venue.
+  const intentsInApp = !!from && !!to && ["near", "eth", "base", "arb"].includes(from.network) && !!sender && !!recipient;
+  const inApp = (r?: Route) => !!r && (r.venue === "Rhea / Ref" ? from?.network === "near" && to?.network === "near" : r.venue === "NEAR Intents" && intentsInApp);
 
   async function quote() {
     revision.current++; request.current?.abort();
@@ -161,7 +164,7 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
       </section>
       <section className="fv-panel fv-managed-swap-callout"><div><h3>Funding a payment?</h3><p>USDC → NEAR and approved sales keep FlowVault’s payment checks.</p></div><button type="button" className="fv-button" onClick={onManaged}>Managed funding <ArrowUpRight size={14} /></button></section>
     </div>
-    {review && from && to && chosen && <SwapReview from={from} to={to} amount={amount} slippage={Number(slippage)}
+    {review && from && to && chosen && <SwapReview from={from} to={to} amount={amount} slippage={Number(slippage)} route={chosen.venue === "NEAR Intents" ? "intents" : "ref"} sender={sender} recipient={recipient}
       close={() => setReview(false)} onSettled={() => { void holdings.refresh(); onSettled?.(); setAmount(""); }} />}
   </div>;
 }

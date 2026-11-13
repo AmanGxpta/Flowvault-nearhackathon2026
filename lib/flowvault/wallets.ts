@@ -299,3 +299,25 @@ export function evmProvider(id: string): Eip1193 | null {
   start();
   return evm.get(id)?.provider ?? null;
 }
+
+/** NEAR Intents swap deposit from an EVM wallet: exactly the prepared native transfer or ERC-20 transfer to the
+ * quote's deposit address, on the prepared chain, from the prepared address. Anything else is refused. */
+export async function sendIntentsDeposit(s: WalletSession, p: { evmTx: { chainId: string; from: string; to: string; value: string; data: string } | null; depositAddress: string; amountRaw: string; from: { contract: string } }) {
+  start();
+  const tx = p.evmTx;
+  if (!tx || s.chain !== "evm") throw new Error("Use the Ethereum wallet that holds the token.");
+  const d = evm.get(s.walletId);
+  if (!d) throw new Error(s.walletName + " isn’t available in this browser. Reconnect it from the wallet menu.");
+  const native = p.from.contract === "native";
+  const ok = tx.from.toLowerCase() === s.address.toLowerCase() && (native
+    ? tx.to.toLowerCase() === p.depositAddress.toLowerCase() && BigInt(tx.value) === BigInt(p.amountRaw) && tx.data === "0x"
+    : tx.to.toLowerCase() === p.from.contract.toLowerCase() && tx.value === "0x0" && tx.data.toLowerCase() === "0xa9059cbb" + p.depositAddress.slice(2).toLowerCase().padStart(64, "0") + BigInt(p.amountRaw).toString(16).padStart(64, "0"));
+  if (!ok) throw new Error("The prepared deposit doesn’t match the quote. Nothing was sent.");
+  const accounts: string[] = await d.provider.request({ method: "eth_requestAccounts" });
+  if (!accounts.some((a) => a.toLowerCase() === s.address.toLowerCase())) throw new Error("Select " + s.address + " in " + s.walletName + ", then try again.");
+  const current: string = await d.provider.request({ method: "eth_chainId" });
+  if (current.toLowerCase() !== tx.chainId) await d.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: tx.chainId }] });
+  const hash: string = await d.provider.request({ method: "eth_sendTransaction", params: [{ from: s.address, to: tx.to, value: tx.value, data: tx.data }] });
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error(s.walletName + " didn’t return a transaction hash.");
+  return hash;
+}

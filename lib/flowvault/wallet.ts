@@ -317,3 +317,18 @@ export async function signSwap(preparation: import("./swap-exec").SwapPreparatio
   }
   return signPrepared(preparation as unknown as WalletPreparation);
 }
+
+/** NEAR-origin NEAR Intents swap deposit, only after /api/transactions authorize: optional wrap on wrap.near, then
+ * one ft_transfer of the token to the quote's deposit address. */
+export async function signIntentsNear(preparation: import("./swap-intents").IntentsPreparation) {
+  if (preparation.kind !== "swap" || preparation.route !== "intents" || preparation.from.network !== "near") throw new Error("Use a NEAR Intents preparation from NEAR.");
+  const token = preparation.from.contract === "native" ? "wrap.near" : preparation.from.contract;
+  for (const tx of preparation.transactions) {
+    if (tx.receiverId !== token && tx.receiverId !== "wrap.near") throw new Error("A deposit may call only the token and wrap.near.");
+    for (const a of tx.actions) {
+      if (a.params.methodName === "ft_transfer" && a.params.args.receiver_id !== preparation.depositAddress) throw new Error("The transfer must go to the quote's deposit address.");
+      if (!["ft_transfer", "near_deposit"].includes(a.params.methodName)) throw new Error("Unexpected method in the deposit.");
+    }
+  }
+  return signPrepared(preparation as unknown as WalletPreparation);
+}
