@@ -6,6 +6,21 @@ A portfolio tracker shows what you own. It does not tell you what can pay next w
 
 Built on **NEAR**: Rhea USDC supply/withdrawal, NEAR Intents exact-output payment plumbing, native/LiNEAR/rNEAR reads, NEAR wallet signing, an optional NEAR AI Cloud intent parser, and a no-custody policy contract. **This checkout is a local Git repository with no remote; nothing has been published or deployed by the agents.** Funded end-to-end execution still needs the owner's rehearsal. The frontend is being wired separately; API availability is not a claim that every visual control is connected.
 
+## Revamped workspace — 13 November 2026
+
+The app opens on **Portfolio**. Navigation is **Portfolio · Markets · Swap · Earn · Borrow · Trade · Activity**, with **Send**, **Scheduled** and **Risk & permissions** directly available. Cmd/Ctrl+K searches pages and runs commands such as `swap 1 NEAR to USDC`, `buy RHEA` or a token symbol. Views link as `?view=markets`, `?view=swap`, `?view=earn`, `?view=borrow` and so on.
+
+- **Swap** quotes Rhea / Ref and NEAR Intents as you type, ranks routes by output (exact, in token units) and shows balances, Max, USD values, rate and minimum received. Swaps between NEAR tokens run **inside FlowVault**: `/api/swap/execute` prepares the exact transactions (wrap, registrations, Ref `ft_transfer_call`, Ref's own unwrap for NEAR output), checks balances, storage and prices, and evaluates them against the owner's policy (a swap sells its input asset). The review card offers "Allow and continue", which saves a policy revision adding only that swap's venue and methods. The owner signs in their own wallet after `/api/transactions` authorize; receipts are verified (`swap-exec.ts`), and the result appears in Activity. Cross-chain routes open NEAR Intents.
+- **Markets** is a screener (DexScreener pairs: price, change, liquidity, volume, trades, market cap; NEAR markets, Trending, New; 5m–24h; chain filter; sorting; watchlist). Each token opens a page with GeckoTerminal candles, 24h flow, plain-language risk signals and a check against the owner's policy, plus Buy/Sell into Swap.
+- **Earn** and **Borrow** open on live Rhea market tables (APY, totals, utilization, LTV). USDC rows lead into FlowVault's own supply and credit flows; other markets open Rhea.
+- **Trade** has an always-visible order ticket (long/short, size, leverage, TP/SL, margin and estimated liquidation). Orders still go through the owner-configured Hyperliquid agent and signed mandate; the ticket shows which setup steps remain.
+- **Portfolio** headline figures never go blank: partial reads show "≥ known subtotal", failed reads keep the last good figure with its time. A status bar shows portfolio, spendable cash, the next payment and guardrails.
+- **Activity** adds the connected account's on-chain history (NearBlocks) beside FlowVault's journal.
+- **Ask FlowVault** offers "Open swap" for swap-like questions; it only prefills the swap screen.
+- Token and network logos are bundled in `public/assets`.
+
+No deployment or owner-funded operation is implied. Perps execution needs the owner's agent key secret on the server.
+
 ## Run and see the pitch — no wallet or key required
 
 Node **22.13+**, npm, and two terminals:
