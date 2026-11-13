@@ -495,3 +495,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .fv-asst-swap{align-self:flex-end;display:flex;align-items:center;gap:12px;justify-content:space-between;border:1px solid var(--fvb-D5DEC8);background:var(--fvb-F4F7EE);border-radius:14px;padding:10px 12px;max-width:88%}
 .fv-asst-swap-pair{display:flex;align-items:center;gap:6px;min-width:0}.fv-asst-swap-pair>span{margin-left:6px;min-width:0}.fv-asst-swap-pair strong{display:block;font-size:13px}.fv-asst-swap-pair small{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--fvc-6F786B)}
 .fv-swap-amount{background:var(--fvb-F7F8F3)!important}.fv-swap-receive{background:var(--fvb-FFFFFF)!important}
+/* Token picker network chips (replaces the native select that lost focus mid-choice) */
+.fv-picker-networks{display:flex;gap:6px;overflow-x:auto;padding:12px 0 4px;margin:4px 0 2px;scrollbar-width:thin}
+.fv-picker-networks button{flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF);color:inherit;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+.fv-picker-networks button[aria-checked=true]{background:var(--fvb-1E2A22);border-color:var(--fvb-1E2A22);color:var(--fvc-FFFFFF,#fff)}
+.fv-picker-networks small{font-size:10px;opacity:.6}
+.fv-picker-networks .fv-network img{width:16px;height:16px;border-radius:50%}

@@ -87,7 +87,7 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   function fraction(pct: bigint) {
     if (!from || !fromBal) return;
     let raw = BigInt(fromBal.raw);
-    if (from.contract === "native") raw = raw > NATIVE_KEEP ? raw - NATIVE_KEEP : 0n;
+    if (from.contract === "native" && from.network === "near") raw = raw > NATIVE_KEEP ? raw - NATIVE_KEEP : 0n;
     raw = raw * pct / 100n;
     setAmount(raw > 0n ? decimal(raw, from.decimals) : "");
   }
@@ -119,7 +119,7 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
       <div className="fv-swap-amount">
         <div className="fv-swap-box-head"><label htmlFor="swap-pay">You pay</label>{fromBal ? <span className="fv-swap-balance"><Wallet size={13} /> {fmtAmount(fromBal.amount)} {from?.symbol}{[25n, 50n, 100n].map(p => <button type="button" key={String(p)} onClick={() => fraction(p)}>{p === 100n ? "Max" : p + "%"}</button>)}</span> : owner && from?.network === "near" && holdings.state === "ready" ? <span className="fv-swap-balance">No {from?.symbol} in this wallet</span> : null}</div>
         <div className="fv-swap-line"><input id="swap-pay" value={amount} inputMode="decimal" placeholder="0" autoComplete="off" onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ""))} /><TokenPicker label="Choose token to sell" tokens={tokens} balances={holdings.balances} value={from} onChange={t => change("from", t)} /></div>
-        <small>{usdIn !== null ? fmtUsd(usdIn) : from?.contract === "native" ? "Native NEAR · Max keeps 0.1 NEAR for fees" : " "}{overBalance && <b className="fv-swap-warn"> · more than your balance</b>}</small>
+        <small>{usdIn !== null ? fmtUsd(usdIn) : from?.contract === "native" ? (from.network === "near" ? "Native NEAR · Max keeps 0.1 NEAR for fees" : `Native ${from.symbol} · keep some for gas`) : " "}{overBalance && <b className="fv-swap-warn"> · more than your balance</b>}</small>
       </div>
       <div className="fv-swap-flip"><button type="button" className="fv-icon-button" aria-label="Reverse swap pair" onClick={() => { setFrom(toId); setTo(fromId); setSender(recipient); setRecipient(sender); setAmount(""); }}><ArrowDownUp size={19} /></button></div>
       <div className="fv-swap-amount fv-swap-receive">
