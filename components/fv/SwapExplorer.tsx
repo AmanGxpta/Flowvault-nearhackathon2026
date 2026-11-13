@@ -1,8 +1,8 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowDownUp, ArrowUpRight, RefreshCw, Settings2, Zap, Wallet } from "lucide-react";
 import { useTokenCatalog } from "./useTokenCatalog";
-import { useNearHoldings } from "./useNearHoldings";
+import { useWalletBalances } from "./useWalletBalances";
 import { TokenPicker } from "./TokenPicker";
 import { SwapReview } from "./SwapReview";
 import { fmtAmount, fmtUsd } from "./swap-format";
@@ -21,7 +21,7 @@ type Cta = { label: string; disabled?: boolean; spin?: boolean; onClick?: () => 
 
 export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }: { owner: string; example: boolean; onManaged: () => void; onConnect?: () => void; onSettled?: () => void }) {
   const { tokens, error: catalogError } = useTokenCatalog();
-  const holdings = useNearHoldings(example ? "" : owner);
+  const holdings = useWalletBalances(owner, tokens, !example);
   const [fromId, setFrom] = useState("near:native"), [toId, setTo] = useState(USDC_NEAR);
   const [amount, setAmount] = useState(""), [slippage, setSlippage] = useState("100");
   const [sender, setSender] = useState(owner), [recipient, setRecipient] = useState(owner);
@@ -32,7 +32,12 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   const from = tokens.find(t => t.id === fromId), to = tokens.find(t => t.id === toId);
   const fromBal = holdings.balances[fromId], toBal = holdings.balances[toId];
 
-  useEffect(() => { const t = setTimeout(() => { setSender(s => s || owner); setRecipient(r => r || owner); }, 0); return () => clearTimeout(t); }, [owner]);
+  // Send from the connected wallet that holds the token, and receive into your wallet on the destination network.
+  // An EVM address serves every EVM chain. The addresses stay editable under Slippage › Cross-chain addresses.
+  const EVM = ["eth", "base", "arb", "bsc", "op", "pol", "avax", "gnosis"];
+  const addrFor = (n?: string) => !n ? "" : holdings.addresses[n] ?? (EVM.includes(n) ? holdings.addresses.eth ?? holdings.addresses.base ?? holdings.addresses.arb ?? "" : "");
+  const senderAuto = fromBal?.account ?? addrFor(from?.network), recipientAuto = addrFor(to?.network);
+  useEffect(() => { const t = setTimeout(() => { setSender(senderAuto); setRecipient(recipientAuto); }, 0); return () => clearTimeout(t); }, [senderAuto, recipientAuto]);
   useEffect(() => {
     // Prefill from links and commands (?swap=from|to|amount, ?buy=id, ?buy=sell:id). Prefill only; review still applies.
     const apply = () => {
@@ -47,10 +52,8 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   }, []);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
 
-  const routes = useMemo(() => {
-    if (!preview || !to) return [];
-    return [...preview.routes].sort((a, b) => { const x = rawOf(a.output, to.decimals), y = rawOf(b.output, to.decimals); return x === y ? 0 : x > y ? -1 : 1; });
-  }, [preview, to]);
+  const toDecimals = to?.decimals;
+  const routes = !preview || toDecimals === undefined ? [] : [...preview.routes].sort((a, b) => { const x = rawOf(a.output, toDecimals), y = rawOf(b.output, toDecimals); return x === y ? 0 : x > y ? -1 : 1; });
   const best = routes[0];
   const chosen = routes.find(r => r.venue === selected) ?? best;
   const expires = preview ? Math.max(0, Math.floor((Date.parse(preview.expiresAt) - now) / 1000)) : 0;
@@ -81,8 +84,8 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   }, [expires, preview, busy, review, validAmount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function change(side: "from" | "to", t: SwapToken) {
-    if (side === "from") { if (t.id === toId) setTo(fromId); setFrom(t.id); if (t.network !== from?.network) setSender(t.network === "near" ? owner : ""); }
-    else { if (t.id === fromId) setFrom(toId); setTo(t.id); if (t.network !== to?.network) setRecipient(t.network === "near" ? owner : ""); }
+    if (side === "from") { if (t.id === toId) setTo(fromId); setFrom(t.id); }
+    else { if (t.id === fromId) setFrom(toId); setTo(t.id); }
   }
   function fraction(pct: bigint) {
     if (!from || !fromBal) return;
@@ -94,7 +97,7 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   const usdIn = from?.price && validAmount ? Number(amount) * Number(from.price) : null;
   const usdOut = to?.price && chosen ? Number(chosen.output) * Number(to.price) : null;
   const valueDrop = usdIn && usdOut ? (usdOut - usdIn) / usdIn * 100 : null;
-  const balanceKnown = holdings.state === "ready" && from?.network === "near";
+  const balanceKnown = !!from && holdings.covered.has(from.network);
   const overBalance = validAmount && !!from && balanceKnown && units(amount, from.decimals) > BigInt(fromBal?.raw ?? "0");
 
   const cta: Cta = (() => {
@@ -117,14 +120,14 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
       {settings && <div className="fv-swap-settings-row" role="group" aria-label="Slippage">{["50", "100", "300", "500"].map(v => <button type="button" key={v} aria-pressed={slippage === v} onClick={() => setSlippage(v)}>{Number(v) / 100}%</button>)}
         <details><summary>Cross-chain addresses</summary><p className="fv-muted">Needed for NEAR Intents routes to other networks. Use addresses you control.</p><label>Send / refund on {from?.network}<input value={sender} onChange={e => setSender(e.target.value)} placeholder={from?.network === "near" ? "your-account.near" : "Your address"} /></label><label>Receive on {to?.network}<input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder={to?.network === "near" ? "your-account.near" : "Your address"} /></label></details></div>}
       <div className="fv-swap-amount">
-        <div className="fv-swap-box-head"><label htmlFor="swap-pay">You pay</label>{fromBal ? <span className="fv-swap-balance"><Wallet size={13} /> {fmtAmount(fromBal.amount)} {from?.symbol}{[25n, 50n, 100n].map(p => <button type="button" key={String(p)} onClick={() => fraction(p)}>{p === 100n ? "Max" : p + "%"}</button>)}</span> : owner && from?.network === "near" && holdings.state === "ready" ? <span className="fv-swap-balance">No {from?.symbol} in this wallet</span> : null}</div>
-        <div className="fv-swap-line"><input id="swap-pay" value={amount} inputMode="decimal" placeholder="0" autoComplete="off" onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ""))} /><TokenPicker label="Choose token to sell" tokens={tokens} balances={holdings.balances} value={from} onChange={t => change("from", t)} /></div>
+        <div className="fv-swap-box-head"><label htmlFor="swap-pay">You pay</label>{fromBal ? <span className="fv-swap-balance"><Wallet size={13} /> {fmtAmount(fromBal.amount)} {from?.symbol}{[25n, 50n, 100n].map(p => <button type="button" key={String(p)} onClick={() => fraction(p)}>{p === 100n ? "Max" : p + "%"}</button>)}</span> : balanceKnown ? <span className="fv-swap-balance">No {from?.symbol} in your connected wallets</span> : null}</div>
+        <div className="fv-swap-line"><input id="swap-pay" value={amount} inputMode="decimal" placeholder="0" autoComplete="off" onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ""))} /><TokenPicker label="Choose token to sell" tokens={tokens} balances={holdings.balances} covered={holdings.covered} value={from} onChange={t => change("from", t)} /></div>
         <small>{usdIn !== null ? fmtUsd(usdIn) : from?.contract === "native" ? (from.network === "near" ? "Native NEAR · Max keeps 0.1 NEAR for fees" : `Native ${from.symbol} · keep some for gas`) : " "}{overBalance && <b className="fv-swap-warn"> · more than your balance</b>}</small>
       </div>
-      <div className="fv-swap-flip"><button type="button" className="fv-icon-button" aria-label="Reverse swap pair" onClick={() => { setFrom(toId); setTo(fromId); setSender(recipient); setRecipient(sender); setAmount(""); }}><ArrowDownUp size={19} /></button></div>
+      <div className="fv-swap-flip"><button type="button" className="fv-icon-button" aria-label="Reverse swap pair" onClick={() => { setFrom(toId); setTo(fromId); setAmount(""); }}><ArrowDownUp size={19} /></button></div>
       <div className="fv-swap-amount fv-swap-receive">
         <div className="fv-swap-box-head"><span>You receive</span>{toBal && <span className="fv-swap-balance"><Wallet size={13} /> {fmtAmount(toBal.amount)} {to?.symbol}</span>}</div>
-        <div className="fv-swap-line"><strong className={"fv-swap-output" + (busy ? " fv-loading-text" : "")}>{chosen ? fmtAmount(chosen.output) : busy ? "…" : "0"}</strong><TokenPicker label="Choose token to buy" tokens={tokens} balances={holdings.balances} value={to} onChange={t => change("to", t)} /></div>
+        <div className="fv-swap-line"><strong className={"fv-swap-output" + (busy ? " fv-loading-text" : "")}>{chosen ? fmtAmount(chosen.output) : busy ? "…" : "0"}</strong><TokenPicker label="Choose token to buy" tokens={tokens} balances={holdings.balances} covered={holdings.covered} value={to} onChange={t => change("to", t)} /></div>
         <small>{usdOut !== null ? <>{fmtUsd(usdOut)}{valueDrop !== null && <span className={valueDrop < -1 ? "fv-swap-warn" : ""}> ({valueDrop >= 0 ? "+" : ""}{valueDrop.toFixed(2)}%)</span>}</> : to?.symbol === "wNEAR" ? "Wrapped NEAR · distinct from native NEAR" : " "}</small>
       </div>
       {chosen && from && to && <div className="fv-swap-facts">
