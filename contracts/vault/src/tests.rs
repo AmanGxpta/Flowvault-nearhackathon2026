@@ -980,3 +980,46 @@ fn unknown_withdraw_becomes_unresolved_and_releases_lock() {
         let _ = v.curator_withdraw(U128(1));
     });
 }
+
+#[test]
+fn nav_age_is_bounded_short_and_disclosed_in_config() {
+    for (age, ok) in [
+        (9_999u64, false),
+        (10_000, true),
+        (900_000, true),
+        (900_001, false),
+        (3_600_000, false),
+    ] {
+        let mut c = config();
+        c.max_nav_age_ms = U64(age);
+        context("vault.near", 0, 1_000);
+        near_sdk::mock::with_mocked_blockchain(|b| {
+            b.take_storage();
+        });
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = Vault::new(c);
+        }));
+        assert_eq!(r.is_ok(), ok, "age {age}");
+    }
+    let v = vault();
+    let c = v.get_config();
+    assert_eq!(c["max_nav_age_ms"], json!("180000"));
+    assert_eq!(c["max_nav_age_limit_ms"], json!("900000"));
+    assert!(
+        c["settlement_timing"]
+            .as_str()
+            .unwrap()
+            .contains("Permissionless")
+    );
+    assert_eq!(c["redemption_notice_ms"], json!("0"));
+}
+#[test]
+fn settlement_refuses_once_report_is_older_than_max_age() {
+    let mut v = vault();
+    report(&mut v, 1, 0);
+    let id = deposit(&mut v, "owner.near", 1_000_000);
+    context("keeper.near", 0, 1_001 + 180_001);
+    fails(|| v.settle_deposit(U64(id)));
+    context("keeper.near", 0, 1_001 + 180_000);
+    v.settle_deposit(U64(id));
+}

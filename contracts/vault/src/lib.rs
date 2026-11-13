@@ -182,6 +182,10 @@ pub struct NavView {
     /// Additive (v1.4): NAV used only for redemptions while an operation is unresolved; null otherwise.
     pub exit_nav_raw: Option<U128>,
 }
+/// A report prices deposits and redemptions for at most this long. Settlement is permissionless, so any
+/// caller picks the moment inside the window; the cap keeps that window short (review finding 5).
+pub const MIN_NAV_AGE_MS: u64 = 10_000;
+pub const MAX_NAV_AGE_MS: u64 = 900_000;
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct Vault {
@@ -239,8 +243,8 @@ impl Vault {
             "FEE_LIMIT"
         );
         assert!(
-            config.max_nav_age_ms.0 >= 10_000
-                && config.max_nav_age_ms.0 <= 3_600_000
+            config.max_nav_age_ms.0 >= MIN_NAV_AGE_MS
+                && config.max_nav_age_ms.0 <= MAX_NAV_AGE_MS
                 && config.redemption_notice_ms.0 <= 30 * 86_400_000,
             "INVALID_TIME_LIMIT"
         );
@@ -323,6 +327,11 @@ impl Vault {
             json!(QUEUE_STORAGE.to_string()),
         );
         o.insert("upgrade_authority".into(),json!("owner + contract full-access keys (owner-disclosed; verify actual keys through NEAR RPC)"));
+        o.insert(
+            "max_nav_age_limit_ms".into(),
+            json!(MAX_NAV_AGE_MS.to_string()),
+        );
+        o.insert("settlement_timing".into(),json!("Permissionless: any account may settle a queued deposit or due redemptions at any moment while the latest report is younger than max_nav_age_ms; min_shares / min_assets bound the price each holder accepts."));
         o.insert("nav_authority".into(),json!("Owner/curator trusted valuation attestation; not independent proof of external assets. Only owner reports crystallize performance fees."));
         v
     }
