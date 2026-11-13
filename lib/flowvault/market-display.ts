@@ -29,7 +29,7 @@ export function parseCandles(raw: unknown, coin: string, interval: string): Cand
     if (high < Math.max(open, close) || low > Math.min(open, close) || low > high) return [];
     return [{ time: row.t, open, high, low, close, volume: (typeof row.v === "number" || typeof row.v === "string" && /^\d+(\.\d+)?$/.test(row.v)) && Number.isFinite(Number(row.v)) ? Number(row.v) : 0 }];
   });
-  return [...new Map(rows.map(row => [row.time, row])).values()].sort((a, b) => a.time - b.time).slice(-96);
+  return [...new Map(rows.map(row => [row.time, row])).values()].sort((a, b) => a.time - b.time).slice(-300);
 }
 export function parseBook(raw: unknown, coin: string): { bids: BookLevel[]; asks: BookLevel[]; bookAt: number } {
   const book = raw as { coin?: string; time?: number; levels?: { px: string; sz: string }[][] };

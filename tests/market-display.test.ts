@@ -9,10 +9,10 @@ test("chart data rejects foreign symbols, intervals, invalid prices and inconsis
 });
 test("chart history is sorted, deduplicated and bounded without making up missing candles", () => {
   const row = { s: "BTC", i: "1h", o: "100", h: "110", l: "90", c: "105", v: "1" };
-  const candles = parseCandles(Array.from({ length: 120 }, (_, i) => ({ ...row, t: 120 - i })), "BTC", "1h");
-  assert.equal(candles.length, 96);
-  assert.equal(candles[0].time, 25);
-  assert.equal(candles.at(-1)!.time, 120);
+  const candles = parseCandles(Array.from({ length: 400 }, (_, i) => ({ ...row, t: 400 - i })), "BTC", "1h");
+  assert.equal(candles.length, 300);
+  assert.equal(candles[0].time, 101);
+  assert.equal(candles.at(-1)!.time, 400);
   assert.equal(parseCandles([{ ...row, t: 1 }, { ...row, t: 1 }], "BTC", "1h").length, 1);
 });
 test("order book and current price never infer a different market or treat unknown as zero", () => {

@@ -657,3 +657,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 @media(max-width:1100px){.fv-spot-stats{grid-template-columns:repeat(4,minmax(70px,1fr))}}
 @media(max-width:700px){.fv-spot-bar{gap:12px}.fv-spot-price{border:0;padding:0}.fv-spot-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.fv-pair-head,.fv-pair-list>button{grid-template-columns:24px minmax(0,1fr) 74px 54px}}
 .fv-spot-side>.fv-panel{margin:0!important;padding:16px 18px!important}.fv-spot-side .fv-token-buy h2,.fv-spot-side .fv-trust h2{font-size:15px;margin:0 0 8px;display:flex;align-items:center;gap:6px}.fv-spot-side .fv-token-buy p{font-size:12.5px;color:var(--fvc-6F786B);margin:0 0 12px;line-height:1.5}
+/* TradingView Lightweight Charts container */
+.fv-prochart{display:flex;flex-direction:column;min-width:0}.fv-prochart-canvas{position:relative;width:100%;min-height:240px;padding:0 6px 0 12px;box-sizing:border-box}
+.fv-prochart .fv-candle-readout{font-size:10.5px}
+@media(max-width:700px){.fv-prochart-canvas{height:280px!important}}

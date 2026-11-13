@@ -27,7 +27,7 @@ export function mergeMarketFrame(old: DisplayMarket, frame: unknown, now = Date.
     if (channel === "candle") {
       const incoming = parseCandles(Array.isArray(data) ? data : [data], old.coin, old.interval);
       if (!incoming.length) return old;
-      const candles = [...new Map([...old.candles, ...incoming].map(c => [c.time, c])).values()].sort((a,b) => a.time-b.time).slice(-96);
+      const candles = [...new Map([...old.candles, ...incoming].map(c => [c.time, c])).values()].sort((a,b) => a.time-b.time).slice(-300);
       return { ...old, candles, capturedAt: new Date(now).toISOString(), stale: false };
     }
   } catch { /* Bad frames preserve the last good data; connection health is managed separately. */ }

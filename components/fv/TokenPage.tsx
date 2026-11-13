@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowUpRight, ShieldCheck, ShieldAlert, Shield, Star, Globe, Share2 } from "lucide-react";
 import { TokenIcon } from "./AssetIdentity";
-import { CandleChart } from "./MarketPanel";
+import { ProChart } from "./ProChart";
 import { chainNetwork, marketId, type ScreenRow } from "./MarketScreener";
 import { api } from "./live";
 import { TradePanel } from "./TradePanel";
@@ -70,7 +70,7 @@ export function TokenPage({ token, back, buy, watched, toggleWatch, share }: { t
     <div className="fv-token-layout">
       <section className="fv-panel fv-token-chart">
         <div className="fv-chart-toolbar"><span>Price · USD</span>{["15m", "1h", "4h", "1d"].map(x => <button type="button" key={x} aria-pressed={tf === x} onClick={() => setTf(x)}>{x}</button>)}</div>
-        {detail?.candles.length ? <CandleChart key={tf + marketId(token)} candles={detail.candles} coin={symbol} fmt={priceFmt} /> : <div className="fv-chart-loading">{detail ? "No candle history for this pool yet." : "Reading price history…"}</div>}
+        {detail?.candles.length ? <ProChart seriesKey={tf + marketId(token)} candles={detail.candles} fmt={priceFmt} height={380} /> : <div className="fv-chart-loading">{detail ? "No candle history for this pool yet." : "Reading price history…"}</div>}
         {t24 && <div className="fv-flow"><span>24h flow</span><i className="fv-buysell fv-buysell-wide"><em style={{ width: (t24.buys / Math.max(1, t24.buys + t24.sells) * 100) + "%" }} /></i><small>{t24.buys.toLocaleString()} buys · {t24.sells.toLocaleString()} sells</small></div>}
       </section>
       <aside className="fv-token-side">

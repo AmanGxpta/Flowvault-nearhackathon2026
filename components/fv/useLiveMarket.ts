@@ -26,7 +26,7 @@ export function useLiveMarket(coin: string, interval: string, refresh: number) {
           const book = (stream.bookAt ?? 0) > (data.bookAt ?? 0) ? stream : data;
           current = { ...data, bids: book.bids, asks: book.asks, bookAt: book.bookAt, last: stream.last ?? null,
             mid: Date.now()-lastFrame < 15000 ? stream.mid ?? data.mid : data.mid,
-            candles: [...new Map([...data.candles, ...(Date.now()-lastFrame < 15000 ? stream.candles : [])].map(c => [c.time,c])).values()].sort((a,b)=>a.time-b.time).slice(-96) };
+            candles: [...new Map([...data.candles, ...(Date.now()-lastFrame < 15000 ? stream.candles : [])].map(c => [c.time,c])).values()].sort((a,b)=>a.time-b.time).slice(-300) };
         } else current = data;
         publish("", Date.now()-lastFrame < 15000 ? "Live" : "Polling · every 5s");
         lastSnapshot = Date.now();

@@ -1,6 +1,6 @@
 import { hlPost } from "@/lib/flowvault/perps-service";
 import { snapshot } from "@/lib/flowvault/snapshot-cache";
-import { parseBook, parseCandles, displayMid, type DisplayMarket } from "@/lib/flowvault/market-display";
+import { parseBook, parseCandles, displayMid, intervalMs, type DisplayMarket } from "@/lib/flowvault/market-display";
 
 export interface PerpListing { coin: string; price: string | null; change24h: number | null; volume24h: number | null; openInterestUsd: number | null; funding: number | null; maxLeverage: number }
 /** Every listed (not delisted) Hyperliquid perp with mark price, 24h change, volume, open interest and funding. */
@@ -23,17 +23,17 @@ export async function GET(request: Request) {
     try { return Response.json({ markets: await perpListings(), capturedAt: new Date().toISOString(), source: "Hyperliquid metaAndAssetCtxs (public)" }, { headers: { "Cache-Control": "no-store" } }); }
     catch (e) { return Response.json({ error: (e as Error).message }, { status: 503 }); }
   }
-  if (!/^[A-Za-z0-9]{1,20}$/.test(coin) || !["15m", "1h", "4h"].includes(interval)) return Response.json({ error: "Choose a supported market and timeframe." }, { status: 400 });
+  if (!/^[A-Za-z0-9]{1,20}$/.test(coin) || !["1m", "5m", "15m", "1h", "4h", "1d"].includes(interval)) return Response.json({ error: "Choose a supported market and timeframe." }, { status: 400 });
   if (!["ETH", "BTC", "NEAR"].includes(coin)) {
     const listed = await perpListings().catch(() => [] as PerpListing[]);
     if (!listed.some((m) => m.coin === coin)) return Response.json({ error: `${coin} isn't a listed Hyperliquid perp.` }, { status: 400 });
   }
   try {
     const load = async (): Promise<DisplayMarket> => {
-      const now = Date.now(), ms = interval === "15m" ? 900000 : interval === "1h" ? 3600000 : 14400000;
+      const now = Date.now(), ms = intervalMs(interval);
       // https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint
       const results = await Promise.allSettled([
-        hlPost("/info", { type: "candleSnapshot", req: { coin, interval, startTime: now - 96 * ms, endTime: now } }),
+        hlPost("/info", { type: "candleSnapshot", req: { coin, interval, startTime: now - 300 * ms, endTime: now } }),
         hlPost("/info", { type: "l2Book", coin }), hlPost("/info", { type: "allMids" }),
       ]);
       const warnings: string[] = [];

@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const pool = (pools as { data?: { attributes?: { address?: string } }[] } | null)?.data?.[0]?.attributes?.address;
     const [unit, aggregate] = FRAMES[tf];
     const candles = typeof pool === "string" && /^[A-Za-z0-9._:-]{2,120}$/.test(pool)
-      ? parseOhlcv(await snapshot(`gecko-ohlcv:${g}:${pool}:${tf}`, () => publicJson(`https://api.geckoterminal.com/api/v2/networks/${g}/pools/${encodeURIComponent(pool)}/ohlcv/${unit}?aggregate=${aggregate}&limit=120&currency=usd`), old => old).catch(() => null))
+      ? parseOhlcv(await snapshot(`gecko-ohlcv:${g}:${pool}:${tf}`, () => publicJson(`https://api.geckoterminal.com/api/v2/networks/${g}/pools/${encodeURIComponent(pool)}/ohlcv/${unit}?aggregate=${aggregate}&limit=300&currency=usd`), old => old).catch(() => null))
       : [];
     const swap = catalog.find(t => t.id.toLowerCase() === (CHAINS[chain].network + ":" + address).toLowerCase());
     let verified: boolean | null = null;

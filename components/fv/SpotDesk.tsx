@@ -5,7 +5,7 @@
 // on its own chain, never from a different exchange's listing of a similar ticker.
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Globe, ShieldAlert, ShieldCheck } from "lucide-react";
-import { CandleChart } from "./MarketPanel";
+import { ProChart } from "./ProChart";
 import { TradePanel } from "./TradePanel";
 import { useTokenDetail } from "./TokenPage";
 import { networkInfo } from "./AssetIdentity";
@@ -51,7 +51,7 @@ export function SpotDesk({ token, buy, picker }: { token: { chain: string; addre
     <div className="fv-trade-layout">
       <section className="fv-panel fv-token-chart fv-spot-chart">
         <div className="fv-chart-toolbar"><span>{token.symbol}/{r?.quoteSymbol ?? "USD"} · {networkInfo(chainNetwork(token.chain))?.name ?? token.chain} · {r?.dexId ?? "pool"}</span>{["15m", "1h", "4h", "1d"].map(x => <button type="button" key={x} aria-pressed={tf === x} onClick={() => setTf(x)}>{x}</button>)}</div>
-        {detail?.candles.length ? <CandleChart key={tf + token.address} candles={detail.candles} coin={token.symbol} fmt={priceFmt} /> : <div className="fv-chart-loading">{detail ? "No candle history for this pool yet." : "Reading price history…"}</div>}
+        {detail?.candles.length ? <ProChart seriesKey={tf + token.address} candles={detail.candles} fmt={priceFmt} height={380} /> : <div className="fv-chart-loading">{detail ? "No candle history for this pool yet." : "Reading price history…"}</div>}
         {t24 && <div className="fv-flow"><span>24h flow</span><i className="fv-buysell fv-buysell-wide"><em style={{ width: (t24.buys / Math.max(1, t24.buys + t24.sells)) * 100 + "%" }} /></i><small>{t24.buys.toLocaleString()} buys · {t24.sells.toLocaleString()} sells</small></div>}
         <p className="fv-muted fv-spot-source">{detail ? `Pool price on ${r?.dexId ?? "the DEX"} · refreshes every 15s · read ${ago(detail.capturedAt)}` : "Reading the pool…"}{r?.url && <> · <a className="fv-text-button" href={r.url} target="_blank" rel="noopener noreferrer">DexScreener <ArrowUpRight size={12} /></a></>}{r?.website && <> · <a className="fv-text-button" href={r.website} target="_blank" rel="noopener noreferrer"><Globe size={12} /> Website</a></>}</p>
       </section>
