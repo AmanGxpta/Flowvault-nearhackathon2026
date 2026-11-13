@@ -3,6 +3,13 @@ import { READ_BUDGET, withDeadline } from "./deadline.ts";
 // R22: identical concurrent reads share one request, but a caller waits on someone else's in-flight
 // read for at most READ_BUDGET.shared. On workerd a promise owned by a cancelled request never settles,
 // so a stuck entry is evicted and the caller runs its own bounded read. Every call has a hard deadline.
+export class RpcResponseError extends Error {
+  readonly rpcError: {name?:string;message?:string;data?:unknown;cause?:{name?:string;info?:unknown};code?:number};
+  constructor(rpcError: RpcResponseError["rpcError"]) {
+    super(typeof rpcError.data === "string" ? rpcError.data : rpcError.message ?? "NEAR RPC error");
+    this.name="RpcResponseError"; this.rpcError=rpcError;
+  }
+}
 const pending = new Map<string, { run: Promise<any>; at: number }>();
 export async function readRpc(
   method: string,
@@ -54,15 +61,11 @@ export async function readRpc(
             });
             if (!r.ok) throw new Error("RPC returned " + r.status);
             const body = (await r.json()) as any;
-            if (body.error)
-              throw new Error(
-                typeof body.error.data === "string"
-                  ? body.error.data
-                  : (body.error.message ?? "RPC error"),
-              );
+            if (body.error) throw new RpcResponseError(body.error);
             if (!("result" in body)) throw new Error("Missing RPC result.");
             return body.result;
           } catch (e) {
+            if(e instanceof RpcResponseError && /UNKNOWN_ACCOUNT|UNKNOWN_ACCESS_KEY|CONTRACT_EXECUTION_ERROR|INVALID_ACCOUNT|METHOD_NOT_FOUND|PARSE_ERROR|REQUEST_VALIDATION_ERROR/i.test(e.rpcError.cause?.name ?? e.rpcError.name ?? "")) throw e;
             failure = String(e);
           }
         }

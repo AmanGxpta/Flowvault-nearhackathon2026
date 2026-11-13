@@ -10,7 +10,7 @@ import type { PolicyAction, Policy } from "./policy";
 import { evaluatePolicy } from "./policy.ts";
 import { usdcValue } from "./valuation.ts";
 import { decimal, units } from "./money.ts";
-import { LINEAR_CONTRACT } from "./staking-lifecycle.ts";
+import { LINEAR_CONTRACT, RNEAR_CONTRACT } from "./staking-lifecycle.ts";
 import { UNSTAKE_EPOCHS } from "./staking-native.ts";
 import type { ValidatorEvaluation } from "./staking-native.ts";
 
@@ -90,7 +90,7 @@ export function stakePolicyAction(w: Workspace, venue: string, method: string, u
 
 export interface StakingSizing {
   /** Per alternative id: the venue and raw quantities each step uses. */
-  [choiceId: string]: { venue: string; steps: { kind: StepKind; amountRaw: string; asset: "NEAR" | "LiNEAR"; usdcRaw: string; note?: string }[] };
+  [choiceId: string]: { venue: string; steps: { kind: StepKind; amountRaw: string; asset: "NEAR" | "LiNEAR" | "rNEAR"; usdcRaw: string; note?: string }[] };
 }
 
 /** Stake alternatives for a NEAR amount: LiNEAR, and a native validator when one is named and evaluated. */
@@ -166,11 +166,11 @@ export function exitSteps(p: Position, prices: PriceEvidence | null, requestedRa
   const amount = units(p.amount, 24);
   const take = requestedRaw != null && requestedRaw > 0n ? requestedRaw : amount;
   if (take > amount) reasons.push("EXCEEDS_POSITION");
-  const value = (raw: bigint, asset: "NEAR" | "LiNEAR") => {
+  const value = (raw: bigint, asset: "NEAR" | "LiNEAR" | "rNEAR") => {
     if (!prices) return "0";
     try {
       if (asset === "NEAR") return usdcValue(raw, 24, "NEAR", prices, "asset").toString();
-      const per = prices.lstNearPerToken.LiNEAR;
+      const per = prices.lstNearPerToken[asset];
       return per ? usdcValue((raw * BigInt(per)) / 10n ** 24n, 24, "NEAR", prices, "asset").toString() : "0";
     } catch {
       return "0";
@@ -203,25 +203,26 @@ export function exitSteps(p: Position, prices: PriceEvidence | null, requestedRa
       ],
     };
   }
-  if (p.id === "linear-shares") {
-    const per = prices?.lstNearPerToken.LiNEAR;
+  if (p.id === "linear-shares" || p.id === "rnear-shares") {
+    const symbol = p.id === "rnear-shares" ? "rNEAR" : "LiNEAR";
+    const per = prices?.lstNearPerToken[symbol];
     const nearOut = per ? (take * BigInt(per)) / 10n ** 24n : null;
-    if (nearOut === null) reasons.push("LINEAR_PRICE_UNAVAILABLE");
+    if (nearOut === null) reasons.push(symbol === "rNEAR" ? "RNEAR_PRICE_UNAVAILABLE" : "LINEAR_PRICE_UNAVAILABLE");
     return {
-      venue: LINEAR_CONTRACT,
+      venue: p.id === "rnear-shares" ? RNEAR_CONTRACT : LINEAR_CONTRACT,
       kinds: ["unstake", "wait_until", "withdraw_unstaked"],
       reasons,
       steps: [
-        { kind: "unstake", amountRaw: take.toString(), asset: "LiNEAR", usdcRaw: value(take, "LiNEAR"), note: "Delayed unstake; no instant swap" },
+        { kind: "unstake", amountRaw: take.toString(), asset: symbol, usdcRaw: value(take, symbol), note: "Delayed unstake; no instant swap" },
         { kind: "wait_until", amountRaw: "0", asset: "NEAR", usdcRaw: "0", note: until },
         { kind: "withdraw_unstaked", amountRaw: (nearOut ?? 0n).toString(), asset: "NEAR", usdcRaw: nearOut ? value(nearOut, "NEAR") : "0", note: "Claim the unstaked NEAR (about " + UNSTAKE_EPOCHS + " epochs later)" },
       ],
     };
   }
-  if (p.id === "linear-unstaking") {
+  if (p.id === "linear-unstaking" || p.id === "rnear-unstaking") {
     const ready = !!p.availableAt;
     return {
-      venue: LINEAR_CONTRACT,
+      venue: p.id === "rnear-unstaking" ? RNEAR_CONTRACT : LINEAR_CONTRACT,
       kinds: ready ? ["withdraw_unstaked"] : ["wait_until", "withdraw_unstaked"],
       reasons,
       steps: [

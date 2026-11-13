@@ -9,7 +9,7 @@ export async function GET(r: Request) {
     const s = await session(r);
     if (s.workspace.mode !== "live" || !s.workspace.accountId)
       throw new Error("Open a live NEAR account to observe LiNEAR.");
-    return json(await observeLinearLifecycle(s.workspace.accountId), s.cookie);
+    return json(await observeLinearLifecycle(s.workspace.accountId, z.enum(["linear","rnear"]).parse(new URL(r.url).searchParams.get("venue") ?? "linear")), s.cookie);
   } catch (e) {
     return failure(e);
   }
@@ -23,6 +23,7 @@ export async function POST(r: Request) {
     const b = z
       .object({
         kind: z.enum(["stake", "unstake", "withdraw_unstaked"]),
+        venue: z.enum(["linear","rnear"]).default("linear"),
         amountRaw: z
           .string()
           .regex(/^[1-9]\d*$/)
@@ -34,6 +35,7 @@ export async function POST(r: Request) {
       s.workspace.accountId,
       b.kind,
       b.amountRaw,
+      b.venue,
     );
     const current = await session(r);
     if (

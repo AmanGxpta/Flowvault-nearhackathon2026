@@ -26,7 +26,7 @@ const explorerFor = (network: string, h: string) => h.startsWith("0x") ? (EXPLOR
 const short = (a?: string) => !a ? "" : a.length > 18 ? a.slice(0, 8) + "…" + a.slice(-6) : a;
 const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", sol: "Solana", bsc: "BNB Chain" };
 
-export function SwapReview({ from, to, amount, slippage, close, onSettled, route = "ref", sender, recipient, inline, onAttempt }: { from: SwapToken; to: SwapToken; amount: string; slippage: number; close: () => void; onSettled: () => void; route?: "ref" | "intents"; sender?: string; recipient?: string; inline?: boolean; onAttempt?: (a: WalletAttempt) => void }) {
+export function SwapReview({ from, to, amount, slippage, close, onSettled, route = "ref", sender, recipient, inline, onAttempt, resumeId, journey }: { from: SwapToken; to: SwapToken; amount: string; slippage: number; close: () => void; onSettled: () => void; route?: "ref" | "intents"; sender?: string; recipient?: string; inline?: boolean; onAttempt?: (a: WalletAttempt) => Promise<void> | void; resumeId?: string; journey?: "stake" }) {
   const intents = route === "intents";
   const explorer = (h: string) => explorerFor(from.network, h);
   const [phase, setPhase] = useState<Phase>("preparing");
@@ -49,12 +49,17 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
+  const restored = useRef(false), initialResumeId = useRef(resumeId);
   const prepare = useCallback(async () => {
     setPhase("preparing"); setError("");
     try {
-      const r = await api("/api/swap/execute", { action: "prepare", route, from: from.id, to: to.id, amount, slippage, ...(intents ? { sender, recipient } : {}) }) as Prepared;
+      const restore = initialResumeId.current && !restored.current;
+      restored.current = true;
+      const r = await api("/api/swap/execute", restore ? {action:"resume",id:initialResumeId.current} : { action: "prepare", route, from: from.id, to: to.id, amount, slippage, ...(intents ? { sender, recipient } : {}) }) as Prepared;
       if (!alive.current) return;
-      setPrep(r); setAttempt(r.attempt); setPhase("review"); onAttemptRef.current?.(r.attempt);
+      if (!restore) await onAttemptRef.current?.(r.attempt);
+      if (!alive.current) return;
+      setPrep(r); setAttempt(r.attempt); setPhase("review");
     } catch (e) { if (alive.current) { setError((e as Error).message); setPhase("error"); } }
   }, [from.id, to.id, amount, slippage, route, sender, recipient, intents]);
   useEffect(() => { const t = setTimeout(() => void prepare(), 0); return () => clearTimeout(t); }, [prepare]);
@@ -118,6 +123,7 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
       const err = e as { code?: number; message?: string };
       const refused = err?.code === 4001 || /reject|denied|declin|cancel|isn’t available|Select 0x|doesn’t match|Connect 0x/i.test(String(err?.message ?? e));
       if (authorized) await api("/api/transactions", { id, action: !opened || refused ? "declined" : "uncertain" }).catch(() => {});
+      onSettled();
       if (alive.current) { setError(refused && opened ? "You declined in your wallet. Nothing was sent." : (e as Error).message); setPhase("error"); }
     } finally {
       url.searchParams.delete("fv_attempt"); history.replaceState(null, "", url);
@@ -148,7 +154,7 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
   const fixable = blocked && prep.policy.violations.every(v => FIXABLE.has(v.code));
   const stage = phase === "done" ? 4 : phase === "settling" ? 3 : phase === "wallet" ? 2 : 1;
 
-  return <ReviewFrame inline={inline} busy={["wallet", "settling"].includes(phase)} close={close} className={"fv-dialog fv-swap-confirm is-" + phase} label="Review swap">
+  return <ReviewFrame inline={inline} busy={["wallet", "settling"].includes(phase)} close={close} className={"fv-dialog fv-swap-confirm is-" + phase} label={journey === "stake" ? "Fund your stake" : "Review swap"}>
       <div className="fv-confirm-progress"><span style={{ width: `${stage * 25}%` }} /></div>
       {!["wallet", "settling"].includes(phase) && !inline && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
       <div className="fv-confirm-pair">
@@ -156,19 +162,19 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
         <span className={"fv-confirm-arrow" + (["preparing", "allowing", "wallet", "settling"].includes(phase) ? " is-moving" : "")}>{phase === "done" ? <Check size={20} /> : <ArrowRight size={20} />}</span>
         <TokenIcon symbol={to.symbol} network={to.network} core={coreIdentity(to)} image={to.icon} size={52} />
       </div>
-      <h2>{phase === "preparing" ? "Preparing your swap" : phase === "allowing" ? "Updating your policy" : phase === "wallet" ? "Confirm in your wallet" : phase === "settling" ? (intents && (attempt?.preparation as unknown as IntentsPreparation)?.result ? "Delivering on " + (NET[to.network] ?? to.network) : "Settling on " + (NET[from.network] ?? from.network)) : phase === "done" ? "Swap complete" : phase === "failed" ? "Swap did not complete" : phase === "error" ? "Swap not sent" : "Review swap"}</h2>
+      <h2>{phase === "preparing" ? "Preparing your swap" : phase === "allowing" ? "Updating your policy" : phase === "wallet" ? "Confirm in your wallet" : phase === "settling" ? (intents && (attempt?.preparation as unknown as IntentsPreparation)?.result ? "Delivering on " + (NET[to.network] ?? to.network) : "Settling on " + (NET[from.network] ?? from.network)) : phase === "done" ? "Swap complete" : phase === "failed" ? "Swap did not complete" : phase === "error" ? "Swap not sent" : journey === "stake" ? "Fund your stake" : "Review swap"}</h2>
       <p className="fv-confirm-sub">{phase === "preparing" ? "Fresh quote, balances, fees and your limits." : phase === "wallet" ? "Approve the transactions in the wallet window. This card stays until the network finalizes them." : phase === "settling" ? (intents ? attempt?.message ?? "Waiting for the deposit to land." : "Waiting for final receipts. This usually takes a few seconds.") : phase === "done" ? attempt?.message : phase === "failed" ? attempt?.message : phase === "error" ? error : "Exact transactions, checked against your limits before your wallet opens."}</p>
 
       {review && phase !== "error" && <div className="fv-confirm-table">
         <div><span>You pay</span><strong>{fmtAmount(amount)} {from.symbol}{review.inputUsd && <small> · {fmtUsd(review.inputUsd)}</small>}</strong></div>
-        <div><span>{phase === "done" ? "You received" : "You receive"}</span><strong>{phase === "done" && result ? fmtAmount(result.received) : "≈ " + fmtAmount(review.output)} {to.symbol}</strong></div>
+        <div><span>{phase === "done" ? "You received" : journey === "stake" ? "NEAR for staking" : "You receive"}</span><strong>{phase === "done" && result ? fmtAmount(result.received) : "≈ " + fmtAmount(review.output)} {to.symbol}</strong></div>
         {phase !== "done" && <div><span>Minimum</span><strong>{fmtAmount(review.minimum)} {to.symbol}{review.minOutUsd && <small> · {fmtUsd(review.minOutUsd)}</small>} · {slippage / 100}% slippage</strong></div>}
         <div><span>Route</span><strong className="fv-confirm-route">{intents ? `NEAR Intents${review.eta ? " · ~" + review.eta + "s" : ""}` : `Rhea / Ref${(review.hops ?? 1) > 1 ? ` · ${review.hops} hops` : ""}`}</strong></div>
-        {intents && <div><span>From → to</span><strong>{short(review.sender)} ({NET[from.network] ?? from.network}) → {short(review.recipient)} ({NET[to.network] ?? to.network})</strong></div>}
+        {intents && !journey && <div><span>From → to</span><strong>{short(review.sender)} ({NET[from.network] ?? from.network}) → {short(review.recipient)} ({NET[to.network] ?? to.network})</strong></div>}
         <div><span>Network fees</span><strong>{intents && from.network !== "near" ? (review.gasUsd ? "up to " + fmtUsd(review.gasUsd) + " in ETH" : "paid in ETH") : "up to " + fmtAmount(review.gasNearBound) + " NEAR"}</strong></div>
       </div>}
 
-      {review && phase === "review" && <ol className="fv-confirm-steps">{review.steps.map((s, i) => <li key={i}><span>{i + 1}</span>{s.methods.map(m => STEP_NAMES[m] ?? m).join(" + ")}<small>{s.receiver}</small></li>)}</ol>}
+      {review && phase === "review" && <details open={journey ? undefined : true} className="fv-payment-tx-details"><summary>Transaction details</summary><ol className="fv-confirm-steps">{review.steps.map((s, i) => <li key={i}><span>{i + 1}</span>{s.methods.map(m => STEP_NAMES[m] ?? m).join(" + ")}<small>{s.receiver}</small></li>)}</ol></details>}
       {review?.unwrapNote && phase === "review" && <p className="fv-muted fv-confirm-note">{review.unwrapNote}</p>}
       {review?.warning && phase === "review" && <p role="status" className="fv-notice">{review.warning}</p>}
 
@@ -187,7 +193,7 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
         {phase === "review" && (left === 0 ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void prepare()}><RefreshCw size={15} /> Quote expired · refresh</button>
           : blocked ? (fixable ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void allow()}><ShieldCheck size={15} /> Allow and continue</button> : <button type="button" className="fv-button fv-wide-button" onClick={close}>Close</button>)
           : senderMissing ? <button type="button" className="fv-button fv-wide-button" disabled>Waiting for {short(evmSender)} in your wallet</button>
-          : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void approve()}>Approve in wallet · {left}s</button>)}
+          : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void approve()}>{journey === "stake" ? `Pay ${amount} ${from.symbol} in wallet` : "Approve in wallet"} · {left}s</button>)}
         {(phase === "preparing" || phase === "allowing") && <button type="button" className="fv-button fv-primary fv-wide-button" disabled><RefreshCw size={15} className="fv-spin" /> {phase === "allowing" ? "Saving a new policy revision…" : "Checking…"}</button>}
         {(phase === "done" || phase === "failed") && <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}
         {phase === "error" && <div className="fv-actions"><button type="button" className="fv-button" onClick={close}>Close</button>{/still unresolved/.test(error)

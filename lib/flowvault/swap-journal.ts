@@ -465,3 +465,24 @@ export async function intentsJournalAction(request: Request, id: string, action:
   await saveAttempt(s.id, a, previous, revision);
   return a;
 }
+
+/** Restore the exact unsigned Intents payment when reopening a staking journey. Authorization still performs all
+ * live ownership, expiry, balance and policy checks. This read never asks a wallet to send funds. */
+export async function resumeIntentsSwap(request: Request, id: string) {
+  const s = await session(request);
+  const { attempt } = await readAttempt(s.id, id);
+  const p = attempt.preparation as unknown as IntentsPreparation;
+  if (s.workspace.mode !== "live" || attempt.kind !== "swap" || p.route !== "intents" || attempt.state !== "prepared" || p.to.network !== "near" || p.to.contract !== "native" || p.recipient !== s.workspace.accountId || ownWallet(s.workspace, p.from.network, p.accountId) !== p.accountId)
+    throw new Error("This payment cannot be resumed as an unsigned staking payment. Check its recorded status.");
+  const policy = s.workspace.policy ?? defaultPolicy();
+  const check = evaluatePolicy(p.policyAction, policy, await readLedger(s.id));
+  const missing = intentsPolicyEntries(p).filter(e => e.type === "venue" ? !policy.venues.includes(e.venue) : !policy.methods.some(m => m.receiver === e.receiver && m.method === e.method));
+  const earlier = await closedButWatched(s.id, p.accountId, attempt.id);
+  return { attempt, review: {
+    route: "intents", output: decimal(BigInt(p.outputRaw), p.to.decimals), minimum: decimal(BigInt(p.minOutRaw), p.to.decimals), inputUsd: p.inputUsd, minOutUsd: p.minOutUsd,
+    gasNearBound: p.policyAction.gasNear ?? "0", gasUsd: null, eta: p.eta, expiresAt: p.expiresAt, sender: p.accountId, recipient: p.recipient,
+    fromNetwork: p.from.network, toNetwork: p.to.network,
+    ...(earlier.length ? {warning: "An earlier wallet prompt may still be open. Reject it before approving this payment."} : {}),
+    steps: p.evmTx ? [{receiver: p.from.contract === "native" ? p.depositAddress : p.from.contract, methods: [p.from.contract === "native" ? "send " + p.from.symbol : "transfer " + p.from.symbol]}] : p.transactions.map(t => ({receiver:t.receiverId, methods:t.actions.map(a=>a.params.methodName)})),
+  }, policy: {allowed:check.allowed, violations:check.violations, missingEntries:missing, revision:s.revision, version:policy.version} };
+}

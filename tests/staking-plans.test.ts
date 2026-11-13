@@ -82,7 +82,12 @@ test("exits: each staking position maps to the steps that actually exit it, in i
   assert.equal(l.steps[0].asset, "LiNEAR");
   assert.equal(l.steps[2].amountRaw, "14309000000000000000000000"); // 10 LiNEAR × 1.4309 NEAR
   assert.ok(exitSteps(pos("native-stake-" + POOL, "1"), prices, 2n * NEAR)!.reasons.includes("EXCEEDS_POSITION"));
-  assert.equal(exitSteps(pos("rnear-shares", "1", "rNEAR"), prices), null);
+  const rnear = exitSteps(pos("rnear-shares", "1", "rNEAR"), {...prices,lstNearPerToken:{...prices.lstNearPerToken,rNEAR:"1060000000000000000000000"}})!;
+  assert.equal(rnear.venue,"lst.rhealab.near");
+  assert.deepEqual(rnear.kinds,["unstake","wait_until","withdraw_unstaked"]);
+  assert.equal(rnear.steps[0].asset,"rNEAR");
+  assert.equal(rnear.steps[2].amountRaw,"1060000000000000000000000");
+  assert.ok(exitSteps(pos("rnear-shares","1","rNEAR"),prices)!.reasons.length > 0,"Missing rNEAR valuation must block an exit quote");
 });
 
 function plannedStake() {

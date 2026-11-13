@@ -64,9 +64,13 @@ export default defineConfig(async ({ command }) => {
       },
     },
     server: {
-      ...(managedLinux
-        ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] }
-        : {}),
+      // Hostnames only (no scheme or slash). A leading dot allows every subdomain, so
+      // Cloudflare quick tunnels keep working when the random name changes on restart.
+      allowedHosts: [
+        ".trycloudflare.com",
+        ...(managedLinux ? ["terminal.local"] : []),
+      ],
+      ...(managedLinux ? { host: "0.0.0.0" } : {}),
       ...(isCodexSeatbeltSandbox
         ? { watch: { useFsEvents: false, usePolling: true } }
         : {}),

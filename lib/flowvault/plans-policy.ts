@@ -47,9 +47,9 @@ export function stepEntries(kind: string, opts: { asset?: string; strategy?: str
     }
     // LiNEAR delayed exit (staking-lifecycle.ts: unstake, then withdraw_all).
     case "unstake":
-      return [venue(STAKE_VENUE.linear, "liquid staking"), method(STAKE_VENUE.linear, "unstake", "unstake LiNEAR")];
+      return [venue(opts.venue === STAKE_VENUE.rnear ? STAKE_VENUE.rnear : STAKE_VENUE.linear, "liquid staking"), method(opts.venue === STAKE_VENUE.rnear ? STAKE_VENUE.rnear : STAKE_VENUE.linear, "unstake", "unstake liquid staking token")];
     case "withdraw_unstaked":
-      return [venue(STAKE_VENUE.linear, "liquid staking"), method(STAKE_VENUE.linear, "withdraw_all", "claim unstaked NEAR")];
+      return [venue(opts.venue === STAKE_VENUE.rnear ? STAKE_VENUE.rnear : STAKE_VENUE.linear, "liquid staking"), method(opts.venue === STAKE_VENUE.rnear ? STAKE_VENUE.rnear : STAKE_VENUE.linear, "withdraw_all", "claim unstaked NEAR")];
     // Native validator staking (staking-native.ts): one pool, its own methods.
     case "native_stake":
       return opts.pool ? [venue(opts.pool, "validator"), method(opts.pool, "deposit_and_stake", "stake NEAR with this validator")] : [];
@@ -108,9 +108,9 @@ export function planPolicySteps(plan: {
     kind === "collateral_add" || kind === "collateral_release"
       ? { kind, asset: plan.collateral?.[c++]?.asset }
       : kind === "stake"
-        ? { kind, strategy: choice.id.startsWith("native:") ? undefined : "linear" }
+        ? { kind, strategy: choice.id.startsWith("native:") ? undefined : plan.staking?.[choice.id]?.venue === STAKE_VENUE.rnear ? "rnear" : "linear" }
         : kind.startsWith("native_")
           ? { kind, pool: plan.staking?.[choice.id]?.venue }
-          : { kind },
+          : plan.staking?.[choice.id]?.venue === STAKE_VENUE.rnear ? {kind, venue:STAKE_VENUE.rnear} : { kind },
   );
 }

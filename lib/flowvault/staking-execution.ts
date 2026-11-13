@@ -8,8 +8,8 @@ import { readValuationEvidence } from "./valuation-evidence.ts";
 import { workspacePortfolio } from "./portfolio-service.ts";
 import { rpc } from "./near.ts";
 import { decimal } from "./money.ts";
-import { linearLifecycleQuote, LINEAR_CONTRACT } from "./staking-lifecycle.ts";
-import type { StakingStepKind } from "./staking-lifecycle.ts";
+import { linearLifecycleQuote, liquidSymbol } from "./staking-lifecycle.ts";
+import type { StakingStepKind, LiquidVenue } from "./staking-lifecycle.ts";
 import type { LifecycleQuote } from "./staking-receipts.ts";
 export const STAKING_KINDS = ["stake", "unstake", "withdraw_unstaked"] as const;
 export const isStakingKind = (kind: string): kind is StakingStepKind =>
@@ -17,7 +17,7 @@ export const isStakingKind = (kind: string): kind is StakingStepKind =>
 export interface StakingPreparation {
   kind: StakingStepKind;
   accountId: string;
-  asset: "NEAR" | "LiNEAR";
+  asset: "NEAR" | "LiNEAR" | "rNEAR";
   amount: string;
   amountRaw: string;
   decimals: 24;
@@ -93,19 +93,20 @@ export function buildStakingPreparation(
     deposit + BigInt(q.upfrontNearRaw) + 500000000000000000000000n
   )
     throw new Error("Preserve at least 0.5 NEAR exit gas after this action.");
-  // LiNEAR is a liquid token worth the staked NEAR and can be swapped back at any time, so staking into it doesn't
+  // LiNEAR is a transferable liquid staking token that can be sold subject to market liquidity, so staking into it doesn't
   // lock value away from the reserve or dated payments (native staking, which locks NEAR for ~4 epochs, keeps the
   // surplus rule in staking-native.ts). When the reserve is short, the review says so instead of refusing.
   const reserveShort =
     q.kind === "stake" &&
     (capital.surplusUsdcRaw === null ||
       BigInt(capital.surplusUsdcRaw) < BigInt(value.usdcRaw) + BigInt(fee.usdcRaw));
+  const symbol = liquidSymbol(q.protocol);
   const reserveNote = reserveShort
     ? capital.surplusUsdcRaw === null
-      ? "Your reserve and dated payments couldn't be checked. LiNEAR stays liquid: you can swap it back to NEAR at any time."
-      : "Your reserve and dated payments aren't fully covered. LiNEAR stays liquid, so this NEAR can still be swapped back to pay them."
+      ? `Your reserve and dated payments couldn't be checked. ${symbol} can be sold for NEAR subject to market liquidity, fees and price changes.`
+      : `Your reserve and dated payments aren't fully covered. Selling ${symbol} to cover payments depends on market liquidity, fees and price changes.`
     : null;
-  const asset = q.kind === "unstake" ? "LiNEAR" : "NEAR";
+  const asset = q.kind === "unstake" ? liquidSymbol(q.protocol) : "NEAR";
   const amount = decimal(BigInt(value.usdcRaw));
   const policyAction: PolicyAction = {
     kind: q.kind === "stake" ? "stake" : "withdraw",
@@ -113,7 +114,7 @@ export function buildStakingPreparation(
     chain: "near",
     amount,
     recipient: w.accountId,
-    venue: LINEAR_CONTRACT,
+    venue: q.receiverId,
     movingCost: decimal(BigInt(fee.usdcRaw)),
     gasNear: decimal(BigInt(q.upfrontNearRaw), 24),
     source: "live",
@@ -158,16 +159,17 @@ export async function freshStaking(
   revision: number,
   kind: StakingStepKind,
   amountRaw: string,
+  venue: LiquidVenue = "linear",
 ) {
   if (w.mode !== "live" || !w.accountId)
     throw new Error("Open a live account for LiNEAR execution.");
   const [quote, evidence, { portfolio }, native] = await Promise.all([
-    linearLifecycleQuote(w.accountId, kind, amountRaw),
+    linearLifecycleQuote(w.accountId, kind, amountRaw, venue),
     readValuationEvidence(w),
     workspacePortfolio(w, { staking: false, watch: false }),
     rpc({ request_type: "view_account", account_id: w.accountId }),
   ]);
-  const asset = kind === "unstake" ? "LiNEAR" : "NEAR";
+  const asset = kind === "unstake" ? liquidSymbol(venue) : "NEAR";
   return buildStakingPreparation(
     w,
     revision,
@@ -184,7 +186,7 @@ export async function freshStakingAttempt(
   revision: number,
 ) {
   assertStakingContext(p, w, revision);
-  const next = await freshStaking(w, revision, p.kind, p.amountRaw);
+  const next = await freshStaking(w, revision, p.kind, p.amountRaw, p.quote.protocol);
   if (BigInt(next.usdcValueRaw) > BigInt(p.usdcValueRaw))
     throw new Error(
       "Staking cap valuation increased. Review a fresh preparation.",

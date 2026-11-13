@@ -1,5 +1,5 @@
 import { readActionValuation } from "./valuation-evidence.ts";
-import { NEAR_READ_PROVIDERS } from "./rpc-endpoints.ts";
+import { stakingReadProvider } from "./staking-rpc.ts";
 import { units, decimal, positive } from "./money.ts";
 import type { Workspace } from "./types.ts";
 export const STAKING_VENUES = {
@@ -7,7 +7,7 @@ export const STAKING_VENUES = {
   linear: "linear-protocol.near",
   rnear: "lst.rhealab.near",
 } as const;
-const providers = NEAR_READ_PROVIDERS;
+
 export function stakingFit(w: Workspace, epochMs: number, now = Date.now()) {
   const o = w.obligations
     .filter((o) => !["paid", "cancelled"].includes(o.status))
@@ -96,6 +96,7 @@ export function normalizeStakeQuote(
   };
 }
 async function modules(accountId: string) {
+  const providers=stakingReadProvider();
   const [{ NativeStakingProtocolNear }, { LiquidStakingProtocolNear }] =
     await Promise.all([
       import("@anywalletkit/protocol-staking-native-near"),
@@ -186,9 +187,9 @@ export async function stakingOptions(w: Workspace, pool?: string) {
         codeHashVerified: info.codeHashKnown,
         exit: stakingFit(w, epoch.epochMs),
         preparationSupported:
-          id === "linear" ? "journal-owner-signed" : "unsigned-quote-only",
-        executionSupported: id === "linear",
-        preparationEndpoint: id === "linear" ? "/api/staking/actions" : null,
+          "journal-owner-signed",
+        executionSupported: true,
+        preparationEndpoint: "/api/staking/actions",
       };
     }),
   );
@@ -323,7 +324,7 @@ export async function unsignedStake(
         ? "LiNEAR journal execution is available through /api/staking/actions, /api/transactions authorize, then signStaking. This preview is never signable."
         : kind === "native" && pool
           ? "Native staking with " + pool + " is available through a stake plan or /api/staking/native, then /api/transactions authorize, then signNativeStaking. This preview is never signable."
-          : "SDK unsigned quote only. rNEAR has no execution path yet.",
+          : "SDK unsigned quote only. Use the journal staking endpoint with the selected venue.",
   };
 }
 

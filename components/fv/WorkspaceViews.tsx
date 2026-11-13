@@ -111,8 +111,8 @@ export function ResearchDesk({ v }: { v: any }) {
 }
 
 export function EarnDesk({ v }: { v: any }) {
-  const [tab, setTab] = useState(() => { const q = typeof window === "undefined" ? null : new URL(window.location.href).searchParams; return q && (q.get("flow") || q.get("tab") === "stake") ? "Stake" : "Supply"; });
-  return <><PageHeading title="Earn" description="Put available funds to work, with an exit plan you understand." /><Tabs values={["Supply", "Stake", "Vaults"]} value={tab} set={setTab} />{tab === "Vaults" ? <VaultsCard scope={v.lendingScope} /> : tab === "Stake" ? <StakeDesk v={v}/> : <>
+  const [tab, setTab] = useState(() => { const q = typeof window === "undefined" ? null : new URL(window.location.href).searchParams; return q && (q.get("flow") || q.get("tab") === "stake") ? "Stake" : q?.get("tab") === "vaults" ? "Vaults" : "Supply"; });
+  return <><PageHeading title="Earn" description="Put available funds to work, with an exit plan you understand." /><Tabs values={["Supply", "Stake", "Vaults"]} value={tab} set={next => { setTab(next); const url = new URL(window.location.href); url.searchParams.set("tab", next.toLowerCase()); if(next !== "Stake") url.searchParams.delete("flow"); history.replaceState(null,"",url); }} />{tab === "Vaults" ? <VaultsCard scope={v.lendingScope} /> : tab === "Stake" ? <StakeDesk v={v}/> : <>
     <RatesTable mode="earn" usdcNote={v.walletSurplusF ? "Available after your plan: " + v.walletSurplusF : undefined} onUsdc={() => document.getElementById("fv-earn-plan")?.scrollIntoView({ behavior: "smooth" })} />
     <h2 className="fv-subhead" id="fv-earn-plan">For your plan</h2>
     <div className="fv-earn-context"><div><small>Available after your plan</small><strong>{v.walletSurplusF}</strong><p>USDC in your NEAR funding account above the reserve and scheduled payments.</p></div><label>Compare amount (USDC)<input inputMode="decimal" value={v.cmpAmount ?? ""} onChange={v.onCmpAmount} placeholder="0.00" /></label></div>
@@ -123,8 +123,8 @@ export function EarnDesk({ v }: { v: any }) {
   </>}</>;
 }
 export function BorrowDesk({ v }: { v: any }) {
-  const [tab, setTab] = useState("Markets");
-  return <><PageHeading title="Borrow" description="Understand your collateral, manage debt and review the cost of borrowing." /><Tabs values={["Markets", "Simulate"]} value={tab} set={setTab} />{tab === "Markets" ? <><RatesTable mode="borrow" usdcNote="Borrow against your collateral · simulate first" onUsdc={() => setTab("Simulate")} /><LendingVenues key={v.lendingScope} scope={v.lendingScope} accounts={v.lendingAccounts} hideSales /></> : <div className="fv-legacy-content"><CreditView v={v} /></div>}</>;
+  const [tab, setTab] = useState("Overview");
+  return <><PageHeading title="Borrow" description="Understand your collateral, manage debt and review the cost of borrowing." /><Tabs values={["Overview", "Simulate"]} value={tab} set={setTab} />{tab === "Overview" ? <><LendingVenues key={v.lendingScope + ":" + v.acc} scope={v.lendingScope} accounts={v.lendingAccounts} hideSales expanded permissions={v.goPolicy} simulate={()=>setTab("Simulate")} connect={v.openConnect ?? v.connectFirst} /><div className="fv-borrow-markets-heading"><h2>Borrowing markets</h2><p>Explore rates and collateral across supported Rhea markets.</p></div><RatesTable mode="borrow" usdcNote="Borrow against your collateral · simulate first" onUsdc={() => setTab("Simulate")} /></> : <div className="fv-legacy-content"><CreditView v={v} /></div>}</>;
 }
 /** ?pair=perp:ETH or ?pair=spot:<chain>:<address>:<symbol> keeps the chosen market across reloads and links. */
 function readPair(): Pair {
@@ -223,7 +223,7 @@ export function ScheduledDesk({ v }: { v: any }) {
   </>;
 }
 export function StakeDesk({ v }: { v: any }) {
-  return <StakeHome v={v} />;
+  return <StakeHome key={(v.judge ? "example" : "personal")+":"+(v.acc ?? "visitor")} v={v} />;
 }
 export function RiskDesk({ v }: { v: any }) {
   const [tab,setTab] = useState('Limits');
@@ -233,5 +233,5 @@ export function ActivityDesk({ v }: { v: any }) {
   const [tab,setTab] = useState('Transactions');
   const [filter,setFilter] = useState('All');
   const ops = [...(v.ops ?? [])].filter((o: any) => filter === 'All' || (filter === 'Needs attention' ? ['stuck','failed','failedtx','unknown','partial'].includes(o.status) : ['progress','paying','awaiting','submitted','prepared'].includes(o.status)));
-  return <><PageHeading title="Activity" description="Track what is happening and see what actually changed."/>{!v.judge && <OpenStakeFlows navigate={v.navigate}/>}<Tabs values={['Transactions','Plans','Statements']} value={tab} set={setTab}/>{tab === 'Plans' ? <section className="fv-panel fv-history-panel"><PlanHistory scope={v.lendingScope}/></section> : tab === 'Statements' ? <StatementPanel key={v.lendingScope} scope={v.lendingScope}/> : <><div className="fv-activity-filters">{['All','In progress','Needs attention'].map(x => <button key={x} className="fv-button" aria-pressed={filter === x} onClick={() => setFilter(x)}>{x}</button>)}</div><ActivityView v={{...v,embedded:true,ops,noOps:!ops.length,actTimeline:true,actStatement:false,legend:[]}}/>{!v.judge && v.acc && <WalletHistory account={v.acc}/>}</>}</>;
+  return <><PageHeading title="Activity" description="Track what is happening and see what actually changed."/>{!v.judge && <OpenStakeFlows key={v.lendingScope + ":" + v.acc} navigate={v.navigate}/>}<Tabs values={['Transactions','Plans','Statements']} value={tab} set={setTab}/>{tab === 'Plans' ? <section className="fv-panel fv-history-panel"><PlanHistory scope={v.lendingScope}/></section> : tab === 'Statements' ? <StatementPanel key={v.lendingScope} scope={v.lendingScope}/> : <><div className="fv-activity-filters">{['All','In progress','Needs attention'].map(x => <button key={x} className="fv-button" aria-pressed={filter === x} onClick={() => setFilter(x)}>{x}</button>)}</div><ActivityView v={{...v,embedded:true,ops,noOps:!ops.length,actTimeline:true,actStatement:false,legend:[]}}/>{!v.judge && v.acc && <WalletHistory account={v.acc}/>}</>}</>;
 }

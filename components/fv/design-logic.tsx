@@ -218,7 +218,7 @@ export class DesignApp extends Component<any, any> {
     if (o.kind !== 'supply') rows.push(S('Payout event verified', 'Exactly ' + a + ' native USDC to ' + ACC + '', t >= 4 ? '18:32' : '', t >= 4 ? 'G7wE…p3Ku ↗' : '', d(4)));
     return rows;
   }
-  go(screen: any) { const moved = screen !== this.state.screen; this.setState({ screen }); if (moved) { try { window.scrollTo({ top: 0 }); } catch (e) {} } }
+  go(screen: any) { screen = VIEW_ALIASES[screen] ?? screen; const moved = screen !== this.state.screen; this.setState({ screen }); if (moved) { try { window.scrollTo({ top: 0 }); } catch (e) {} } }
   openPay(id: any, x: any = {}) { this.remember(); const s = this.state; const ob = this.findOb(id); if (!ob) return; this.setState({ modal: 'pay', asst: { ...s.asst, open: false }, pay: { obId: id, step: 'confirm', t: 0, expires: 298, outcome: x.outcome || 'success', leg: null, plan: x.plan || null, need: x.need ?? this.needFor(ob, s.wallet, s.reserve), final: null } }); }
   openOp(kind: any, amount: any) { this.remember(); this.setState({ modal: 'op', asst: { ...this.state.asst, open: false }, op: { kind, amount: String(amount), step: 'review', t: 0, ack: false } }); }
 

@@ -1,3 +1,4 @@
+import { nearText } from "@/lib/flowvault/stake-flow";
 import { displayQuantity } from "@/lib/flowvault/research";
 /* eslint-disable @typescript-eslint/no-explicit-any -- adapters between untyped design view-model data and API JSON */
 // Maps live API snapshots onto the design's view model. Used only in the personal (live)
@@ -102,14 +103,17 @@ export function liveState(snap: LiveSnapshot) {
         link: st.explorerLinks?.[0] ?? "",
         state: stepState(st.status),
       }));
+      const liquidStake = ["stake", "unstake", "withdraw_unstaked"].includes(a.kind);
+      const stakingSymbol = (a.preparation as {quote?:{protocol?:string}})?.quote?.protocol === "rnear" ? "rNEAR" : "LiNEAR";
+      const stakingTitle = a.kind === "stake" ? `Stake into ${stakingSymbol}` : a.kind === "unstake" ? `Unstake ${stakingSymbol}` : "Withdraw unstaked NEAR";
       const amount = Number(a.amount);
       return {
         id: a.id,
         src: "journal",
-        kind: a.kind === "swap" || a.kind === "trade" ? "Swap" : a.kind === "lend" ? lendKind(a) : KIND[a.kind] ?? a.kind,
-        title: a.kind === "swap" ? swapTitle(a) : a.kind === "trade" ? tradeTitle(a) : a.kind === "lend" ? lendTitle(a) : a.kind === "pay" ? "Payout" : "Rhea Lending",
+        kind: liquidStake ? (a.kind === "stake" ? "Stake" : "Withdrawal") : a.kind === "swap" || a.kind === "trade" ? "Swap" : a.kind === "lend" ? lendKind(a) : KIND[a.kind] ?? a.kind,
+        title: liquidStake ? stakingTitle : a.kind === "swap" ? swapTitle(a) : a.kind === "trade" ? tradeTitle(a) : a.kind === "lend" ? lendTitle(a) : a.kind === "pay" ? "Payout" : "Rhea Lending",
         amount,
-        sub: whenLabel(a.createdAt) + " · " + (a.kind === "swap" ? swapSub(a) : a.kind === "trade" ? tradeSub(a) : a.kind === "lend" ? lendSub(a) : a.kind === "supply" ? "native USDC → Rhea · collateral off" : a.kind === "withdraw" ? "Rhea → wallet" : "payout"),
+        sub: whenLabel(a.createdAt) + " · " + (liquidStake ? `${nearText((a.preparation as {amountRaw?:string})?.amountRaw)} ${a.kind === "unstake" ? stakingSymbol : "NEAR"} · ${stakingSymbol}` : a.kind === "swap" ? swapSub(a) : a.kind === "trade" ? tradeSub(a) : a.kind === "lend" ? lendSub(a) : a.kind === "supply" ? "native USDC → Rhea · collateral off" : a.kind === "withdraw" ? "Rhea → wallet" : "payout"),
         status: ATTEMPT_STATUS[a.state] ?? "progress",
         steps: steps.length ? steps : [{ label: phaseLabel(a.state), detail: a.message, time: whenLabel(a.updatedAt), hash: "", state: stepState(a.state) }],
         foot: a.message || "Status from the server journal.",

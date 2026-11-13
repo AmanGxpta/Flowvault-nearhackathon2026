@@ -3,6 +3,9 @@
 // this session's, of the right kind, and never replacing something already sent), op=cancel closes a flow that has
 // nothing in motion. Nothing here prepares, signs or moves funds.
 import { z } from "zod";
+import { units } from "@/lib/flowvault/money";
+import type { IntentsPreparation } from "@/lib/flowvault/swap-intents";
+import type { StakingPreparation } from "@/lib/flowvault/staking-execution";
 import { session, mutation, json, failure, type SessionInfo } from "@/lib/flowvault/store";
 import { readAttempt } from "@/lib/flowvault/attempts";
 import { keyedAttemptId } from "@/lib/flowvault/preparation-key";
@@ -13,7 +16,14 @@ import type { WalletAttempt } from "@/lib/flowvault/execution";
 
 function view(a: WalletAttempt): AttemptView {
   const p = a.preparation as unknown as { amountRaw?: string; result?: { deliveredRaw?: string | null; refundedRaw?: string | null } };
-  return { id: a.id, state: a.state, message: a.message, hashes: a.hashes.length, deliveredRaw: p.result?.deliveredRaw ?? null, refundedRaw: p.result?.refundedRaw ?? null, stakedRaw: a.state === "confirmed" ? p.amountRaw ?? null : null };
+  type VerifiedStake = {hash:string;verifiedState:"confirmed";stakingEffect:{state:"confirmed";nearAmountRaw:string}};
+  const effects = (a.verificationEvidence ?? []).filter((e): e is VerifiedStake => {
+    if(typeof e !== "object" || e === null) return false;
+    const v=e as Partial<VerifiedStake>;
+    return typeof v.hash === "string" && a.hashes.includes(v.hash) && v.verifiedState === "confirmed" && v.stakingEffect?.state === "confirmed" && typeof v.stakingEffect.nearAmountRaw === "string" && /^[1-9]\d*$/.test(v.stakingEffect.nearAmountRaw);
+  });
+  const stakedRaw = effects.length === 1 ? effects[0].stakingEffect.nearAmountRaw : null;
+  return { id: a.id, state: a.state, message: a.message, hashes: a.hashes.length, deliveredRaw: p.result?.deliveredRaw ?? null, refundedRaw: p.result?.refundedRaw ?? null, stakedRaw: a.state === "confirmed" ? stakedRaw : null };
 }
 async function attempts(s: SessionInfo, f: StakeFlow) {
   const one = async (id?: string) => (id ? await readAttempt(s.id, id).then((x) => x.attempt).catch(() => null) : null);
@@ -22,7 +32,7 @@ async function attempts(s: SessionInfo, f: StakeFlow) {
 }
 async function present(s: SessionInfo, f: StakeFlow) {
   const a = await attempts(s, f);
-  const views = { pay: a.pay ? view(a.pay) : null, stake: a.stake ? view(a.stake) : null };
+  const views = { pay: a.pay ? view(a.pay) : null, stake: a.stake ? {...view(a.stake), preparation:a.stake.state === "prepared" ? a.stake.preparation : null} : null };
   return { flow: f, attempts: views, ...deriveFlow(f, views) };
 }
 function live(s: SessionInfo) {
@@ -48,7 +58,7 @@ export async function GET(r: Request) {
 
 const raw = z.string().regex(/^[1-9]\d{0,38}$/);
 const createSchema = z.object({
-  op: z.literal("create"), key: z.string().uuid(), venue: z.literal("linear"),
+  op: z.literal("create"), key: z.string().uuid(), venue: z.enum(["linear","rnear"]),
   source: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("near"), amountRaw: raw }).strict(),
     z.object({ kind: z.literal("swap"), from: z.string().min(3).max(200), amount: z.string().regex(/^\d+(\.\d+)?$/).max(40), expectedNearRaw: raw.nullable() }).strict(),
@@ -56,6 +66,7 @@ const createSchema = z.object({
 }).strict();
 const linkSchema = z.object({ op: z.literal("link"), id: z.string().min(8).max(100), step: z.enum(["pay", "stake"]), attemptId: z.string().uuid() }).strict();
 const cancelSchema = z.object({ op: z.literal("cancel"), id: z.string().min(8).max(100) }).strict();
+const resumeSchema = z.object({ op: z.literal("resume"), id: z.string().min(8).max(100) }).strict();
 const SENT = new Set(["awaiting_wallet", "submitted", "unknown", "partial", "confirmed"]);
 const NETWORK: Record<string, string> = { eth: "Ethereum", base: "Base", arb: "Arbitrum" };
 
@@ -77,7 +88,7 @@ export async function POST(r: Request) {
         source = { kind: "swap", from: t.id, fromSymbol: t.symbol, fromNetwork: NETWORK[t.network], amount: b.source.amount, expectedNearRaw: b.source.expectedNearRaw };
       } else source = b.source;
       const at = new Date().toISOString();
-      const f: StakeFlow = { id, accountId, venue: "linear", source, createdAt: at, updatedAt: at, cancelledAt: null, links: {} };
+      const f: StakeFlow = { id, accountId, venue: b.venue, source, createdAt: at, updatedAt: at, cancelledAt: null, links: {} };
       await flowPut(s.id, f);
       return json(await present(s, f), s.cookie);
     }
@@ -88,6 +99,17 @@ export async function POST(r: Request) {
       const { attempt } = await readAttempt(s.id, b.attemptId);
       if (b.step === "pay" && attempt.kind !== "swap") throw new Error("The payment step takes a swap.");
       if (b.step === "stake" && attempt.kind !== "stake") throw new Error("The staking step takes a LiNEAR stake.");
+      if (b.step === "pay") {
+        const p = attempt.preparation as unknown as IntentsPreparation;
+        if (f.source.kind !== "swap" || p.route !== "intents" || p.to.network !== "near" || p.to.contract !== "native" || p.recipient !== f.accountId || `${p.from.network}:${p.from.contract}`.toLowerCase() !== f.source.from.toLowerCase() || p.amountRaw !== units(f.source.amount,p.from.decimals).toString())
+          throw new Error("This payment does not match the staking route, amount or receiving account.");
+      } else {
+        const p = attempt.preparation as unknown as StakingPreparation;
+        const linked = await attempts(s,f);
+        const expected = deriveFlow(f,{pay:linked.pay ? view(linked.pay) : null}).stakeRaw;
+        if(p.kind !== "stake" || p.quote.protocol !== f.venue || p.accountId !== f.accountId || !expected || p.amountRaw !== expected)
+          throw new Error("This stake does not match the NEAR received for this flow.");
+      }
       const current = f.links[b.step];
       if (current && current !== b.attemptId) {
         const prev = await readAttempt(s.id, current).then((x) => x.attempt).catch(() => null);
@@ -99,11 +121,17 @@ export async function POST(r: Request) {
       await flowPut(s.id, f);
       return json(await present(s, f), s.cookie);
     }
+    if (body.op === "resume") {
+      const b = resumeSchema.parse(body); const f = await flowGet(s.id,b.id);
+      if(!f || f.accountId !== accountId) throw new Error("Staking flow not found for this account.");
+      f.cancelledAt = null; await flowPut(s.id,f); return json(await present(s,f),s.cookie);
+    }
     if (body.op === "cancel") {
       const b = cancelSchema.parse(body);
       const f = await flowGet(s.id, b.id);
       if (!f) throw new Error("Staking flow not found.");
       const a = await attempts(s, f);
+      if(a.stake?.state === "confirmed") throw new Error("This stake is already complete. View its status instead.");
       if ([a.pay, a.stake].some((x) => x && ["awaiting_wallet", "submitted", "unknown", "partial"].includes(x.state)))
         throw new Error("Something in this flow is already on its way. It can't be cancelled; check its status instead.");
       f.cancelledAt = new Date().toISOString();

@@ -1,16 +1,17 @@
-import { NEAR_READ_PROVIDERS } from "./rpc-endpoints.ts";
+import { stakingReadProvider } from "./staking-rpc.ts";
 import { NativeStakingProtocolNear } from "@anywalletkit/protocol-staking-native-near";
 import { LiquidStakingProtocolNear } from "@anywalletkit/protocol-staking-liquid-near";
 import { decimal } from "./money.ts";
 import { validAccount } from "./near.ts";
 import { READ_BUDGET, withDeadline } from "./deadline.ts";
-const providers = NEAR_READ_PROVIDERS;
+
 export function serializeRead(value: unknown): any {
   return JSON.parse(
     JSON.stringify(value, (_, v) => (typeof v === "bigint" ? v.toString() : v)),
   );
 }
 export async function readStaking(accountId: string, pools: string[] = []) {
+  const providers=stakingReadProvider();
   if (
     !validAccount(accountId) ||
     pools.some((p) => !validAccount(p)) ||

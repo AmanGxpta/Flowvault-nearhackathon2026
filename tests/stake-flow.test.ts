@@ -9,7 +9,7 @@ const att = (o: Partial<AttemptView>): AttemptView => ({ id: "a", state: "prepar
 
 test("a new swap-funded flow starts at the payment, with the owner's turn", () => {
   const d = deriveFlow(swapFlow, {});
-  assert.deepEqual(d.steps.map((s) => s.id), ["pay", "swap", "stake", "staked"]);
+  assert.deepEqual(d.steps.map((s) => s.id), ["pay", "swap", "arrival", "stake", "staked"]);
   assert.equal(d.status, "your_turn"); assert.equal(d.current, "pay"); assert.equal(d.done, 0);
   assert.match(d.steps[1].detail, /About 1.427 NEAR expected/);
 });
@@ -25,11 +25,11 @@ test("staking uses the NEAR that actually arrived, not the quote", () => {
   const delivered = (1401n * N / 1000n).toString();
   const d = deriveFlow(swapFlow, { pay: att({ state: "confirmed", hashes: 1, deliveredRaw: delivered }) });
   assert.equal(d.stakeRaw, delivered); assert.equal(d.current, "stake"); assert.equal(d.status, "your_turn");
-  assert.match(d.steps[2].title, /Stake 1.401 NEAR/);
+  assert.match(d.steps[3].title, /Stake 1.401 NEAR/);
 });
 test("a refund needs attention and stops before staking", () => {
   const d = deriveFlow(swapFlow, { pay: att({ state: "failed", hashes: 1, message: "Refunded to your Ethereum wallet.", refundedRaw: "5000000" }) });
-  assert.equal(d.status, "attention"); assert.equal(d.stakeRaw, null); assert.equal(d.steps[2].state, "waiting");
+  assert.equal(d.status, "attention"); assert.equal(d.stakeRaw, null); assert.equal(d.steps[3].state, "waiting");
 });
 test("NEAR-funded flows are two steps and finish when the stake is confirmed", () => {
   const f = flow({ kind: "near", amountRaw: N.toString() });

@@ -19,7 +19,8 @@ export const stakingStepAdapter: StepAdapter = {
     const ctx = stepContext(plan);
     if (plan.source !== "live" || plan.accountId !== ctx.workspace.accountId)
       throw new Error("LiNEAR step source or signer changed.");
-    const asset = step.kind === "unstake" ? "LiNEAR" : "NEAR";
+    const venue = plan.request.venue === "lst.rhealab.near" ? "rnear" : "linear";
+    const asset = step.kind === "unstake" ? (venue === "rnear" ? "rNEAR" : "LiNEAR") : "NEAR";
     if (
       !step.expected.amountRaw ||
       (step.expected.asset && step.expected.asset !== asset)
@@ -29,6 +30,7 @@ export const stakingStepAdapter: StepAdapter = {
       );
     const p = await journalCall(ctx, "staking", "/api/staking/actions", {
       kind: step.kind,
+      venue,
       amountRaw: step.expected.amountRaw,
       key: await stepKey(plan, step),
     });
@@ -72,7 +74,7 @@ export const stakingStepAdapter: StepAdapter = {
           attempt.kind === "stake"
             ? effect.stakingEffect.amountRaw
             : effect.stakingEffect.nearAmountRaw,
-        asset: attempt.kind === "stake" ? "LiNEAR" : "NEAR",
+        asset: attempt.kind === "stake" ? (p.quote.protocol === "rnear" ? "rNEAR" : "LiNEAR") : "NEAR",
         usdcRaw: p.usdcValueRaw,
         evidence: attempt.verificationEvidence,
       };

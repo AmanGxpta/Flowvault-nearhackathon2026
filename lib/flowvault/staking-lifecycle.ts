@@ -1,7 +1,7 @@
 // Published NearAnyStake modules (Apache-2.0), already pinned/attributed in THIRD_PARTY.md.
 // Quote/read methods only: no SDK stake/requestWithdrawal/claimWithdrawals send method is called.
 import type { StepKind, Position } from "./contracts.ts";
-import { NEAR_READ_PROVIDERS } from "./rpc-endpoints.ts";
+import { stakingReadProvider } from "./staking-rpc.ts";
 import { positive, decimal } from "./money.ts";
 import { validAccount } from "./near.ts";
 export type StakingStepKind = Extract<
@@ -9,6 +9,10 @@ export type StakingStepKind = Extract<
   "stake" | "unstake" | "withdraw_unstaked"
 >;
 export const LINEAR_CONTRACT = "linear-protocol.near";
+export const RNEAR_CONTRACT = "lst.rhealab.near";
+export type LiquidVenue = "linear" | "rnear";
+export const liquidContract = (venue:LiquidVenue) => venue === "rnear" ? RNEAR_CONTRACT : LINEAR_CONTRACT;
+export const liquidSymbol = (venue:LiquidVenue) => venue === "rnear" ? "rNEAR" : "LiNEAR";
 const raw = (value: unknown, name: string): bigint => {
   if (typeof value !== "bigint" || value < 0n)
     throw new Error("Staking " + name + " is unverified.");
@@ -18,6 +22,7 @@ export function normalizeLifecycleQuote(
   kind: StakingStepKind,
   q: any,
   requestedRaw: string,
+  venue: LiquidVenue = "linear",
 ) {
   if (!/^[1-9]\d*$/.test(requestedRaw))
     throw new Error("Use a positive decimal base-unit staking amount.");
@@ -26,6 +31,8 @@ export function normalizeLifecycleQuote(
     fee = raw(q.fee, "fee"),
     upfront = raw(q.upfront, "upfront");
   if (near <= 0n) throw new Error("Staking amount or fee bounds changed.");
+  const storageFee = raw(q.storageFee ?? 0n, "storageFee");
+  if(kind === "stake" && storageFee >= near) throw new Error("Staking registration fee exceeds the deposit.");
   if (kind === "stake") {
     if (
       near !== requested ||
@@ -49,7 +56,7 @@ export function normalizeLifecycleQuote(
     throw new Error("Claim amount changed. Review the full unlocked balance.");
   if (
     q.transactions?.length !== 1 ||
-    q.transactions[0].receiverId !== LINEAR_CONTRACT ||
+    q.transactions[0].receiverId !== liquidContract(venue) ||
     q.transactions[0].actions?.length !== 1
   )
     throw new Error("Staking receiver or compound actions changed.");
@@ -74,19 +81,20 @@ export function normalizeLifecycleQuote(
     throw new Error("Staking method, amount, deposit or gas changed.");
   return {
     kind,
-    protocol: "linear" as const,
-    receiverId: LINEAR_CONTRACT,
+    protocol: venue,
+    receiverId: liquidContract(venue),
     amountRaw: requested.toString(),
     nearAmountRaw: near.toString(),
     sharesRaw:
       kind === "withdraw_unstaked" ? null : raw(q.shares, "shares").toString(),
     networkFeeNearRaw: fee.toString(),
     upfrontNearRaw: upfront.toString(),
+    storageFeeNearRaw: storageFee.toString(),
     exitReserveNearRaw:
       kind === "stake" ? q.reserve.toString() : "500000000000000000000000",
     transactions: [
       {
-        receiverId: LINEAR_CONTRACT,
+        receiverId: liquidContract(venue),
         actions: [
           {
             type: "FunctionCall" as const,
@@ -120,7 +128,7 @@ export function normalizeLifecycleQuote(
     },
   };
 }
-async function linearReader(accountId: string) {
+async function linearReader(accountId: string, venue: LiquidVenue = "linear") {
   if (!validAccount(accountId))
     throw new Error("Enter a valid live NEAR staking account.");
   const { LiquidStakingProtocolNear } = await import(
@@ -131,8 +139,8 @@ async function linearReader(accountId: string) {
     getAddress: async () => accountId,
   } as any;
   return new LiquidStakingProtocolNear(account, {
-    pool: "linear",
-    provider: NEAR_READ_PROVIDERS,
+    pool: venue,
+    provider: stakingReadProvider(),
     reserve: 500000000000000000000000n,
     timeoutMs: 7000,
   });
@@ -141,9 +149,10 @@ export async function linearLifecycleQuote(
   accountId: string,
   kind: StakingStepKind,
   amountRaw: string,
+  venue: LiquidVenue = "linear",
 ) {
   const n = positive(decimal(BigInt(amountRaw), 24), 24),
-    m = await linearReader(accountId);
+    m = await linearReader(accountId, venue);
   const q =
     kind === "stake"
       ? await m.quoteStake({ amount: n })
@@ -157,7 +166,7 @@ export async function linearLifecycleQuote(
   return {
     accountId,
     capturedAt: new Date().toISOString(),
-    ...normalizeLifecycleQuote(kind, q, n.toString()),
+    ...normalizeLifecycleQuote(kind, q, n.toString(), venue),
   };
 }
 export function linearExitObservation(
@@ -166,6 +175,7 @@ export function linearExitObservation(
   info: any,
   epoch: any,
   capturedAt = new Date().toISOString(),
+  venue: LiquidVenue = "linear",
 ) {
   const shares = raw(details.shares, "shares"),
     price = raw(info.price, "price"),
@@ -174,7 +184,7 @@ export function linearExitObservation(
     height = raw(epoch.height, "epoch");
   if (
     !info.codeHashKnown ||
-    info.contract !== LINEAR_CONTRACT ||
+    info.contract !== liquidContract(venue) ||
     price === 0n ||
     typeof details.canWithdraw !== "boolean"
   )
@@ -186,15 +196,15 @@ export function linearExitObservation(
     raw(info.liquidity, "liquidity") >= unstaked + raw(info.kept, "kept");
   const positions: Position[] = [
     {
-      id: "linear-shares",
-      label: "LiNEAR",
-      asset: "LiNEAR",
+      id: venue + "-shares",
+      label: liquidSymbol(venue),
+      asset: liquidSymbol(venue),
       amount: decimal(shares, 24),
       rawAmount: shares.toString(),
       decimals: 24,
       kind: "staking",
       chain: "near",
-      venue: LINEAR_CONTRACT,
+      venue: liquidContract(venue),
       accountId,
       source: "live",
       capturedAt,
@@ -204,17 +214,17 @@ export function linearExitObservation(
   ];
   if (unstaked > 0n)
     positions.push({
-      id: "linear-unstaking",
+      id: venue + "-unstaking",
       label: payable
-        ? "LiNEAR exit: withdrawable NEAR"
-        : "LiNEAR exit: pending NEAR",
+        ? `${liquidSymbol(venue)} exit: withdrawable NEAR`
+        : `${liquidSymbol(venue)} exit: pending NEAR`,
       asset: "NEAR",
       amount: decimal(unstaked, 24),
       rawAmount: unstaked.toString(),
       decimals: 24,
       kind: "staking",
       chain: "near",
-      venue: LINEAR_CONTRACT,
+      venue: liquidContract(venue),
       accountId,
       source: "live",
       capturedAt,
@@ -227,6 +237,8 @@ export function linearExitObservation(
     signable: false,
     capturedAt,
     positions,
+    exchangeRateRaw: price.toString(),
+    registered: details.registered === true,
     underlying: {
       asset: "NEAR",
       quantityRaw: ((shares * price) / 10n ** 24n).toString(),
@@ -253,12 +265,12 @@ export function linearExitObservation(
         : null,
   };
 }
-export async function observeLinearLifecycle(accountId: string) {
-  const m = await linearReader(accountId);
+export async function observeLinearLifecycle(accountId: string, venue: LiquidVenue = "linear") {
+  const m = await linearReader(accountId, venue);
   const [details, info, epoch] = await Promise.all([
     m.getAccountDetails(),
     m.getPoolInfo(),
     m.getEpoch(),
   ]);
-  return linearExitObservation(accountId, details, info, epoch);
+  return linearExitObservation(accountId, details, info, epoch, undefined, venue);
 }

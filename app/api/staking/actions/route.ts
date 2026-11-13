@@ -17,6 +17,7 @@ export async function POST(r: Request) {
     const b = z
       .object({
         kind: z.enum(STAKING_KINDS),
+        venue: z.enum(["linear","rnear"]).default("linear"),
         amountRaw: z
           .string()
           .regex(/^[1-9]\d*$/)
@@ -42,13 +43,13 @@ export async function POST(r: Request) {
     if (existing) {
       const p = existing.preparation as StakingPreparation;
       assertStakingContext(p, s.workspace, s.revision);
-      if (existing.kind !== b.kind || p.amountRaw !== b.amountRaw)
+      if (existing.kind !== b.kind || p.amountRaw !== b.amountRaw || p.quote.protocol !== b.venue)
         throw new Error(
           "Staking idempotency key conflicts with the reviewed request.",
         );
       return json({ ...p, attemptId: existing.id }, s.cookie);
     }
-    const p = await freshStaking(s.workspace, s.revision, b.kind, b.amountRaw);
+    const p = await freshStaking(s.workspace, s.revision, b.kind, b.amountRaw, b.venue);
     await checkPolicy(
       s.id,
       p.policyAction,

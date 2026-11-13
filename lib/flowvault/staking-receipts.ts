@@ -1,6 +1,6 @@
 // Newly authored verifier against LiNEAR contract interface at 63cd09aabbc3c28ca39ca4266647c24315ae3975.
 // stake.rs/internal.rs/events.rs were inspected; no contract implementation copied.
-import { LINEAR_CONTRACT } from "./staking-lifecycle.ts";
+import { LINEAR_CONTRACT, RNEAR_CONTRACT } from "./staking-lifecycle.ts";
 import type { normalizeLifecycleQuote } from "./staking-lifecycle.ts";
 export type LifecycleQuote = ReturnType<typeof normalizeLifecycleQuote>;
 const integer = (n: unknown) => {
@@ -22,11 +22,13 @@ export function verifyLinearReceipts(
   accountId: string,
   transferReceipts: any[] = [],
 ) {
+  const receiver = quote.protocol === "rnear" ? RNEAR_CONTRACT : LINEAR_CONTRACT;
+  if(!["linear","rnear"].includes(quote.protocol) || quote.receiverId !== receiver || quote.transactions[0]?.receiverId !== receiver) throw new Error("Unverified liquid staking receipt scope.");
   const expected = quote.transactions[0],
     tx = result?.transaction;
   if (
     tx?.signer_id !== accountId ||
-    tx.receiver_id !== LINEAR_CONTRACT ||
+    tx.receiver_id !== receiver ||
     tx.actions?.length !== 1
   )
     throw new Error("Staking transaction identity mismatch.");
@@ -70,7 +72,7 @@ export function verifyLinearReceipts(
     return { state: "pending" as const, reason: "RECEIPTS_INCOMPLETE" };
   const events: any[] = [];
   for (const r of result.receipts_outcome) {
-    if (r.outcome.executor_id !== LINEAR_CONTRACT) continue;
+    if (r.outcome.executor_id !== receiver) continue;
     for (const line of r.outcome.logs ?? []) {
       if (typeof line !== "string" || !line.startsWith("EVENT_JSON:")) continue;
       let event;
@@ -93,7 +95,7 @@ export function verifyLinearReceipts(
   const matching = events
     .filter(
       (e) =>
-        e.standard === "linear" && e.version === "1.0.1" && e.event === name,
+        e.standard === (quote.protocol === "rnear" ? "rhea_lst" : "linear") && e.version === (quote.protocol === "rnear" ? "1.0.0" : "1.0.1") && e.event === name,
     )
     .flatMap((e) => e.data)
     .filter((d) => d.account_id === accountId);
@@ -105,7 +107,7 @@ export function verifyLinearReceipts(
       return { state: "pending" as const, reason: "CLAIM_AMOUNT_CHANGED" };
     const native = transferReceipts.filter(
       (r) =>
-        r.predecessor_id === LINEAR_CONTRACT &&
+        r.predecessor_id === receiver &&
         r.receiver_id === accountId &&
         result.receipts_outcome.some(
           (o: any) =>
@@ -167,7 +169,7 @@ export function verifyLinearReceipts(
   }
   return {
     state: "confirmed" as const,
-    asset: "LiNEAR",
+    asset: quote.protocol === "rnear" ? "rNEAR" : "LiNEAR",
     amountRaw: shares.toString(),
     nearAmountRaw: near.toString(),
     unlockEpoch,

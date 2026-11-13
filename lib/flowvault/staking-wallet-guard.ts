@@ -1,3 +1,4 @@
+import { liquidContract } from "./staking-lifecycle.ts";
 import type { StakingPreparation } from "./staking-execution.ts";
 import type { WalletAttempt } from "./execution.ts";
 export function assertStakingWalletHandoff(
@@ -8,7 +9,8 @@ export function assertStakingWalletHandoff(
   if (
     !["stake", "unstake", "withdraw_unstaked"].includes(p.kind) ||
     p.transactions.length !== 1 ||
-    p.transactions[0].receiverId !== "linear-protocol.near" ||
+    !["linear", "rnear"].includes((p.quote?.protocol ?? "linear")) ||
+    p.transactions[0].receiverId !== liquidContract((p.quote?.protocol ?? "linear")) ||
     !p.signable
   )
     throw new Error("Use a journal-prepared LiNEAR lifecycle payload.");
@@ -19,6 +21,7 @@ export function assertStakingWalletHandoff(
     a.kind !== p.kind ||
     a.accountId !== p.accountId ||
     expected.amountRaw !== p.amountRaw ||
+    (expected.quote?.protocol ?? "linear") !== (p.quote?.protocol ?? "linear") ||
     expected.workspaceRevision !== p.workspaceRevision ||
     expected.policyVersion !== p.policyVersion ||
     expected.mandateVersion !== p.mandateVersion ||

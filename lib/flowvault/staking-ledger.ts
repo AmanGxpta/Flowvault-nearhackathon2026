@@ -87,9 +87,9 @@ export function stakingJournalLedger(
       usdcRaw: p.usdcValueRaw,
       netWorthEffectUsdcRaw: "0",
       realized: false,
-      positionId: p.kind === "stake" ? "native" : "linear",
+      positionId: p.kind === "stake" ? "native" : (p.quote?.protocol ?? "linear"),
       basis:
-        "Finalized LiNEAR " +
+        "Finalized " + (p.quote?.protocol ?? "linear") + " " +
         p.kind +
         "; source principal movement, not profit. Minted/exit quantities are in receipt evidence. USDC field is review-time Engines cap valuation: " +
         p.valuationBasis,
@@ -108,7 +108,7 @@ export function stakingJournalLedger(
       usdcRaw: usd,
       netWorthEffectUsdcRaw: usd === null ? null : "-" + usd,
       realized: true,
-      positionId: p.kind === "stake" ? "linear-shares" : "linear-unstaking",
+      positionId: (p.quote?.protocol ?? "linear") + (p.kind === "stake" ? "-shares" : "-unstaking"),
       basis:
         "Actual finalized tokens_burnt, once per source hash. USDC is Engines upper-bound equivalence at reconciliation, not historical spot: " +
         (feeValue?.basis ?? "unavailable"),

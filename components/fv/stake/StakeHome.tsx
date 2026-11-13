@@ -13,16 +13,15 @@ import { useSwapQuote, ownAddress } from "../useSwapQuote";
 import { startPlan } from "../PlanDock";
 import { fmtAmount, fmtUsd, ago } from "../swap-format";
 import { units, decimal } from "@/lib/flowvault/money";
-import { nearText, STATUS_LABEL } from "@/lib/flowvault/stake-flow";
+import { nearText, flowStage } from "@/lib/flowvault/stake-flow";
 import { StakeFlowView, type FlowRead } from "./StakeFlowView";
+import { availableToStake, estimatedLinearShares, estimatedYearlyNear } from "@/lib/flowvault/staking-ui";
 
 const NEAR_ID = "near:native";
-const RESERVE = 5n * 10n ** 23n; // 0.5 NEAR stays on the account for gas and a later unstake
-const FEE_ROOM = 5n * 10n ** 22n; // room for the staking transaction's own fee
 type Venue = "linear" | "validator" | "rnear";
 interface Option { id: string; aprPercent?: string | null }
 interface Validator { id: string; label: string; aprPercent: string | null; feePercent?: number | null }
-interface Lifecycle { underlying?: { quantityRaw: string }; positions?: { id: string; asset: string; amount: string; kind: string }[]; pendingExit?: { amountRaw: string; epochsRemaining: string; claimable: boolean } | null }
+interface Lifecycle { registered?: boolean; exchangeRateRaw?: string; underlying?: { quantityRaw: string }; positions?: { id: string; asset: string; amount: string; kind: string }[]; pendingExit?: { amountRaw: string; epochsRemaining: string; claimable: boolean } | null }
 
 const flowParam = () => (typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("flow"));
 function setFlowParam(id: string | null) { const u = new URL(window.location.href); if (id) { u.searchParams.set("flow", id); u.searchParams.set("tab", "stake"); } else u.searchParams.delete("flow"); history.replaceState(null, "", u); }
@@ -31,38 +30,44 @@ export function StakeHome({ v }: { v: any }) { // eslint-disable-line @typescrip
   const owner: string = v.acc ?? "", example = !!v.judge;
   const [flowId, setFlowId] = useState<string | null>(flowParam);
   const open = (id: string | null) => { setFlowParam(id); setFlowId(id); window.scrollTo({ top: 0, behavior: "smooth" }); };
-  const [options, setOptions] = useState<Option[]>([]), [validators, setValidators] = useState<Validator[]>([]), [life, setLife] = useState<Lifecycle | null>(null), [flows, setFlows] = useState<FlowRead[]>([]);
-  const [tick, setTick] = useState(0);
+  const [options, setOptions] = useState<Option[]>([]), [validators, setValidators] = useState<Validator[]>([]), [life, setLife] = useState<Lifecycle | null>(null), [rLife,setRLife]=useState<Lifecycle|null>(null), [portfolioVenue,setPortfolioVenue]=useState<"linear"|"rnear">("linear"), [flows, setFlows] = useState<FlowRead[]>([]);
+  const [rReadError,setRReadError]=useState("");
+  const [tick, setTick] = useState(0), [readError, setReadError] = useState("");
   useEffect(() => {
     if (example || !owner) return;
     api("/api/staking/options", undefined, "GET").then((r: { options?: Option[] }) => setOptions(r.options ?? [])).catch(() => {});
     api("/api/staking/validators", undefined, "GET").then((r: { validators?: Validator[] }) => setValidators(r.validators ?? [])).catch(() => {});
-  }, [owner, example]);
+  }, [owner, example, tick]);
   useEffect(() => {
     if (example || !owner) return;
-    api("/api/staking/lifecycle", undefined, "GET").then((r: Lifecycle) => setLife(r)).catch(() => setLife(null));
-    api("/api/staking/flows", undefined, "GET").then((r: { flows?: FlowRead[] }) => setFlows(r.flows ?? [])).catch(() => {});
+    let active = true;
+    api("/api/staking/lifecycle", undefined, "GET").then((r: Lifecycle) => { if(active){setLife(r);setReadError("");} }).catch(() => {if(active){setLife(null);setReadError("Your LiNEAR position could not be read. Balances are unknown until the read succeeds.");}});
+    api("/api/staking/lifecycle?venue=rnear",undefined,"GET").then((r:Lifecycle)=>{if(active){setRLife(r);setRReadError("");}}).catch(()=>{if(active){setRLife(null);setRReadError("Your rNEAR position could not be read. Retry to refresh it.");}});
+    api("/api/staking/flows", undefined, "GET").then((r: { flows?: FlowRead[] }) => {if(active)setFlows(r.flows ?? []);}).catch(() => {});
+    return()=>{active=false;};
   }, [owner, example, tick, flowId]);
+  useEffect(() => { const refresh = () => setTick(n=>n+1); window.addEventListener("focus", refresh); return()=>window.removeEventListener("focus",refresh); }, []);
   const apr = (id: string) => options.find((o) => o.id === id)?.aprPercent ?? null;
   const bestValidator = useMemo(() => [...validators].filter((x) => x.aprPercent).sort((a, b) => Number(b.aprPercent) - Number(a.aprPercent))[0] ?? null, [validators]);
 
-  if (flowId) return <StakeFlowView id={flowId} owner={owner} linearApy={apr("linear")} back={() => { open(null); setTick((n) => n + 1); }} />;
+  if (flowId) return <StakeFlowView id={flowId} owner={owner} linearApy={apr("linear")} rnearApy={apr("rnear")} connect={() => (v.openConnect ?? v.connectFirst)?.()} back={() => { open(null); setTick((n) => n + 1); }} />;
   return <div className="fv-stake-home">
-    <StakeCard owner={owner} example={example} connect={() => (v.openConnect ?? v.connectFirst)?.()} rates={{ linear: apr("linear"), rnear: apr("rnear"), validator: bestValidator?.aprPercent ?? null }} validators={validators} onFlow={(id) => open(id)} />
+    <StakeCard owner={owner} example={example} connect={() => (v.openConnect ?? v.connectFirst)?.()} rates={{ linear: apr("linear"), rnear: apr("rnear"), validator: bestValidator?.aprPercent ?? null }} validators={validators} exchangeRates={{linear:life?.exchangeRateRaw ?? null,rnear:rLife?.exchangeRateRaw ?? null}} rnearRegistered={rLife?.registered} onFlow={(id) => open(id)} />
     <ol className="fv-stake-strip">
       <li><span><Coins size={16} /></span><div><strong>1. Pay with what you hold</strong><small>NEAR, or USDC and ETH on Ethereum, Base and Arbitrum</small></div></li>
-      <li><span><Download size={16} /></span><div><strong>2. NEAR lands in your account</strong><small>NEAR Intents delivers it, usually within a minute</small></div></li>
-      <li><span><PenLine size={16} /></span><div><strong>3. Sign once to stake</strong><small>Stakes exactly what arrived, checked against your limits</small></div></li>
+      <li><span><Download size={16} /></span><div><strong>2. Funds arrive as NEAR</strong><small>For cross-chain payments, NEAR Intents delivers to your account</small></div></li>
+      <li><span><PenLine size={16} /></span><div><strong>3. Review and stake</strong><small>Your wallet approves the stake after fresh checks</small></div></li>
     </ol>
-    {!example && owner && <StakePortfolio life={life} available={null} owner={owner} flows={flows} openFlow={open} rates={{ linear: apr("linear"), rnear: apr("rnear"), validator: bestValidator }} />}
+    {!example && owner && <div className="fv-stake-position-tabs" role="group" aria-label="Staking positions">{(["linear","rnear"] as const).map(id=><button type="button" className="fv-button" aria-pressed={portfolioVenue===id} key={id} onClick={()=>setPortfolioVenue(id)}>{id === "linear" ? "LiNEAR" : "rNEAR"} positions</button>)}</div>}
+    {!example && owner && <StakePortfolio venue={portfolioVenue} life={portfolioVenue === "rnear" ? rLife : life} readError={portfolioVenue === "rnear" ? rReadError : readError} retry={()=>setTick(n=>n+1)} nativeStats={v.pfStake ?? []} nativeNote={v.pfStakeHead ?? ""} swap={() => {const url = new URL(window.location.href); url.searchParams.set("swap","near:native|base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"); url.searchParams.delete("flow"); history.replaceState(null,"",url); v.navigate("swap");}} owner={owner} flows={flows} openFlow={open} rates={{ linear: apr("linear"), rnear: apr("rnear"), validator: bestValidator }} />}
   </div>;
 }
 
-function StakeCard({ owner, example, connect, rates, validators, onFlow }: { owner: string; example: boolean; connect: () => void; rates: { linear: string | null; rnear: string | null; validator: string | null }; validators: Validator[]; onFlow: (id: string) => void }) {
+function StakeCard({ owner, example, connect, rates, validators, exchangeRates, rnearRegistered, onFlow }: { owner: string; example: boolean; connect: () => void; rates: { linear: string | null; rnear: string | null; validator: string | null }; validators: Validator[]; exchangeRates:{linear:string|null;rnear:string|null}; rnearRegistered?:boolean; onFlow: (id: string) => void }) {
   const { tokens } = useTokenCatalog();
   const holdings = useWalletBalances(owner, tokens, !example);
   // Pay with: native NEAR, or anything NEAR Intents takes from Ethereum, Base or Arbitrum.
-  const payable = useMemo(() => tokens.filter((t) => t.id === NEAR_ID || (["eth", "base", "arb"].includes(t.network) && !!t.assetId)), [tokens]);
+  const payable = useMemo(() => tokens.filter((t) => t.id === NEAR_ID || (!!t.assetId && ["eth", "base", "arb"].includes(t.network) && (t.contract === "native" && t.symbol === "ETH" || t.id.toLowerCase() === "eth:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" || t.id.toLowerCase() === "base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" || t.id.toLowerCase() === "arb:0xaf88d065e77c8cc2239327c5edb3a432268e5831"))), [tokens]);
   const [fromId, setFrom] = useState(NEAR_ID), [amount, setAmount] = useState(""), [venue, setVenue] = useState<Venue>("linear"), [pool, setPool] = useState("");
   const [details, setDetails] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const from = payable.find((t) => t.id === fromId);
@@ -75,20 +80,14 @@ function StakeCard({ owner, example, connect, rates, validators, onFlow }: { own
   const intents = q.routes.find((r) => r.venue === "NEAR Intents");
   const expectedRaw = (() => { try { return isNear ? (valid ? units(amount, 24) : null) : intents ? units(intents.output, 24) : null; } catch { return null; } })();
   // NEAR you can stake from the wallet: balance minus the 0.5 NEAR gas reserve and the transaction fee.
-  const nearRaw = holdings.balances[NEAR_ID]?.raw ? BigInt(holdings.balances[NEAR_ID]!.raw) : null;
-  const stakeable = nearRaw === null ? null : nearRaw > RESERVE + FEE_ROOM ? nearRaw - RESERVE - FEE_ROOM : 0n;
+  const stakeable = availableToStake(holdings.balances[NEAR_ID]?.raw);
   const over = isNear && valid && stakeable !== null && expectedRaw !== null && expectedRaw > stakeable;
-  // LiNEAR you get, from the live LiNEAR quote for the expected NEAR.
-  const [shares, setShares] = useState<{ key: string; raw: string } | null>(null);
-  const expectedKey = expectedRaw?.toString() ?? "";
-  useEffect(() => {
-    if (example || !owner || venue !== "linear" || !expectedKey || expectedKey === "0") return;
-    const t = setTimeout(() => api("/api/staking/lifecycle", { kind: "stake", amountRaw: expectedKey }).then((r: { sharesRaw?: string }) => { if (r.sharesRaw) setShares({ key: expectedKey, raw: r.sharesRaw }); }).catch(() => {}), 500);
-    return () => clearTimeout(t);
-  }, [expectedKey, venue, owner, example]);
-  const sharesRaw = shares?.key === expectedKey ? shares.raw : null;
+  const symbol = venue === "rnear" ? "rNEAR" : "LiNEAR";
+  const estimatedPrincipal = venue === "rnear" && rnearRegistered === false && expectedRaw !== null ? expectedRaw - 1250000000000000000000n : expectedRaw;
+  const sharesRaw = estimatedLinearShares(estimatedPrincipal, venue === "rnear" ? exchangeRates.rnear : exchangeRates.linear);
   const rate = venue === "linear" ? rates.linear : venue === "rnear" ? rates.rnear : validators.find((x) => x.id === pool)?.aprPercent ?? rates.validator;
-  const yearly = expectedRaw && rate ? decimal((expectedRaw * BigInt(Math.round(Number(rate) * 100))) / 10000n, 24) : null;
+  const yearlyRaw = estimatedYearlyNear(expectedRaw, rate);
+  const yearly = yearlyRaw !== null ? decimal(yearlyRaw,24) : null;
   const usdIn = valid && from?.price ? Number(amount) * Number(from.price) : null;
 
   function chip(x: string) {
@@ -97,7 +96,7 @@ function StakeCard({ owner, example, connect, rates, validators, onFlow }: { own
       if (stakeable === null) return;
       const pct = BigInt(x);
       const raw = (stakeable * pct) / 100n;
-      setAmount(raw > 0n ? decimal((raw / 10n ** 20n) * 10n ** 20n, 24) : "");
+      setAmount(raw > 0n ? decimal(x === "100" ? raw : (raw / 10n ** 20n) * 10n ** 20n, 24) : "");
     } else if (from.price) {
       const raw = (units(x, 6) * 10n ** BigInt(from.decimals)) / units(Number(from.price).toFixed(6), 6);
       const keep = from.decimals > 6 ? 10n ** BigInt(from.decimals - 6) : 1n;
@@ -113,23 +112,22 @@ function StakeCard({ owner, example, connect, rates, validators, onFlow }: { own
         return;
       }
       const source = isNear ? { kind: "near", amountRaw: expectedRaw!.toString() } : { kind: "swap", from: fromId, amount, expectedNearRaw: expectedRaw?.toString() ?? null };
-      const r = await api("/api/staking/flows", { op: "create", key: crypto.randomUUID(), venue: "linear", source }) as FlowRead;
+      const r = await api("/api/staking/flows", { op: "create", key: crypto.randomUUID(), venue, source }) as FlowRead;
       onFlow(r.flow.id);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   const cta = example ? { label: "Example workspace: nothing can be staked", disabled: true }
     : !owner ? { label: "Connect your NEAR wallet", onClick: connect }
-    : venue === "rnear" ? { label: "rNEAR staking isn't in FlowVault yet", disabled: true }
     : venue === "validator" && !isNear ? { label: "Validators take NEAR: pay with NEAR", disabled: true }
     : !valid ? { label: "Enter an amount", disabled: true }
     : over ? { label: `You can stake up to ${nearText(stakeable?.toString())} NEAR`, disabled: true }
     : !isNear && !sender ? { label: `Connect your ${from?.network === "eth" ? "Ethereum" : from?.network === "base" ? "Base" : "Arbitrum"} wallet`, onClick: connect }
     : !isNear && !intents ? { label: q.busy ? "Getting a quote…" : "No route for this amount", disabled: true, spin: q.busy }
     : venue === "validator" && !pool ? { label: "Choose a validator", disabled: true }
-    : { label: venue === "validator" ? `Review stake with ${validators.find((x) => x.id === pool)?.label ?? "validator"}` : isNear ? `Stake ${amount} NEAR` : `Pay ${amount} ${from?.symbol} and stake`, onClick: () => void go() };
+    : { label: venue === "validator" ? `Review stake with ${validators.find((x) => x.id === pool)?.label ?? "validator"}` : isNear ? `Review ${amount} NEAR stake` : `Review ${amount} ${from?.symbol} and stake`, onClick: () => void go() };
 
   return <section className="fv-panel fv-stake-card">
-    <header><h2>Stake NEAR with what you already hold</h2><p>Pay with NEAR or with USDC and ETH on Ethereum, Base or Arbitrum. NEAR lands in your own account, then one signature stakes it.</p></header>
+    <header><h2>Stake NEAR with what you already hold</h2><p>Pay with NEAR, USDC or ETH. NEAR reaches your own account, then one signature stakes it.</p></header>
     <div className="fv-stake-grid">
       <div className="fv-stake-left">
         <div className="fv-swap-amount fv-trade-box">
@@ -142,11 +140,11 @@ function StakeCard({ owner, example, connect, rates, validators, onFlow }: { own
         <div className="fv-stake-into">
           <div className="fv-stake-into-head"><span>You stake into</span></div>
           <div className="fv-stake-venues" role="tablist">
-            {([["validator", "Validator", rates.validator], ["rnear", "rNEAR", rates.rnear], ["linear", "LiNEAR", rates.linear]] as const).map(([id, label, r]) => <button type="button" role="tab" key={id} aria-selected={venue === id} onClick={() => setVenue(id)}>{label}{r ? <em>{Number(r).toFixed(2)}%</em> : null}</button>)}
+            {([["validator", "Validator", rates.validator], ["rnear", "rNEAR", rates.rnear], ["linear", "LiNEAR", rates.linear]] as const).map(([id, label, r]) => <button type="button" role="tab" key={id} aria-selected={venue === id} onClick={() => setVenue(id)}><span>{label}</span>{r ? <em>{Number(r).toFixed(2)}%</em> : null}</button>)}
           </div>
           <div className="fv-stake-venue-note">
-            {venue === "linear" && <><span className="fv-flow-dot is-linear">Li</span><div><strong>LiNEAR <i className="fv-verified">Verified</i></strong><small>Liquid staking: you get LiNEAR, which you can swap back any time or unstake in about 2–3 days. Contract code verified.</small></div></>}
-            {venue === "rnear" && <><span className="fv-flow-dot">r</span><div><strong>rNEAR by Rhea</strong><small>Rates shown for comparison. Staking into rNEAR isn’t available in FlowVault yet.</small></div></>}
+            {venue === "linear" && <><span className="fv-flow-dot is-linear">Li</span><div><strong>LiNEAR <i className="fv-verified">Liquid staking</i></strong><small>Liquid staking: you get LiNEAR, which you can swap when liquidity is available, or request an unstake (about 2–3 days). Contract code checked before staking.</small></div></>}
+            {venue === "rnear" && <><span className="fv-flow-dot">r</span><div><strong>rNEAR by Rhea</strong><small>Liquid staking with Rhea. Your first stake includes a small registration fee, shown in the review. Swap subject to liquidity, or unstake over about 4 epochs.</small></div></>}
             {venue === "validator" && <div className="fv-stake-validator"><small>Native staking with a validator: rewards each epoch; unstaking takes 4 epochs (about 2–3 days), then you claim.</small>
               <select value={pool} onChange={(e) => setPool(e.target.value)} aria-label="Validator"><option value="">Choose a validator</option>{validators.map((x) => <option key={x.id} value={x.id}>{x.label} · {x.aprPercent ? Number(x.aprPercent).toFixed(2) + "%" : "rate unknown"}{x.feePercent != null ? ` · fee ${x.feePercent}%` : ""}</option>)}</select></div>}
           </div>
@@ -154,9 +152,9 @@ function StakeCard({ owner, example, connect, rates, validators, onFlow }: { own
       </div>
       <div className="fv-stake-right">
         <div className="fv-stake-get">
-          <div className="fv-swap-box-head"><span>You get</span><small>{venue === "linear" ? "LiNEAR on your account" : venue === "validator" ? "Staked NEAR with the validator" : "—"}</small></div>
-          <strong className={q.busy && !isNear ? "fv-loading-text" : ""}>{venue === "linear" ? (sharesRaw ? `≈ ${nearText(sharesRaw)} LiNEAR` : expectedRaw ? `≈ ${nearText(expectedRaw.toString())} NEAR staked` : "—") : expectedRaw ? `≈ ${nearText(expectedRaw.toString())} NEAR` : "—"}</strong>
-          <small>{yearly ? `≈ ${fmtAmount(yearly, 4)} NEAR a year at ${Number(rate).toFixed(2)}% (variable)` : "Rates are variable"}{venue === "linear" ? " · swap back any time or unstake in ~2–3 days" : venue === "validator" ? " · unstake takes ~2–3 days" : ""}</small>
+          <div className="fv-swap-box-head"><span>You get</span><small>{venue !== "validator" ? `${symbol} on your account` : venue === "validator" ? "Staked NEAR with the validator" : "—"}</small></div>
+          <strong className={q.busy && !isNear ? "fv-loading-text" : ""}>{venue !== "validator" ? (sharesRaw ? `≈ ${nearText(sharesRaw)} ${symbol}` : expectedRaw ? "Reading conversion rate…" : "—") : expectedRaw ? `≈ ${nearText(expectedRaw.toString())} NEAR` : "—"}</strong>
+          <small>{yearly ? `≈ ${fmtAmount(yearly, 4)} NEAR a year at ${Number(rate).toFixed(2)}% (variable)` : "Rates are variable"}{venue !== "validator" ? " · swap subject to liquidity, or unstake in ~2–3 days" : venue === "validator" ? " · unstake takes ~2–3 days" : ""}</small>
         </div>
         {"onClick" in cta && cta.onClick ? <button type="button" className="fv-button fv-primary fv-wide-button fv-stake-cta" disabled={busy} onClick={cta.onClick}>{busy ? <RefreshCw size={15} className="fv-spin" /> : null}{cta.label} {!busy && <ArrowRight size={16} />}</button>
           : <button type="button" className="fv-button fv-primary fv-wide-button fv-stake-cta" disabled>{"spin" in cta && cta.spin ? <RefreshCw size={15} className="fv-spin" /> : null}{cta.label}</button>}
@@ -169,7 +167,7 @@ function StakeCard({ owner, example, connect, rates, validators, onFlow }: { own
             <div><span>Kept on your account</span><strong>0.5 NEAR for gas and a later unstake</strong></div>
             {!isNear && <div><span>If anything fails</span><strong>Refunds go back to {sender ? sender.slice(0, 6) + "…" + sender.slice(-4) : "your sending wallet"} on {from?.network === "eth" ? "Ethereum" : from?.network === "base" ? "Base" : "Arbitrum"}</strong></div>}
             {!isNear && intents && <div><span>Swap</span><strong>NEAR Intents · ~{intents.eta ?? 60}s · min {fmtAmount(intents.minimum)} NEAR</strong></div>}
-            <div><span>Protocol fee</span><strong>{venue === "linear" ? "Taken from rewards, already in the rate" : venue === "validator" ? "Validator fee, already in the rate" : "—"}</strong></div>
+            <div><span>Protocol fee</span><strong>{venue !== "validator" ? "Taken from rewards, already in the rate" : venue === "validator" ? "Validator fee, already in the rate" : "—"}</strong></div>
           </div>}
         </div>
       </div>
@@ -177,11 +175,13 @@ function StakeCard({ owner, example, connect, rates, validators, onFlow }: { own
   </section>;
 }
 
-function StakePortfolio({ life, owner, flows, openFlow, rates }: { life: Lifecycle | null; available: string | null; owner: string; flows: FlowRead[]; openFlow: (id: string) => void; rates: { linear: string | null; rnear: string | null; validator: Validator | null } }) {
+function StakePortfolio({ life, owner, flows, openFlow, rates, readError, retry, nativeStats, nativeNote, swap, venue }: { venue:"linear"|"rnear"; life: Lifecycle | null; readError: string; retry:()=>void; nativeStats:{label:string;v:string;sub:string}[]; nativeNote:string; swap:()=>void; owner: string; flows: FlowRead[]; openFlow: (id: string) => void; rates: { linear: string | null; rnear: string | null; validator: Validator | null } }) {
   const { tokens } = useTokenCatalog();
   const holdings = useWalletBalances(owner, tokens, true);
-  const available = holdings.balances[NEAR_ID]?.amount ?? null;
-  const shares = life?.positions?.find((p) => p.id === "linear-shares");
+  const availableRaw = availableToStake(holdings.balances[NEAR_ID]?.raw);
+  const available = availableRaw !== null ? decimal(availableRaw,24) : null;
+  const symbol = venue === "rnear" ? "rNEAR" : "LiNEAR";
+  const shares = life?.positions?.find((p) => p.id === venue + "-shares");
   const staked = life?.underlying?.quantityRaw ?? null;
   const exit = life?.pendingExit ?? null;
   const [busy, setBusy] = useState(""), [err, setErr] = useState("");
@@ -190,30 +190,31 @@ function StakePortfolio({ life, owner, flows, openFlow, rates }: { life: Lifecyc
   const recent = flows.slice(0, 6);
   return <div className="fv-stake-portfolio">
     <section className="fv-panel fv-stake-summary">
-      <div className="fv-stake-total"><small>Total staked</small><strong>{staked ? nearText(staked) : "0"} <span>NEAR</span></strong><p>{shares && shares.amount !== "0" ? `${fmtAmount(shares.amount, 4)} LiNEAR in your account` : "Nothing staked yet."}</p></div>
+      <div className="fv-stake-total"><small>{symbol} staked · NEAR equivalent</small><strong>{staked !== null ? nearText(staked) : "Unavailable"} <span>NEAR</span></strong><p>{shares && shares.amount !== "0" ? `${fmtAmount(shares.amount, 4)} ${symbol} in your account` : life ? `No ${symbol} staked yet.` : "Waiting for a successful position read."}</p></div>
       <div className="fv-stake-stats">
-        <div><small>Unstaking</small><strong>{exit && !exit.claimable ? nearText(exit.amountRaw) + " NEAR" : "None"}</strong><p>{exit && !exit.claimable ? `${exit.epochsRemaining} epoch${exit.epochsRemaining === "1" ? "" : "s"} left (~${Math.max(1, Number(exit.epochsRemaining) * 7)}h)` : "Takes about 2–3 days once you start"}</p></div>
-        <div><small>Ready to withdraw</small><strong>{exit?.claimable ? nearText(exit.amountRaw) + " NEAR" : "None"}</strong><p>{exit?.claimable ? <button type="button" className="fv-text-button" disabled={!!busy} onClick={() => void plan("linear-unstaking")}>Withdraw to your account</button> : "Unlocked NEAR shows up here"}</p></div>
-        <div><small>Available to stake</small><strong>{available ? fmtAmount(available, 4) + " NEAR" : "—"}</strong><p>0.5 NEAR always stays for gas</p></div>
+        <div><small>Unstaking</small><strong>{exit && !exit.claimable ? nearText(exit.amountRaw) + " NEAR" : life ? "None" : "Unknown"}</strong><p>{exit && !exit.claimable ? Number(exit.epochsRemaining) > 0 ? `${exit.epochsRemaining} epoch${exit.epochsRemaining === "1" ? "" : "s"} left (~${Number(exit.epochsRemaining) * 7}h)` : "Waiting for protocol liquidity or availability" : "Takes about 2–3 days once you start"}</p></div>
+        <div><small>Ready to withdraw</small><strong>{exit?.claimable ? nearText(exit.amountRaw) + " NEAR" : life ? "None" : "Unknown"}</strong><p>{exit?.claimable ? <button type="button" className="fv-text-button" disabled={!!busy} onClick={() => void plan(venue + "-unstaking")}>Withdraw to your account</button> : "Unlocked NEAR shows up here"}</p></div>
+        <div><small>Available to stake</small><strong>{available ? fmtAmount(available, 4) + " NEAR" : "—"}</strong><p>After 0.5 NEAR reserve + 0.05 NEAR fee allowance</p><button type="button" className="fv-text-button" onClick={swap}>Send to another network <ArrowRight size={12}/></button></div>
       </div>
-      {shares && shares.amount !== "0" && <div className="fv-actions"><button type="button" className="fv-button" disabled={!!busy} onClick={() => void plan("linear-shares")}>{busy === "linear-shares" ? "Checking…" : "Unstake LiNEAR"}</button></div>}
-      {err && <p className="fv-notice">{err}</p>}
+      {shares && shares.amount !== "0" && <div className="fv-actions"><button type="button" className="fv-button" disabled={!!busy} onClick={() => void plan(venue + "-shares")}>{busy === venue + "-shares" ? "Checking…" : `Unstake ${symbol}`}</button></div>}
+      {readError && <div className="fv-notice" role="status"><p>{readError}</p><button type="button" className="fv-button" onClick={retry}>Retry position read</button></div>}{err && <p className="fv-notice" role="alert">{err}</p>}
+      {!!nativeStats.length && <details className="fv-stake-native"><summary>Validator positions</summary><p className="fv-muted">{nativeNote}</p><div className="fv-stake-stats">{nativeStats.map(s=><div key={s.label}><small>{s.label}</small><strong>{s.v}</strong><p>{s.sub}</p></div>)}</div></details>}
     </section>
     <div className="fv-stake-lower">
       <section className="fv-panel fv-stake-activity">
         <div className="fv-section-head"><h2>Recent activity</h2>{open.length ? <span className="fv-flow-badge is-turn">{open.length} open</span> : null}</div>
-        {!recent.length && <p className="fv-muted">Your staking flows appear here. Leave one half-way and continue it from here.</p>}
+        {!recent.length && <p className="fv-muted">No staking activity yet. Your LiNEAR flows will appear here, ready to continue if you leave.</p>}
         {recent.map((f) => <article key={f.flow.id} className={"fv-flow-row is-" + f.status}>
           <TokenIcon symbol={f.flow.source.kind === "swap" ? f.flow.source.fromSymbol : "NEAR"} core size={30} />
-          <div><strong>Stake into LiNEAR</strong><small>{f.flow.source.kind === "swap" ? `${f.flow.source.amount} ${f.flow.source.fromSymbol} on ${f.flow.source.fromNetwork} → ≈ ${nearText(f.stakeRaw ?? f.flow.source.expectedNearRaw)} NEAR` : `${nearText(f.flow.source.amountRaw)} NEAR`}</small>
+          <div><strong>Stake into {f.flow.venue === "rnear" ? "rNEAR" : "LiNEAR"}</strong><small>{f.flow.source.kind === "swap" ? `${f.flow.source.amount} ${f.flow.source.fromSymbol} on ${f.flow.source.fromNetwork} → ≈ ${nearText(f.stakeRaw ?? f.flow.source.expectedNearRaw)} NEAR` : `${nearText(f.flow.source.amountRaw)} NEAR`}</small>
             <small>{f.steps.find((s) => s.id === f.current)?.detail ?? (f.status === "done" ? "Staked." : "")}</small></div>
-          <div className="fv-flow-row-end"><span className={"fv-flow-badge is-" + ({ your_turn: "turn", working: "busy", done: "ok", attention: "bad", cancelled: "muted" } as const)[f.status]}>{STATUS_LABEL[f.status]}</span><small>{ago(f.flow.updatedAt)} · {f.done}/{f.total}</small>
+          <div className="fv-flow-row-end"><span className={"fv-flow-badge is-" + ({ your_turn: "turn", working: "busy", done: "ok", attention: "bad", cancelled: "muted" } as const)[f.status]}>{flowStage(f)}</span><small>{ago(f.flow.updatedAt)} · {f.done}/{f.total}</small>
             <button type="button" className="fv-text-button" onClick={() => openFlow(f.flow.id)}>{["your_turn", "attention"].includes(f.status) ? "Continue" : "Open status"} <ArrowRight size={13} /></button></div>
         </article>)}
       </section>
       <section className="fv-panel fv-stake-ways">
         <h2>Ways to earn</h2><p className="fv-muted">Today’s rates. Pick one when you stake.</p>
-        {[["Validator pools", rates.validator?.aprPercent ?? null, rates.validator ? `Native · best: ${rates.validator.label}` : "Native · ~2–3 days to unlock"], ["LiNEAR", rates.linear, "Liquid · swap back any time"], ["rNEAR by Rhea", rates.rnear, "Liquid · comparison only"]].map(([n, r, d]) => <div key={n as string} className="fv-list-row"><div><strong>{n}</strong><small>{d}</small></div><strong>{r ? Number(r).toFixed(2) + "%" : "—"}</strong></div>)}
+        {[["Validator pools", rates.validator?.aprPercent ?? null, rates.validator ? `Native · best: ${rates.validator.label}` : "Native · ~2–3 days to unlock"], ["LiNEAR", rates.linear, "Liquid · swaps depend on liquidity"], ["rNEAR by Rhea", rates.rnear, "Liquid · storage on first stake"]].map(([n, r, d]) => <div key={n as string} className="fv-list-row"><div><strong>{n}</strong><small>{d}</small></div><strong>{r ? Number(r).toFixed(2) + "%" : "—"}</strong></div>)}
         <p className="fv-muted fv-chat-small">Rates are variable and come from each protocol’s recent history.</p>
       </section>
     </div>

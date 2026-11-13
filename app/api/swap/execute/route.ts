@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { session, mutation, json, failure } from "@/lib/flowvault/store";
-import { prepareSwap, prepareIntentsSwap, allowSwapInPolicy } from "@/lib/flowvault/swap-journal";
+import { prepareSwap, prepareIntentsSwap, allowSwapInPolicy, resumeIntentsSwap } from "@/lib/flowvault/swap-journal";
 import { swapTokenCatalog } from "@/lib/flowvault/swap-catalog";
 
 /** Owner-signed in-app swaps: NEAR tokens through Rhea / Ref, and cross-chain through NEAR Intents (route=intents). prepare: fresh quote, balance, storage, price and
@@ -12,8 +12,10 @@ export async function POST(request: Request) {
     const s = await session(request);
     const b = z.discriminatedUnion("action", [
       z.object({ action: z.literal("prepare"), route: z.enum(["ref", "intents"]).default("ref"), from: z.string().max(200), to: z.string().max(200), amount: z.string().max(80), slippage: z.number().int(), sender: z.string().max(120).optional(), recipient: z.string().max(120).optional() }),
+      z.object({ action: z.literal("resume"), id: z.string().uuid() }),
       z.object({ action: z.literal("allow"), id: z.string().uuid(), revision: z.number().int() }),
     ]).parse(await request.json());
+    if (b.action === "resume") return json(await resumeIntentsSwap(request, b.id), s.cookie);
     if (b.action === "allow") return json(await allowSwapInPolicy(request, b.id, b.revision), s.cookie);
     const tokens = await swapTokenCatalog();
     return json(b.route === "intents" ? await prepareIntentsSwap(request, tokens, b) : await prepareSwap(request, tokens, b), s.cookie);
