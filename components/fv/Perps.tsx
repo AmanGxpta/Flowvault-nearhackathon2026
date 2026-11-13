@@ -1,9 +1,11 @@
 "use client";
 // Perpetuals on Hyperliquid (Stream C). Reads each proven Ethereum account's Hyperliquid margin account; lets the
 // owner approve a FlowVault agent (signed in their own Ethereum wallet), create a perps mandate naming it, and
-// place or close orders that FlowVault's agent signs only after the mandate's checks pass. Unrealized gains are
+// place or close orders that FlowVault's agent signs only after the mandate’s checks pass. Unrealized gains are
 // shown but never counted as money you can spend. Withdrawals are signed by the master wallet.
 import { useCallback, useEffect, useState } from "react";
+import { TokenIcon } from "./AssetIdentity";
+import { Share2 } from "lucide-react";
 import type {AgentMandate} from "@/lib/flowvault/contracts";
 import {perpLimitForm,perpLimitUpdate} from "@/lib/flowvault/perps-limits";
 import { api, type Scope } from "./live";
@@ -29,15 +31,20 @@ const btn: React.CSSProperties = { padding: "7px 12px", borderRadius: "9px", bor
 const muted: React.CSSProperties = { color: "var(--fvc-5B6458)", fontSize: "12.5px", lineHeight: 1.45 };
 const input: React.CSSProperties = { padding: "6px 8px", borderRadius: "8px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", fontSize: "12.5px", minWidth: 0 };
 
-export function PerpsCard({ scope }: { scope: Scope }) {
+export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft }: { scope: Scope; selectedMarket?: string; onMarket?: (coin: string) => void; onShare?: (value: { title: string; subtitle: string; lines: string[]; amount?: string }) => void; draft?: { coin: string; side: string; size: string; leverage: string; kind: string; price: string; n: number } | null }) {
   const [st, setSt] = useState<State | null>(null);
   const [mandates, setMandates] = useState<MandateLite[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
+  const [review, setReview] = useState<{ mandateId: string; master: string; fingerprint: string; closeCoin?: string } | null>(null);
   const [form, setForm] = useState({ coin: "ETH", side: "buy", size: "0.01", leverage: "2", kind: "market", price: "" });
   const { sessions } = useMultiWallets();
+  // A draft from the order ticket fills this form; the owner still reviews it here against the mandate.
+  useEffect(() => { if (!draft) return; const t = setTimeout(() => setForm({ coin: draft.coin, side: draft.side, size: draft.size, leverage: draft.leverage, kind: draft.kind, price: draft.price }), 0); return () => clearTimeout(t); }, [draft]);
+  const selectedCoin = selectedMarket ?? form.coin;
+  const fingerprint = JSON.stringify({...form,coin:selectedCoin});
 
   const read = useCallback(async () => {
     try {
@@ -50,7 +57,8 @@ export function PerpsCard({ scope }: { scope: Scope }) {
     }
   }, [scope]);
   useEffect(() => {
-    void read();
+    const timer = setTimeout(() => void read(), 0);
+    return () => clearTimeout(timer);
   }, [read]);
 
   const run = async (label: string, f: () => Promise<string | void>) => {
@@ -107,7 +115,7 @@ export function PerpsCard({ scope }: { scope: Scope }) {
       const key = crypto.randomUUID();
       const r = close
         ? await api("/api/perps", { action: "close", mandateId, master, coin: close, key }, "POST", scope)
-        : await api("/api/perps", { action: "order", mandateId, master, coin: form.coin, isBuy: form.side === "buy", size: form.size, kind: form.kind, ...(form.kind === "limit" && form.price ? { price: form.price } : {}), reduceOnly: false, leverage: Number(form.leverage), key }, "POST", scope);
+        : await api("/api/perps", { action: "order", mandateId, master, coin: selectedCoin, isBuy: form.side === "buy", size: form.size, kind: form.kind, ...(form.kind !== "market" && form.price ? { price: form.price } : {}), reduceOnly: form.kind === "stop_loss" || form.kind === "take_profit", leverage: Number(form.leverage), key }, "POST", scope);
       const o: Order = r.order;
       const failed = o.checks.filter((c) => c.ok !== true);
       return `${o.intent.coin} ${o.intent.isBuy ? "buy" : "sell"} ${o.intent.size}: ${o.state}.` + (o.error ? " " + o.error : "") + (failed.length ? " Failed: " + failed.map((c) => c.detail).join(" ") : "");
@@ -123,7 +131,7 @@ export function PerpsCard({ scope }: { scope: Scope }) {
       {err ? <p role="alert" style={muted}>Couldn’t read perpetuals: {err}</p> : null}
       {note ? <p role="status" style={{ ...muted, color: "var(--fvc-1E2A22)" }}>{note}</p> : null}
       {st && !st.accounts.length ? <p style={muted}>Connect and prove an Ethereum wallet to see its Hyperliquid account.</p> : null}
-      {st && !st.agentsAvailable ? <p style={{ ...muted, color: "var(--fvc-8A5F25)" }}>Agent trading is off on this server (no agent-key secret configured). You can still see balances and withdraw.</p> : null}
+      {st && !st.agentsAvailable ? <p style={{ ...muted, color: "var(--fvc-8A5F25)" }}>Trading setup is incomplete for this installation. Position reads remain available; withdrawals require your connected wallet and an eligible balance.</p> : null}
       {st?.accounts.map((a) => {
         const s = a.snapshot;
         const m = mandates.find((x) => x.scope.accounts.includes("evm:" + a.master) && ["active", "approved", "draft", "paused"].includes(x.state));
@@ -133,29 +141,26 @@ export function PerpsCard({ scope }: { scope: Scope }) {
             <div style={{ fontWeight: 600, overflowWrap: "anywhere" }}>{short(a.master)}</div>
             {a.error ? <div style={{ ...muted, color: "var(--fvc-8A5F25)" }}>Hyperliquid read failed: {a.error}</div> : null}
             {s ? (
-              <div style={muted}>
-                Account value {u(s.accountValueUsdcRaw)} USDC · counted {u(s.realizedEquityUsdcRaw)} · margin in use {u(s.marginUsedUsdcRaw)} · withdrawable {u(s.withdrawableUsdcRaw)} · unrealized {u(s.unrealizedPnlUsdcRaw)} (not spendable).
-              </div>
+              <div className="fv-perp-stats"><div><small>Account value (USDC)</small><strong>{u(s.accountValueUsdcRaw)}</strong></div><div><small>Withdrawable (USDC)</small><strong>{u(s.withdrawableUsdcRaw)}</strong></div><div><small>Unrealized PnL (USDC)</small><strong>{u(s.unrealizedPnlUsdcRaw)}</strong></div></div>
             ) : null}
             {s?.positions.length ? (
-              <ul style={{ ...muted, margin: "6px 0", paddingLeft: "18px" }}>
-                {s.positions.map((p) => (
-                  <li key={p.coin}>
-                    {p.coin} {p.szi.startsWith("-") ? "short" : "long"} {p.szi.replace("-", "")} @ {p.entryPx ?? "—"} · mark {p.markPx ?? "—"} · {p.leverage.value}× {p.leverage.type} · PnL {u(p.unrealizedPnlUsdcRaw)} · liquidation {p.liquidationPx ?? "none"}
-                    {activeM ? <button type="button" style={{ ...btn, marginLeft: "8px", padding: "3px 8px" }} disabled={!!busy} onClick={() => void order(activeM.id, a.master, p.coin)}>Close</button> : null}
-                  </li>
-                ))}
-              </ul>
+              <div>
+                {s.positions.map(p => <div className="fv-perp-position" key={p.coin}>
+                  <div className="fv-section-head"><div className="fv-asset-cell"><TokenIcon symbol={p.coin} core={['ETH','BTC'].includes(p.coin)} /><strong>{p.coin}</strong><span className="fv-chip">{p.szi.startsWith('-') ? 'Short' : 'Long'} · {p.leverage.value}×</span></div>{onShare && <button style={btn} onClick={() => onShare({title:p.coin + ' ' + (p.szi.startsWith('-') ? 'Short' : 'Long'),subtitle:'Open position · unrealized · ' + new Date(s.capturedAt).toLocaleString(),lines:[p.leverage.value + '× ' + p.leverage.type, 'Entry ' + (p.entryPx ?? 'Unknown'), 'Mark ' + (p.markPx ?? 'Unknown')],amount:u(p.unrealizedPnlUsdcRaw) + ' USDC unrealized PnL'})}><Share2 size={14}/> Share</button>}</div>
+                  <div className="fv-perp-stats"><div><small>Size</small><strong>{p.szi.replace('-','')} {p.coin}</strong></div><div><small>Entry / mark</small><strong>{p.entryPx ?? '—'} / {p.markPx ?? '—'}</strong></div><div><small>Unrealized PnL</small><strong>{u(p.unrealizedPnlUsdcRaw)} USDC</strong></div><div><small>Liquidation estimate</small><strong>{p.liquidationPx ?? 'Unavailable'}</strong></div><div><small>Margin used</small><strong>{u(p.marginUsedUsdcRaw)} USDC</strong></div></div>
+                  {activeM && <div className="fv-actions"><button type="button" style={btn} disabled={!!busy} onClick={() => { setReview({mandateId:activeM.id,master:a.master,fingerprint,closeCoin:p.coin}); }}>Close position</button>{['stop_loss','take_profit'].map(kind => <button key={kind} style={btn} onClick={() => { setReview(null); onMarket?.(p.coin); setForm({ coin:p.coin, side:p.szi.startsWith('-') ? 'buy' : 'sell',size:p.szi.replace('-',''),leverage:String(p.leverage.value),kind,price:'' }); }}>{kind === 'stop_loss' ? 'Stop loss' : 'Take profit'}</button>)}</div>}
+                </div>)}
+              </div>
             ) : s ? <div style={muted}>No open positions.</div> : null}
             <div style={{ ...muted, marginTop: "4px" }}>
               Agent: {a.link ? `${short(a.link.agentAddress)} · ${a.link.status}${a.link.status === "verified" ? " until " + new Date(a.link.validUntil).toLocaleDateString() : ""}` : "none"}
-              {m ? ` · mandate “${m.title}” ${m.state}${m.frozen ? " (frozen)" : ""} — manage it under Policy › Autonomous mandates` : ""}
+              {m ? ` · mandate “${m.title}” ${m.state}${m.frozen ? " (frozen)" : ""} — manage it under Risk & permissions › Automations` : ""}
             </div>
             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px" }}>
               {st.agentsAvailable && (!a.link || ["revoked", "expired", "awaiting_master_signature"].includes(a.link.status)) ? (
                 <button type="button" style={btn} disabled={!!busy} onClick={() => void approve(a.master)}>{busy === "approve" ? "Waiting for wallet…" : "Approve FlowVault agent…"}</button>
               ) : null}
-              {a.link?.status === "verified" && !m ? <button type="button" style={btn} disabled={!!busy} onClick={() => void run("mandate", async () => { await api("/api/perps", { action: "mandate_create", master: a.master }, "POST", scope); return "Draft mandate created. Review and sign it under Policy › Autonomous mandates."; })}>Create perps mandate</button> : null}
+              {a.link?.status === "verified" && !m ? <button type="button" style={btn} disabled={!!busy} onClick={() => void run("mandate", async () => { await api("/api/perps", { action: "mandate_create", master: a.master }, "POST", scope); return "Draft mandate created. Review and sign it under Risk & permissions › Automations."; })}>Create perps mandate</button> : null}
               {a.link && a.link.status !== "revoked" ? <button type="button" style={btn} disabled={!!busy} onClick={() => void revoke(a.master)}>Revoke agent</button> : null}
               {s && BigInt(s.withdrawableUsdcRaw) > 1000000n ? (
                 <span style={{ display: "inline-flex", gap: "6px" }}>
@@ -163,20 +168,21 @@ export function PerpsCard({ scope }: { scope: Scope }) {
                   <button type="button" style={btn} disabled={!!busy || !amount} onClick={() => void withdraw(a.master, amount)}>Withdraw to my address…</button>
                 </span>
               ) : null}
-              <button type="button" style={btn} disabled={!!busy} onClick={() => void run("sync", async () => { const r = await api("/api/perps", { action: "sync", master: a.master }, "POST", scope); return `${r.entries.length} ledger entries checked.`; })}>Book fills & funding</button>
+              <button type="button" style={btn} disabled={!!busy} onClick={() => void run("sync", async () => { const r = await api("/api/perps", { action: "sync", master: a.master }, "POST", scope); return `${r.entries.length} ledger entries checked.`; })}>Sync trading history</button>
             </div>
             {m?.perps ? <PerpsLimitsEditor key={m.id+":"+m.version} mandate={m} scope={scope} changed={read} /> : null}
             {activeM ? (
-              <form onSubmit={(e) => { e.preventDefault(); void order(activeM.id, a.master); }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: "6px", marginTop: "10px" }}>
-                <select aria-label="Market" style={input} value={form.coin} onChange={(e) => setForm({ ...form, coin: e.target.value })}><option>ETH</option><option>BTC</option></select>
+              <form onSubmit={(e) => { e.preventDefault(); setReview({mandateId:activeM.id,master:a.master,fingerprint}); }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: "6px", marginTop: "10px" }}>
+                <select aria-label="Market" style={input} value={selectedCoin} onChange={(e) => {setForm({ ...form, coin: e.target.value });onMarket?.(e.target.value);}}><option>ETH</option><option>BTC</option><option>NEAR</option></select>
                 <select aria-label="Side" style={input} value={form.side} onChange={(e) => setForm({ ...form, side: e.target.value })}><option value="buy">Long</option><option value="sell">Short</option></select>
                 <input aria-label="Size" style={input} value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value.trim() })} />
                 <input aria-label="Leverage" style={input} value={form.leverage} onChange={(e) => setForm({ ...form, leverage: e.target.value.trim() })} />
-                <select aria-label="Order type" style={input} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}><option value="market">Market (IOC)</option><option value="limit">Limit</option></select>
-                {form.kind === "limit" ? <input aria-label="Limit price" placeholder="Price" style={input} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value.trim() })} /> : null}
-                <button type="submit" style={btn} disabled={!!busy}>{busy === "order" ? "Checking…" : "Check & place"}</button>
+                <select aria-label="Order type" style={input} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}><option value="market">Market (IOC)</option><option value="limit">Limit</option><option value="stop_loss">Stop loss · reduce only</option><option value="take_profit">Take profit · reduce only</option></select>
+                {form.kind !== "market" ? <input aria-label={form.kind === "limit" ? "Limit price" : "Trigger price"} placeholder={form.kind === "limit" ? "Limit price" : "Trigger price"} style={input} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value.trim() })} /> : null}
+                <button type="submit" style={btn} disabled={!!busy}>{busy === "order" ? "Checking…" : "Review order"}</button>
               </form>
             ) : null}
+            {review?.master === a.master && review.fingerprint === fingerprint && activeM && review.mandateId === activeM.id ? <section className="fv-perp-position" aria-label="Review order"><h3>{review.closeCoin ? "Close " + review.closeCoin + " position" : "Review order"}</h3><p>{review.closeCoin ? "A reduce-only order will close the current position." : <>{form.side === 'buy' ? 'Buy / long' : 'Sell / short'} {form.size} {selectedCoin} · {form.leverage}× · {form.kind.replace('_',' ')}{form.price ? ' at ' + form.price : ''}</>}</p><p style={muted}>Your active trading agent submits this order under the limits you signed. It does not open a new wallet signature. Fees, margin and liquidation depend on execution; orders may be rejected. {form.kind === 'stop_loss' || form.kind === 'take_profit' ? 'Reduce only: this order can reduce an existing position, not open one.' : 'Leverage increases both gains and losses.'}</p><button style={btn} disabled={!!busy} onClick={() => {setReview(null);void order(activeM.id,a.master,review.closeCoin);}}>{review.closeCoin ? "Confirm close position" : "Confirm and place order"}</button><button style={btn} onClick={() => setReview(null)}>Back to edit</button></section> : null}
             {a.orders.length ? (
               <details style={{ ...muted, marginTop: "6px" }}>
                 <summary style={{ cursor: "pointer" }}>Recent orders ({a.orders.length})</summary>
@@ -188,7 +194,7 @@ export function PerpsCard({ scope }: { scope: Scope }) {
           </div>
         );
       })}
-      {st ? <p style={{ ...muted, fontSize: "11.5px", marginTop: "8px" }}>{st.deposit.note}</p> : null}
+      {st ? <details style={{...muted,marginTop:18}}><summary style={{cursor:"pointer"}}>Add trading funds</summary><p>Use Hyperliquid’s official deposit flow to see supported networks and minimum amounts. FlowVault reads the resulting balance; it does not prepare the deposit.</p><a href="https://app.hyperliquid.xyz/" target="_blank" rel="noopener noreferrer">Open Hyperliquid ↗</a></details> : null}
     </section>
   );
 }
@@ -215,7 +221,7 @@ function PerpsLimitsEditor({mandate:m,scope,changed}:{mandate:AgentMandate;scope
   const labels:Record<keyof typeof values,string>={leverage:"Maximum leverage (1–20×)",notional:"Maximum order notional (USDC)",daily:"Daily notional limit (USDC)",margin:"Maximum margin capital (USDC)",loss:"Loss-stop limit (USDC)"};
   return <details style={{marginTop:10,border:"1px solid var(--fvb-E3E6DB)",padding:12,borderRadius:10}}>
     <summary style={{cursor:"pointer",fontWeight:600}}>Perpetual limits · mandate version {m.version} · {m.state}</summary>
-    <p style={muted}>These are FlowVault checks; Hyperliquid does not impose the mandate's size, leverage or loss limits. Changing any limit requires a new signature. Saving an active mandate pauses it first.</p>
+    <p style={muted}>These are FlowVault checks; Hyperliquid does not impose the mandate’s size, leverage or loss limits. Changing any limit requires a new signature. Saving an active mandate pauses it first.</p>
     <form onSubmit={e=>{e.preventDefault();void save();}} style={{display:"grid",gap:8,gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",marginTop:10}}>
       {(Object.keys(labels) as (keyof typeof values)[]).map(k=><label key={k} style={muted}>{labels[k]}<input style={{...input,width:"100%"}} value={values[k]} inputMode={k==="leverage"?"numeric":"decimal"} disabled={busy||!editable} onChange={e=>setValues({...values,[k]:e.target.value.trim()})}/></label>)}
       <button type="submit" style={btn} disabled={busy||!editable}>{m.state==="active"?"Pause and save new limits":"Save limits as draft"}</button>
