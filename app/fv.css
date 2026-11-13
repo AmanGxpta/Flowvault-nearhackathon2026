@@ -522,3 +522,21 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .fv-picker-cap{font-size:12px;text-align:center;margin:10px 0}
 @media (max-width:720px){.fv-picker-filter{grid-template-columns:1fr}.fv-token-dialog{padding:20px 16px 12px!important}}
 .fv-token-dialog{max-width:700px!important;width:calc(100vw - 32px)}.fv-picker-filter{grid-template-columns:64px 1fr}
+
+/* Rhea action sheet: tab bar, amount box (shares the swap card), check rows. */
+.fv-rhea-sheet .fv-confirm-pair{margin-bottom:12px}
+.fv-rhea-tabs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;padding:4px;margin:0 0 14px;border-radius:12px;background:var(--fvb-F7F8F3);border:1px solid var(--fvb-E3E6DB)}
+.fv-rhea-tabs.is-grid{grid-auto-flow:row;grid-template-columns:1fr 1fr}
+.fv-rhea-tabs button{border:0;background:transparent;color:var(--fvc-6F786B);font:inherit;font-size:13px;font-weight:500;padding:8px 6px;border-radius:9px;cursor:pointer;white-space:nowrap}
+.fv-rhea-tabs button[aria-selected=true]{background:var(--fvb-FFFFFF);color:var(--fvc-1E2A22);box-shadow:0 1px 3px rgba(20,30,20,.12)}
+.fv-rhea-tabs button:disabled{opacity:.4;cursor:not-allowed}
+.fv-rhea-amount{text-align:left;margin:0 0 12px}
+.fv-rhea-amount .fv-swap-line{display:flex;align-items:center;gap:10px;margin-top:10px}
+.fv-rhea-amount .fv-swap-line>input{font-size:30px;padding:0}
+.fv-rhea-unit{display:inline-flex;align-items:center;gap:8px;flex:none;font-size:14px;font-weight:600;padding:6px 10px 6px 6px;border-radius:12px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF)}
+.fv-rhea-check{display:flex;gap:10px;align-items:flex-start;text-align:left;font-size:13px;line-height:1.45;margin:0 0 12px;padding:11px 12px;border:1px solid var(--fvb-E3E6DB);border-radius:12px;cursor:pointer}
+.fv-rhea-check input{margin:2px 0 0;width:16px;height:16px;flex:none;accent-color:#3f6b3c}
+.fv-rhea-check span{display:flex;flex-direction:column;gap:2px;font-weight:500}
+.fv-rhea-check small{font-weight:400;font-size:12px;color:var(--fvc-6F786B)}
+.fv-rhea-check.is-warn{background:var(--fvb-FFF6E8);border-color:var(--fvb-F6EBDD)}
+.fv-rhea-sheet .fv-confirm-actions .fv-wide-button{margin-bottom:0}

@@ -50,7 +50,7 @@ export function RatesTable({ mode, onUsdc, usdcNote }: { mode: "earn" | "borrow"
       })}
     </div>
     <div className="fv-panel-foot">Finalized Rhea view · USD totals at Ref prices. Every market runs in-app: prices from Rhea’s own oracle, your reserve, health and limits checked, approved in your wallet.</div>
-    {open && <RheaSheet tokenId={open.token} symbol={open.symbol} icon={open.icon} mode={mode} initial={mode === "borrow" && !open.canBorrow ? "collateral_add" : undefined} close={() => setOpen(null)} />}
+    {open && <RheaSheet tokenId={open.token} symbol={open.symbol} icon={open.icon} mode={mode} rates={{ supply: open.supplyApy, borrow: open.borrowApy }} initial={mode === "borrow" && !open.canBorrow ? "collateral_add" : undefined} close={() => setOpen(null)} />}
   </section>;
 }
 function fmtRate(v: number | null) { return v === null ? "—" : v < 0.01 && v > 0 ? "<0.01%" : v.toFixed(2) + "%"; }

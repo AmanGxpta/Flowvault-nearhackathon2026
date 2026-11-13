@@ -4,7 +4,7 @@
 // then approved by the owner in their own NEAR wallet. FlowVault never signs.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw } from "lucide-react";
+import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw, Wallet } from "lucide-react";
 import { TokenIcon } from "./AssetIdentity";
 import { api } from "./live";
 import { fmtAmount, fmtUsd } from "./swap-format";
@@ -26,7 +26,11 @@ const FIXABLE = new Set(["VENUE_NOT_ALLOWED", "METHOD_NOT_ALLOWED", "NESTED_RECE
 const STEP: Record<string, string> = { storage_deposit: "Register storage", near_deposit: "Wrap NEAR", ft_transfer_call: "Send to Rhea", execute_with_pyth: "Rhea action (with oracle prices)", near_withdraw: "Unwrap to NEAR" };
 const WRAP = "wrap.near";
 
-export function RheaSheet({ tokenId, symbol, icon, mode, initial, close, onSettled }: { tokenId: string; symbol: string; icon?: string | null; mode: "earn" | "borrow"; initial?: Action; close: () => void; onSettled?: () => void }) {
+const pct = (v?: number | null) => v === null || v === undefined ? "—" : v > 0 && v < 0.01 ? "<0.01%" : v.toFixed(2) + "%";
+const TAB: Record<Action, string> = { supply: "Supply", withdraw: "Withdraw", collateral_add: "Add collateral", collateral_release: "Release collateral", borrow: "Borrow", repay: "Repay" };
+const SOURCE: Record<Action, string> = { supply: "From your wallet", collateral_add: "From your wallet", repay: "From your wallet", withdraw: "From your Rhea supply", collateral_release: "From your Rhea collateral", borrow: "Paid to your wallet" };
+
+export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, onSettled }: { tokenId: string; symbol: string; icon?: string | null; mode: "earn" | "borrow"; initial?: Action; rates?: { supply: number | null; borrow: number | null }; close: () => void; onSettled?: () => void }) {
   const actions: Action[] = mode === "earn" ? ["supply", "withdraw"] : ["borrow", "repay", "collateral_add", "collateral_release"];
   const [action, setAction] = useState<Action>(initial ?? actions[0]);
   const [pos, setPos] = useState<Position | null>(null), [posError, setPosError] = useState("");
@@ -44,9 +48,12 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, close, onSettl
   }, [phase, close]);
 
   const shown = tokenId === WRAP ? (native ? "NEAR" : "wNEAR") : symbol;
+  const unit = tokenId === WRAP ? "NEAR" : symbol; // Rhea's own balances, named as people know the asset
   // What the amount can be at most, by action (display help only; the server re-checks everything).
   const max = !pos ? null : action === "supply" || action === "collateral_add" ? (tokenId === WRAP && native ? pos.nativeNear : pos.wallet)
     : action === "withdraw" ? pos.supplied : action === "collateral_release" ? pos.collateral : action === "repay" ? pos.borrowed : null;
+  const fraction = (n: bigint) => { if (!max || !pos) return; try { const raw = units(max, pos.decimals) * n / 100n; const s = raw.toString().padStart(pos.decimals + 1, "0"); const v = (s.slice(0, -pos.decimals) + "." + s.slice(-pos.decimals)).replace(/\.?0+$/, ""); setAmount(v || "0"); } catch { /* unreadable balance */ } };
+  const hasMax = !!max && Number(max) > 0;
   const valid = (() => { try { return !!pos && units(amount, pos.decimals) > 0n; } catch { return false; } })();
 
   async function prepare() {
@@ -104,34 +111,35 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, close, onSettl
   const disabledAction = (a: Action) => !pos ? false : a === "supply" ? !pos.canDeposit : a === "collateral_add" ? !(pos.canDeposit && pos.canCollateral) : a === "borrow" ? !pos.canBorrow : a === "withdraw" || a === "collateral_release" ? !pos.canWithdraw : false;
 
   return createPortal(<div className="fv-dialog-backdrop" onClick={() => { if (!busy) close(); }}>
-    <div className={"fv-dialog fv-swap-confirm is-" + phase} role="dialog" aria-modal="true" aria-label={LABEL[action] + " " + symbol} onClick={e => e.stopPropagation()}>
+    <div className={"fv-dialog fv-swap-confirm fv-rhea-sheet is-" + phase} role="dialog" aria-modal="true" aria-label={LABEL[action] + " " + symbol} onClick={e => e.stopPropagation()}>
       {!busy && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
       <div className="fv-confirm-pair"><TokenIcon symbol={symbol} image={icon ?? undefined} network="near" core={["USDC", "USDT", "USDt", "NEAR", "wNEAR"].includes(symbol)} size={52} /></div>
       <h2>{phase === "form" ? `${tokenId === WRAP ? "NEAR" : symbol} on Rhea` : phase === "preparing" ? "Checking" : phase === "allowing" ? "Updating your policy" : phase === "wallet" ? "Confirm in your wallet" : phase === "settling" ? "Settling on NEAR" : phase === "done" ? "Done" : phase === "failed" ? "Didn’t complete" : phase === "error" ? "Not sent" : `${LABEL[action]} ${fmtAmount(amount)} ${shown}`}</h2>
-      <p className="fv-confirm-sub">{phase === "form" ? "Variable rates. Prices from Rhea’s own oracle; your limits apply." : phase === "preparing" ? "Fresh balances, prices, health, liquidity and your limits." : phase === "wallet" ? "Approve the transactions in your wallet. This card stays until NEAR finalizes them." : phase === "settling" ? "Waiting for final receipts." : phase === "done" || phase === "failed" ? attempt?.message : phase === "error" ? error : "Exact transactions, checked against your limits before your wallet opens."}</p>
+      <p className="fv-confirm-sub">{phase === "form" ? `Supply APY ${pct(rates?.supply)} · Borrow APY ${pct(rates?.borrow)} · variable` : phase === "preparing" ? "Fresh balances, prices, health, liquidity and your limits." : phase === "wallet" ? "Approve the transactions in your wallet. This card stays until NEAR finalizes them." : phase === "settling" ? "Waiting for final receipts." : phase === "done" || phase === "failed" ? attempt?.message : phase === "error" ? error : "Exact transactions, checked against your limits before your wallet opens."}</p>
 
       {phase === "form" && <>
-        <div className="fv-segment fv-segment-small" style={{ flexWrap: "wrap", justifyContent: "center" }}>{actions.map(a => <button type="button" key={a} aria-pressed={action === a} disabled={disabledAction(a)} onClick={() => { setAction(a); setAmount(""); }}>{LABEL[a]}</button>)}</div>
+        <div className={"fv-rhea-tabs" + (actions.length > 2 ? " is-grid" : "")} role="tablist">{actions.map(a => <button type="button" role="tab" key={a} aria-selected={action === a} disabled={disabledAction(a)} onClick={() => { setAction(a); setAmount(""); }}>{TAB[a]}</button>)}</div>
         {posError && <p role="alert" className="fv-notice">{posError}</p>}
+        <div className="fv-swap-amount fv-rhea-amount">
+          <div className="fv-swap-box-head"><label htmlFor="rhea-amount">{SOURCE[action]}</label>
+            {max !== null ? <span className="fv-swap-balance"><Wallet size={13} /> {fmtAmount(max)} {action === "repay" ? "owed" : shown}{hasMax && [25n, 50n, 100n].map(p => <button type="button" key={String(p)} onClick={() => fraction(p)}>{p === 100n ? "Max" : p + "%"}</button>)}</span>
+              : action === "borrow" && pos ? <span className="fv-swap-balance">{fmtAmount(pos.available)} {unit} available</span> : null}</div>
+          <div className="fv-swap-line"><input id="rhea-amount" inputMode="decimal" autoComplete="off" value={amount} onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" aria-label={"Amount in " + shown} /><span className="fv-rhea-unit"><TokenIcon symbol={symbol} image={icon ?? undefined} network="near" size={22} />{shown}</span></div>
+        </div>
         <div className="fv-confirm-table">
-          <div><span>In your wallet</span><strong>{pos ? `${fmtAmount(tokenId === WRAP && native ? pos.nativeNear : pos.wallet)} ${shown}` : "…"}</strong></div>
-          <div><span>Supplied · collateral</span><strong>{pos ? `${fmtAmount(pos.supplied)} · ${fmtAmount(pos.collateral)}` : "…"}</strong></div>
-          {mode === "borrow" && <div><span>Borrowed</span><strong>{pos ? fmtAmount(pos.borrowed) + " " + symbol : "…"}</strong></div>}
-          <div><span>Rhea liquidity</span><strong>{pos ? fmtAmount(pos.available) + " " + symbol : "…"}</strong></div>
-          {mode === "borrow" && <div><span>Health now</span><strong>{pos?.health ?? "…"}</strong></div>}
+          {mode === "earn" ? <>
+            <div><span>Supplied on Rhea</span><strong>{pos ? `${fmtAmount(pos.supplied)} ${unit}` : "…"}</strong></div>
+            {pos && pos.collateral !== "0" && <div><span>As collateral</span><strong>{fmtAmount(pos.collateral)} {unit}</strong></div>}
+          </> : <>
+            <div><span>Collateral · borrowed</span><strong>{pos ? `${fmtAmount(pos.collateral)} · ${fmtAmount(pos.borrowed)} ${unit}` : "…"}</strong></div>
+            <div><span>Health now</span><strong>{pos?.health ?? "…"}</strong></div>
+          </>}
+          <div><span>Rhea liquidity</span><strong>{pos ? `${fmtAmount(pos.available)} ${unit}` : "…"}</strong></div>
         </div>
         {pos && !pos.priced && <p className="fv-notice">Rhea’s oracle has no verified price for {symbol} right now, so FlowVault can’t check your limits. Try again shortly.</p>}
-        <label className="fv-field" style={{ display: "grid", gap: 6, marginTop: 10 }}>
-          <span className="fv-muted">Amount ({shown})</span>
-          <span style={{ display: "flex", gap: 8 }}>
-            <input inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0.0" style={{ flex: 1, minWidth: 0 }} aria-label={"Amount in " + shown} />
-            {max && Number(max) > 0 && <button type="button" className="fv-button" onClick={() => setAmount(max)}>Max</button>}
-          </span>
-        </label>
-        {tokenId === WRAP && action !== "repay" && <label className="fv-muted" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}><input type="checkbox" checked={native} onChange={e => setNative(e.target.checked)} /> Use native NEAR (wrap / unwrap automatically)</label>}
-        {tokenId === WRAP && action === "repay" && <label className="fv-muted" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}><input type="checkbox" checked={native} onChange={e => setNative(e.target.checked)} /> Repay from native NEAR</label>}
-        {action === "borrow" && <label className="fv-muted" style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 8 }}><input type="checkbox" checked={debtOk} onChange={e => setDebtOk(e.target.checked)} /> I’m taking on new debt. It accrues variable interest and the collateral can be liquidated if prices fall.</label>}
-        <div className="fv-confirm-actions"><button type="button" className="fv-button fv-primary fv-wide-button" disabled={!valid || (action === "borrow" && !debtOk) || (pos !== null && !pos.priced)} onClick={() => void prepare()}>{valid ? `Review ${LABEL[action].toLowerCase()}` : "Enter an amount"}</button></div>
+        {tokenId === WRAP && <label className="fv-rhea-check"><input type="checkbox" checked={native} onChange={e => setNative(e.target.checked)} /><span>{action === "repay" ? "Repay from native NEAR" : "Use native NEAR"}<small>{action === "supply" || action === "collateral_add" || action === "repay" ? "Wraps it to wNEAR in the same transaction." : "Unwraps the wNEAR Rhea pays out."}</small></span></label>}
+        {action === "borrow" && <label className="fv-rhea-check is-warn"><input type="checkbox" checked={debtOk} onChange={e => setDebtOk(e.target.checked)} /><span>I’m taking on new debt<small>It accrues variable interest, and your collateral can be liquidated if prices fall.</small></span></label>}
+        <div className="fv-confirm-actions"><button type="button" className="fv-button fv-primary fv-wide-button" disabled={!valid || (action === "borrow" && !debtOk) || (pos !== null && !pos.priced)} onClick={() => void prepare()}>{!valid ? "Enter an amount" : action === "borrow" && !debtOk ? "Confirm the new debt above" : `Review ${TAB[action].toLowerCase()}`}</button></div>
       </>}
 
       {review && !["form", "error"].includes(phase) && <div className="fv-confirm-table">
