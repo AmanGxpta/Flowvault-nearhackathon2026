@@ -21,6 +21,9 @@ export interface IntentsPreparation {
   outputRaw: string; minOutRaw: string; slippageBps: number; eta: number | null; quoteDeadline: string;
   inputUsd: string | null; minOutUsd: string | null; capturedAt: string; venue: "NEAR Intents";
   transactions: SwapTx[]; evmTx: EvmDepositTx | null; policyAction: PolicyAction; quote: unknown; walletAskedAt?: string; nonceAtAsk?: string;
+  /** Set when FlowVault closed the request as not sent while a wallet prompt might still be open; the deposit
+   * address is watched for a late approval for LATE_WATCH_MS after this. */
+  closedUnsentAt?: string;
   result?: { status: string; deliveredRaw: string | null; delivered: string | null; refundedRaw: string | null; originHashes: string[]; destinationHashes: string[] };
 }
 

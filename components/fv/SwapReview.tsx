@@ -15,7 +15,7 @@ import type { WalletAttempt } from "@/lib/flowvault/execution";
 
 interface Prepared {
   attempt: WalletAttempt;
-  review: { output: string; minimum: string; inputUsd: string | null; minOutUsd: string | null; gasNearBound: string; steps: { receiver: string; methods: string[] }[]; hops?: number; route?: string; eta?: number | null; gasUsd?: string | null; sender?: string; recipient?: string; fromNetwork?: string; toNetwork?: string; expiresAt: string; unwrapNote?: string };
+  review: { output: string; minimum: string; inputUsd: string | null; minOutUsd: string | null; gasNearBound: string; steps: { receiver: string; methods: string[] }[]; hops?: number; route?: string; eta?: number | null; gasUsd?: string | null; sender?: string; recipient?: string; fromNetwork?: string; toNetwork?: string; expiresAt: string; unwrapNote?: string; warning?: string };
   policy: { allowed: boolean; violations: { code: string; message: string }[]; missingEntries: { label: string }[]; revision: number; version: number };
 }
 type Phase = "preparing" | "review" | "allowing" | "wallet" | "settling" | "done" | "failed" | "error";
@@ -168,6 +168,7 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
 
       {review && phase === "review" && <ol className="fv-confirm-steps">{review.steps.map((s, i) => <li key={i}><span>{i + 1}</span>{s.methods.map(m => STEP_NAMES[m] ?? m).join(" + ")}<small>{s.receiver}</small></li>)}</ol>}
       {review?.unwrapNote && phase === "review" && <p className="fv-muted fv-confirm-note">{review.unwrapNote}</p>}
+      {review?.warning && phase === "review" && <p role="status" className="fv-notice">{review.warning}</p>}
 
       {prep && phase === "review" && (prep.policy.allowed
         ? <div className="fv-policy-check is-ok"><ShieldCheck size={17} /><div><strong>Within your limits</strong><small>Per-action cap, daily cap, cost limit and approved venues checked · policy v{prep.policy.version}</small></div></div>

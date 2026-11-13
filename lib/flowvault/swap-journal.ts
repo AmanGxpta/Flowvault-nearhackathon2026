@@ -2,7 +2,7 @@
 // check, and the wallet_attempts journal (authorize → wallet → attach/check). FlowVault never signs: the owner
 // approves the exact reviewed transactions in their own wallet.
 import { session } from "./store.ts";
-import { attemptsDb, createAttempt, readAttempt, saveAttempt, listActiveAttempts } from "./attempts.ts";
+import { attemptsDb, createAttempt, readAttempt, saveAttempt, listActiveAttempts, listAttempts } from "./attempts.ts";
 import { assertSignable } from "./execution.ts";
 import { evaluatePolicy, defaultPolicy } from "./policy.ts";
 import { checkPolicy, readLedger, reservePolicy, releasePolicy } from "./policy-store.ts";
@@ -279,10 +279,12 @@ export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], 
   const policy = s.workspace.policy ?? defaultPolicy();
   const check = evaluatePolicy(preparation.policyAction, policy, await readLedger(s.id), now);
   const missing = intentsPolicyEntries(preparation).filter(e => e.type === "venue" ? !policy.venues.includes(e.venue) : !policy.methods.some(m => m.receiver === e.receiver && m.method === e.method));
+  const earlierOpen = await closedButWatched(s.id, sender);
   const attempt = await createAttempt(s.id, s.workspace.mandate.version, preparation as never, "swap");
   return {
     attempt,
     review: {
+      ...(earlierOpen.length ? { warning: `An earlier swap request from this wallet (${earlierOpen[0]}) was closed as not sent, but its wallet prompt may still be open. Reject it in your wallet before approving this one.` } : {}),
       route: "intents", output: decimal(BigInt(q.outputRaw), to.decimals), minimum: decimal(BigInt(q.minOutRaw), to.decimals), inputUsd: preparation.inputUsd, minOutUsd: preparation.minOutUsd,
       gasNearBound: decimal(gasNear, 24), gasUsd: gasUsd6 === null ? null : decimal(gasUsd6), eta: q.eta, expiresAt: preparation.expiresAt, sender, recipient, depositAddress: q.depositAddress,
       fromNetwork: from.network, toNetwork: to.network,
@@ -322,16 +324,48 @@ async function resolveUnhashed(sessionId: string, a: import("./execution.ts").Wa
     const pending = await evmRpc(p.from.network as "eth" | "base" | "arb", "eth_getTransactionCount", [p.accountId, "pending"]).then(hexQuantity).catch(() => null);
     const askedAt = Date.parse(p.walletAskedAt ?? a.createdAt);
     if (pending !== null && pending === BigInt(p.nonceAtAsk) && Date.now() - askedAt >= NONCE_GRACE_MS) {
-      a.state = "failed"; a.message = "Not sent. No transaction left your wallet, so the request was closed.";
+      // Nothing has left the wallet yet, but its prompt may still be open. Close it, and keep watching the
+      // deposit address so a late approval is picked up and tracked rather than lost.
+      a.state = "failed"; p.closedUnsentAt = new Date().toISOString();
+      a.message = "Not sent. No transaction left your wallet, so the request was closed. If its wallet prompt is still open, reject it there; if it's approved later, FlowVault picks up the deposit and tracks it.";
       await releasePolicy(sessionId, a.id);
       return true;
     }
     if (pending !== null && pending > BigInt(p.nonceAtAsk)) { a.message = "A transaction left your wallet. Waiting for NEAR Intents to see the deposit…"; return false; }
   }
   if (unsentAt(a) > Date.now()) return false;
-  a.state = "failed"; a.message = "Not sent. Nothing reached the NEAR Intents deposit address, so the request was closed.";
+  a.state = "failed"; p.closedUnsentAt = new Date().toISOString();
+  a.message = "Not sent. Nothing reached the NEAR Intents deposit address, so the request was closed. If its wallet prompt is still open, reject it there.";
   await releasePolicy(sessionId, a.id);
   return true;
+}
+const LATE_WATCH_MS = 24 * 3600_000;
+const lateWatched = (a: import("./execution.ts").WalletAttempt, p: IntentsPreparation) =>
+  a.state === "failed" && !a.hashes.length && !!p.closedUnsentAt && Date.now() - Date.parse(p.closedUnsentAt) < LATE_WATCH_MS;
+/** A request closed as not sent whose wallet prompt was approved afterwards: NEAR Intents shows a deposit, so the
+ * swap reopens and is tracked to delivery or refund. */
+async function lateDeposit(a: import("./execution.ts").WalletAttempt, p: IntentsPreparation) {
+  if (!lateWatched(a, p)) return false;
+  const st = await intentsStatus(p).catch(() => null);
+  if (!st || st.status === "PENDING_DEPOSIT" || st.status === "UNKNOWN") return false;
+  a.state = "submitted"; a.hashes = st.originHashes.slice(0, 1);
+  p.result = { status: st.status, deliveredRaw: st.deliveredRaw, delivered: st.deliveredRaw ? decimal(BigInt(st.deliveredRaw), p.to.decimals) : null, refundedRaw: st.refundedRaw, originHashes: st.originHashes, destinationHashes: st.destinationHashes };
+  a.message = "The wallet request was approved after FlowVault closed it. NEAR Intents received the deposit; tracking delivery…";
+  appendStep(a, "late-deposit", "submitted", a.message, { evidence: { depositAddress: p.depositAddress, status: st.status } });
+  return true;
+}
+/** Earlier swaps from this wallet that were closed as not sent but may still have an open wallet prompt. A late
+ * deposit reopens them (and the caller blocks); otherwise their age is returned for a warning. */
+async function closedButWatched(sessionId: string, sender: string, except?: string) {
+  const open: string[] = [];
+  for (const other of await listAttempts(sessionId)) {
+    const op = other.preparation as unknown as IntentsPreparation;
+    if (other.id === except || other.kind !== "swap" || op.route !== "intents" || other.accountId.toLowerCase() !== sender.toLowerCase() || !lateWatched(other, op)) continue;
+    const before = JSON.stringify(other);
+    if (await lateDeposit(other, op)) { await saveAttempt(sessionId, other, before); throw new Error(`An earlier swap from this wallet (started ${minutesAgo(other.createdAt)}) was approved in your wallet after it was closed. FlowVault is tracking that deposit now; check Activity before swapping again.`); }
+    if (Date.now() - Date.parse(op.closedUnsentAt!) < 30 * 60_000) open.push(minutesAgo(other.createdAt));
+  }
+  return open;
 }
 const NONCE_GRACE_MS = 20_000;
 const minutesFrom = (ms: number) => { const m = Math.round((ms - Date.now()) / 60_000); return m <= 0 ? "now" : m === 1 ? "in about a minute" : `in about ${m} minutes`; };
@@ -340,6 +374,11 @@ const minutesAgo = (iso: string) => { const m = Math.max(0, Math.round((Date.now
 export async function intentsJournalAction(request: Request, id: string, action: string, hashes: string[] = []) {
   const s = await session(request), { attempt: a, previous } = await readAttempt(s.id, id), p = a.preparation as unknown as IntentsPreparation;
   if (a.kind !== "swap" || p.route !== "intents" || s.workspace.mode !== "live") throw new Error("Swap not in this live workspace.");
+  if ((action === "check" || action === "attach") && a.state === "failed" && lateWatched(a, p)) {
+    const before = JSON.stringify(a);
+    if (await lateDeposit(a, p)) await saveAttempt(s.id, a, before);
+    return a;
+  }
   if ((action === "check" || action === "attach") && ["confirmed", "failed"].includes(a.state)) return a;
   let revision: number | undefined;
   const evm = !!p.evmTx;
@@ -349,6 +388,8 @@ export async function intentsJournalAction(request: Request, id: string, action:
     if (a.mandateVersion !== s.workspace.mandate.version) throw new Error("Your cash plan changed. Review the swap again.");
     if (s.account !== s.workspace.accountId || ownWallet(s.workspace, p.from.network, p.accountId) !== p.accountId || ownWallet(s.workspace, p.to.network, p.recipient) !== p.recipient)
       throw new Error("The sending or receiving wallet is no longer connected and proven.");
+    // A request closed as not sent may still have a wallet prompt open: pick up any late approval first.
+    await closedButWatched(s.id, p.accountId, a.id);
     // One outgoing operation per wallet at a time. Clear earlier swaps that provably never sent anything first.
     for (const other of await listActiveAttempts(s.id)) {
       if (other.id === a.id || other.accountId.toLowerCase() !== p.accountId.toLowerCase()) continue;
