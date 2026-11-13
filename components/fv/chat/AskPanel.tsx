@@ -128,7 +128,7 @@ export function AskPanel({ v }: { v: any }) { // eslint-disable-line @typescript
 
   return <>
     <div className="fv-ask-scrim" onClick={v.closeAssistant} />
-    <div className="fv-ask" role="dialog" aria-label="Ask FlowVault" data-asst-panel="">
+    <div className="fv-askpanel" role="dialog" aria-label="Ask FlowVault" data-asst-panel="">
       <header className="fv-ask-head">
         <Sparkles size={18} className="fv-ask-mark" />
         <div><strong>Ask FlowVault</strong><small>{example ? "Example workspace · fictional figures" : owner ? "Your wallets, your approvals" : "Public research · connect a wallet for your funds"}</small></div>

@@ -543,7 +543,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 /* ───────────── Ask FlowVault: conversation panel and inline operation cards ───────────── */
 .fv-ask-scrim{position:fixed;inset:0;z-index:39;background:rgba(30,42,34,.10)}
-.fv-ask{position:fixed;top:0;right:0;bottom:0;width:min(560px,100vw);z-index:40;display:flex;flex-direction:column;background:var(--fvb-FFFFFF);border-left:1px solid var(--fvb-E3E6DB);box-shadow:-24px 0 60px rgba(30,42,34,.14);color:var(--fvc-1E2A22);animation:fv-ask-in .22s cubic-bezier(.2,.8,.3,1)}
+.fv-askpanel{position:fixed;top:0;right:0;bottom:0;width:min(560px,100vw);z-index:40;display:flex;flex-direction:column;background:var(--fvb-FFFFFF);border-left:1px solid var(--fvb-E3E6DB);box-shadow:-24px 0 60px rgba(30,42,34,.14);color:var(--fvc-1E2A22);animation:fv-ask-in .22s cubic-bezier(.2,.8,.3,1)}
 @keyframes fv-ask-in{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
 .fv-ask-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--fvb-EEF0E8)}
 .fv-ask-head>div{flex:1;min-width:0;display:flex;flex-direction:column}.fv-ask-head strong{font-size:17px;letter-spacing:-.01em}.fv-ask-head small{font-size:12px;color:var(--fvc-6F786B);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -616,8 +616,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .fv-review-inline .fv-confirm-pair{justify-content:flex-start;margin-bottom:8px}.fv-review-inline h2{font-size:17px}.fv-review-inline .fv-confirm-sub{margin:0 0 12px;max-width:none}
 .fv-chat-card-lend .fv-review-inline .fv-confirm-pair{display:none}
 .fv-chat-card .fv-trade-panel,.fv-chat-card .fv-trade-ticket{border:0;padding:0;box-shadow:none}
-.fv-ask button:focus-visible,.fv-ask summary:focus-visible,.fv-ask textarea:focus-visible{outline:2px solid #7b9f69;outline-offset:2px}
-@media(max-width:640px){.fv-ask{width:100vw;border-left:0}.fv-ask-log{padding:16px 14px 10px}.fv-ask-foot{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}.fv-ask-examples{grid-template-columns:1fr}.fv-ask-head{padding:12px 14px}.fv-chat-card{padding:12px}}
-@media(prefers-reduced-motion:reduce){.fv-ask,.fv-ask *{animation:none!important;transition:none!important}}
+.fv-askpanel button:focus-visible,.fv-askpanel summary:focus-visible,.fv-askpanel textarea:focus-visible{outline:2px solid #7b9f69;outline-offset:2px}
+@media(max-width:640px){.fv-askpanel{width:100vw;border-left:0}.fv-ask-log{padding:16px 14px 10px}.fv-ask-foot{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}.fv-ask-examples{grid-template-columns:1fr}.fv-ask-head{padding:12px 14px}.fv-chat-card{padding:12px}}
+@media(prefers-reduced-motion:reduce){.fv-askpanel,.fv-askpanel *{animation:none!important;transition:none!important}}
 .fv-chat-moved{font-size:12px;color:var(--fvc-8A9285);padding:6px 10px;border:1px dashed var(--fvb-E3E6DB);border-radius:10px}.fv-chat-moved:empty{display:none}
 .fv-chat-card-lend .fv-review-inline.is-form>h2{display:none}
