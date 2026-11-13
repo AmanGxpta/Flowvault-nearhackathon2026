@@ -26,9 +26,11 @@ export function PairPicker({ value, onChange }: { value: Pair; onChange: (p: Pai
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
     const t = setTimeout(() => input.current?.focus(), 0);
-    return () => { document.removeEventListener("mousedown", away); clearTimeout(t); };
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); clearTimeout(t); };
   }, [open]);
   // Perps: every listed market, refreshed at most every 20 seconds while the list is open.
   useEffect(() => {

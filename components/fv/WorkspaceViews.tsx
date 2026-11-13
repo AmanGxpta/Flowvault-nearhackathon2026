@@ -136,7 +136,7 @@ export function TradeDesk({ v }: { v: any }) {
   const setPair = (p: Pair) => { setPairState(p); const u = new URL(window.location.href); u.searchParams.set("pair", p.kind === "perp" ? "perp:" + p.coin : `spot:${p.chain}:${p.address}:${p.symbol}`); history.replaceState(null, "", u); };
   const market = pair.kind === "perp" ? pair.coin : "ETH";
   const setMarket = (coin: string) => setPair({ kind: "perp", coin });
-  const picker = <PairPicker value={pair} onChange={setPair} />;
+  const picker = <PairPicker key={pair.kind === "perp" ? pair.coin : pair.address} value={pair} onChange={setPair} />;
   const [shared,setShared] = useState<{title:string;subtitle:string;lines:string[];amount?:string} | null>(null);
   const [draft,setDraft] = useState<OrderDraft | null>(null);
   if (pair.kind === "spot") return <><PageHeading title="Trade" description="Spot tokens on any supported chain and Hyperliquid perps, checked against your limits." action={<Button onClick={v.goPolicy}><SlidersHorizontal size={16} /> Trading permissions</Button>} /><SpotDesk token={pair} picker={picker} buy={id => { const url = new URL(window.location.href); url.searchParams.set("buy", id); history.replaceState(null, "", url); v.navigate("swap"); }} /></>;

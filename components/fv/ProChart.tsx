@@ -40,8 +40,9 @@ export function ProChart({ candles, seriesKey, fmt, height = 340 }: { candles: C
       rightPriceScale: { borderColor: c.border, scaleMargins: { top: 0.08, bottom: 0.22 } },
       timeScale: { borderColor: c.border, timeVisible: true, secondsVisible: false, rightOffset: 4, barSpacing: 8 },
       crosshair: { mode: CrosshairMode.Normal, vertLine: { color: c.cross, labelBackgroundColor: "#2B4233" }, horzLine: { color: c.cross, labelBackgroundColor: "#2B4233" } },
-      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      // The wheel scrolls the page; zoom with the buttons, drag to pan, drag an axis to rescale, pinch on touch.
+      handleScale: { axisPressedMouseMove: true, mouseWheel: false, pinch: true },
+      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     });
     price.current = api.addSeries(CandlestickSeries, { upColor: c.up, downColor: c.down, borderUpColor: c.up, borderDownColor: c.down, wickUpColor: c.up, wickDownColor: c.down, priceLineVisible: true, lastValueVisible: true });
     volume.current = api.addSeries(HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
@@ -83,9 +84,21 @@ export function ProChart({ candles, seriesKey, fmt, height = 340 }: { candles: C
     loaded.current = { key: seriesKey, lastT: last.t };
   }, [candles, seriesKey]);
 
+  /** Zoom around the newest candles: factor < 1 shows fewer bars, > 1 more. */
+  function zoom(factor: number) {
+    const ts = chart.current?.timeScale(), r = ts?.getVisibleLogicalRange();
+    if (!ts || !r) return;
+    const span = Math.max(10, (r.to - r.from) * factor);
+    ts.setVisibleLogicalRange({ from: r.to - span, to: r.to });
+  }
   const shown = hover ?? candles[candles.length - 1];
   return <div className="fv-prochart">
     {shown && <div className="fv-candle-readout"><span>{new Date(shown.time).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span><span>O {fmt(shown.open)}</span><span>H {fmt(shown.high)}</span><span>L {fmt(shown.low)}</span><span className={shown.close >= shown.open ? "fv-up" : "fv-down"}>C {fmt(shown.close)}</span>{shown.volume > 0 && <span>Vol {Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(shown.volume)}</span>}</div>}
+    <div className="fv-prochart-zoom" role="group" aria-label="Chart zoom">
+      <button type="button" aria-label="Zoom in" onClick={() => zoom(0.6)}>+</button>
+      <button type="button" aria-label="Zoom out" onClick={() => zoom(1.6)}>−</button>
+      <button type="button" aria-label="Show all history" onClick={() => chart.current?.timeScale().fitContent()}>Fit</button>
+    </div>
     <div ref={host} className="fv-prochart-canvas" style={{ height }} role="img" aria-label={`Price chart, ${candles.length} candles. Latest close ${candles.length ? fmt(candles[candles.length - 1].close) : "unknown"}.`} />
   </div>;
 }
