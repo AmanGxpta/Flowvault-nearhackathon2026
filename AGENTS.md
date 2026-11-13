@@ -8,7 +8,7 @@ Read README.md, docs/pitch.md, docs/PRODUCT.md and docs/COMPETITOR_GAPS.md: thes
 - Fail closed when identity, decimals, health, fees, availability or withdrawal terms are unknown.
 - Use same-net-payout comparisons, protect the reserve, consider unreserved cash, and separate refundable buffer from fees.
 - Preserve local D1 revision checks, idempotency and account/mandate/source fencing.
-- Record actual third-party imports/revisions/licenses in THIRD_PARTY.md. Do not inherit upstream keys, personal accounts, partner fee recipients or demo deployments.
+- Do not inherit upstream keys, personal accounts, partner fee recipients or demo deployments.
 - Run npm test, npm run typecheck, npm run build after relevant changes. npm run smoke requires the local dev server and reads public mainnet data.
 
 - Dated obligations are implemented. Preserve the conservative legacy cash guard during migration and reserve-plus-horizon obligations thereafter. Personal and example workspaces have separate records; Judge mode must never mutate the personal source. Fictional USDT equivalence is allowed only in example scope; live unknown FX, health, fees or valuation must block execution.
