@@ -1,4 +1,5 @@
 "use client";
+import {HolderVaultReceipts} from "./HolderVaultReceipts";
 // Activity · Statement. Every figure comes from Engines' journal-derived ledger (GET /api/statement); this
 // component only formats it. Realized totals, pending/unresolved items and forecasts are kept apart, and an
 // unpriced entry is shown as unpriced, never as zero. CSV export is GET /api/ledger?format=csv.
@@ -229,7 +230,8 @@ export function StatementPanel({ scope }: { scope: Scope }) {
                 <p style={{ margin: 0, fontSize: "13px", color: "var(--fvc-8A9285)" }}>Nothing to forecast from today’s balances.</p>
               )}
               <p style={{ margin: "8px 0 0", fontSize: "12px", color: "var(--fvc-6F786B)" }}>{s.forecast.basis}</p>
-            </section>
+            <HolderVaultReceipts scope={scope} />
+</section>
           </div>
         </>
       ) : null}
