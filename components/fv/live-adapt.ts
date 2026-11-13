@@ -100,10 +100,10 @@ export function liveState(snap: LiveSnapshot) {
       return {
         id: a.id,
         src: "journal",
-        kind: KIND[a.kind] ?? a.kind,
-        title: a.kind === "pay" ? "Payout" : "Rhea Lending",
+        kind: a.kind === "swap" ? "Swap" : KIND[a.kind] ?? a.kind,
+        title: a.kind === "swap" ? swapTitle(a) : a.kind === "pay" ? "Payout" : "Rhea Lending",
         amount,
-        sub: whenLabel(a.createdAt) + " · " + (a.kind === "supply" ? "native USDC → Rhea · collateral off" : a.kind === "withdraw" ? "Rhea → wallet" : "payout"),
+        sub: whenLabel(a.createdAt) + " · " + (a.kind === "swap" ? swapSub(a) : a.kind === "supply" ? "native USDC → Rhea · collateral off" : a.kind === "withdraw" ? "Rhea → wallet" : "payout"),
         status: ATTEMPT_STATUS[a.state] ?? "progress",
         steps: steps.length ? steps : [{ label: phaseLabel(a.state), detail: a.message, time: whenLabel(a.updatedAt), hash: "", state: stepState(a.state) }],
         foot: a.message || "Status from the server journal.",
@@ -211,6 +211,9 @@ const secName = (id: string) => {
   if (m) return shortAddress(m[2]) + " · " + (m[1] === "evm" ? (NET_NAME[m[3] ?? ""] ?? m[3]) : m[1] === "solana" ? "Solana" : "NEAR");
   return id.replace(/-/g, " ");
 };
+/** Swap journal entries in Activity: "Swap USDC → NEAR" and the route with networks. */
+const swapTitle = (a: any) => { const p = a.preparation ?? {}; return "Swap " + (p.from?.symbol ?? "") + " → " + (p.to?.symbol ?? ""); };
+const swapSub = (a: any) => { const p = a.preparation ?? {}; return p.route === "intents" ? "NEAR Intents · " + (p.from?.network ?? "") + " → " + (p.to?.network ?? "") : "Rhea / Ref · NEAR"; };
 const LAST_GOOD = new Map<string, { value: string; at: string }>();
 const shortWhy = (rs: string[] = []) => (rs.some((r) => /429|providers failed|NetworkError|fetch|RPC/i.test(r)) ? "NEAR RPC unavailable" : rs[0] ?? "");
 const metricSub = (m: Usable | undefined, fallback: string) => {

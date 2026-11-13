@@ -345,9 +345,10 @@ export class DesignApp extends Component<any, any> {
     const cmpTabs = sorted.filter((o: any) => days(o.due) > 0).slice(0, 4).map((o: any) => ({ label: o.name.split(' ')[0] + ' · ' + dlabel(o.due), bg: o.id === cmpOb.id ? '#fff' : 'transparent', shadow: o.id === cmpOb.id ? '0 1px 3px rgba(0,0,0,.08)' : 'none', onClick: () => self.setState({ compareTo: o.id }) }));
 
     // activity
-    const kindIcon: any = { Payout: ['↗', '#E7ECF3', '#3F5A7A'], Supply: ['↑', '#E2EAD6', '#3F6B3C'], Withdrawal: ['↙', '#F6EBDD', '#8A5F25'] };
+    const kindIcon: any = { Payout: ['↗', '#E7ECF3', '#3F5A7A'], Supply: ['↑', '#E2EAD6', '#3F6B3C'], Withdrawal: ['↙', '#F6EBDD', '#8A5F25'], Swap: ['⇄', '#EEF4E4', '#3F6B3C'] };
+    const OTHER_ICON = ['•', '#EEF0E8', '#5B6458']; // any journal kind without its own icon must still render
     const ops = s.ops.map((o: any) => {
-      const st = ST[o.status] || ST.progress; const ic = kindIcon[o.kind]; const open = s.openOp === o.id;
+      const st = ST[o.status] || ST.progress; const ic = kindIcon[o.kind] ?? OTHER_ICON; const open = s.openOp === o.id;
       return { ...o, ...self.opExtra(o), amountF: num(o.amount) + ' ' + AS(o), stLabel: st[0], stBg: st[1], stColor: st[2], icon: ic[0], iconBg: ic[1], iconColor: ic[2], isOpen: open, chev: open ? '▴' : '▾',
         steps: deco(o.steps), footBg: o.status === 'stuck' ? '#F6E3DE' : o.status === 'refunded' ? '#F6EBDD' : '#F4F5EF', footColor: o.status === 'stuck' ? '#7F3528' : o.status === 'refunded' ? '#7A521E' : '#5B6458',
         onToggle: () => self.setState({ openOp: open ? null : o.id }) };
