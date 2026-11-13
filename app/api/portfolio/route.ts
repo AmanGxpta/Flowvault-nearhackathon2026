@@ -4,6 +4,7 @@ import { mayRead } from "@/lib/flowvault/account-registry";
 import { usableBalances } from "@/lib/flowvault/usable";
 import { portfolioCredit } from "@/lib/flowvault/credit-live";
 import { listActiveAttempts } from "@/lib/flowvault/attempts";
+import { pendingOutflows, applyPendingOutflows } from "@/lib/flowvault/pending-outflows";
 import { units, decimal } from "@/lib/flowvault/money";
 import { readValuationEvidence } from "@/lib/flowvault/valuation-evidence";
 import { attachReservations, capitalView, usdcInFlightRaw } from "@/lib/flowvault/valuation";
@@ -38,6 +39,12 @@ export async function GET(r: Request) {
         pools: (q.get("pools") ?? "").split(",").filter(Boolean),
       },
     );
+    // Deposits FlowVault has verified on an EVM chain leave the wallet at once, not ~15 minutes later when the
+    // finalized block (which the portfolio reads) catches up.
+    if (s.workspace.mode !== "demo") {
+      const pending = await pendingOutflows(s.id).catch(() => []);
+      if (pending.length) p.positions = applyPendingOutflows(p.positions as never[], pending);
+    }
     const active =
       s.workspace.mode === "demo" ? [] : await listActiveAttempts(s.id);
     const reserved = usdcInFlightRaw(active, p.accountId);
