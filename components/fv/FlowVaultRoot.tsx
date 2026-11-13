@@ -5,7 +5,7 @@ import { PlanDock } from "./PlanDock";
 import { signFundingLeg } from "@/lib/flowvault/funding-mesh-client"; // Stream A: funding legs
 import { DesignApp } from "./design-logic";
 import { api, clearLegacyEvm, emptySnapshot, getScope, loadSnapshot, setScope, takeLegacyEvm, type LiveSnapshot, type Scope } from "./live";
-import { useNearWallet, signUnwrap, signWnearRegister, signSupply, signWithdraw, signPayment, signSale, signLending, signStaking, signNativeStaking, walletClient } from "@/lib/flowvault/wallet";
+import { useNearWallet, signUnwrap, signWnearRegister, signSupply, signWithdraw, signPayment, signSale, signLending, signStaking, signNativeStaking, signVault, walletClient } from "@/lib/flowvault/wallet";
 import { useMultiWallets, connectWallet, disconnectWallet, sendUsdcTransfer, sendAaveOperation, sendSaleTransfer, type DiscoveredWallet, type WalletSession } from "@/lib/flowvault/wallets";
 
 const noopSubscribe = () => () => {};
@@ -336,6 +336,7 @@ export function FlowVaultRoot() {
           const outcomes = await (k === "sell" ? signSale(preparation) : lending ? signLending(preparation)
             : liquidStaking ? signStaking({ ...preparation, attemptId: preparation.attemptId })
             : nativeStaking ? signNativeStaking(preparation)
+            : k.startsWith("vault_") ? signVault(preparation) // Stream A
             : k === "withdraw" ? signWithdraw(preparation)
             : k === "pay" ? signPayment(preparation)
             : k === "supply" || !k ? signSupply(preparation)

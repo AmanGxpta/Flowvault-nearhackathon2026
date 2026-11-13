@@ -244,6 +244,7 @@ const SIGNED: StepKind[] = [
   "supply", "withdraw", "stake", "unstake", "withdraw_unstaked", "native_stake", "native_unstake", "native_withdraw", "collateral_add",
   "borrow", "repay", "collateral_release", "pay_deposit",
   "fund_transfer", // Stream A: signed by the source account's own wallet (signer set by wireLegSteps)
+  "vault_deposit", "vault_redeem", "vault_cancel", "vault_claim", "vault_settle", // Stream A: owner-signed vault calls
 ];
 
 export interface StepSpec {
@@ -341,6 +342,11 @@ export const STEP_LABEL: Record<StepKind, string> = {
   wait_until: "Wait",
   credit_settlement: "Verify canonical NEAR USDC delivery",
   fund_transfer: "Move USDC to your NEAR account",
+  vault_deposit: "Deposit USDC into the vault",
+  vault_redeem: "Request a vault redemption",
+  vault_cancel: "Cancel a queued vault request",
+  vault_claim: "Claim USDC from the vault",
+  vault_settle: "Settle a vault request",
 };
 
 export type { Chain };

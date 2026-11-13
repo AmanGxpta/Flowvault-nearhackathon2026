@@ -1,4 +1,5 @@
 import { approvedSaleChoices } from "./sale-live";
+import { reviewVault } from "./vault-plans"; // Stream A
 import { wireCreditSettlement } from "./aave-funding";
 // Builds action plans from ENGINE figures (owner: Interface). Every amount here is computed by an existing
 // engine (calendar ranking, payment sources, policy evaluation, exact-output quote). This file only maps
@@ -732,6 +733,7 @@ export async function evaluatePlan(s: SessionLike, id: string, req: PlanRequest)
 
 /** Expands the owner's choice into steps sized by the engine figures stored on the plan. */
 export function reviewChoice(plan: StoredPlan, choiceId: string) {
+  if (plan.objective === "vault_operation") return reviewVault(plan, choiceId); // Stream A
   const choice = plan.alternatives.find((a) => a.id === choiceId);
   if (!choice) throw new Error("Alternative not found.");
   if (choice.venueId?.startsWith("aave-v3:") && plan.request.venue === choice.venueId) {

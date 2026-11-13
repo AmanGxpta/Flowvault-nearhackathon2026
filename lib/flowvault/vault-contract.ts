@@ -32,6 +32,9 @@ export interface ConfigView {
   queue_storage_yocto: string;
   upgrade_authority?: string;
   nav_authority?: string;
+  /** v1.5: the contract's cap on max_nav_age_ms, and how settlement timing works (permissionless inside the window). */
+  max_nav_age_limit_ms?: string;
+  settlement_timing?: string;
 }
 export interface ReportView {
   sequence: string;
@@ -56,6 +59,10 @@ export interface NavView {
   report_required: boolean;
   status: "running" | "paused" | "shutdown";
   busy: { kind?: string; amount_raw?: string; operation_id?: string } | null;
+  /** v1.4: an external supply/withdrawal whose outcome is unknown. Deposits stop; exits continue at exit_nav_raw. */
+  unresolved?: { operation: { kind?: string; amount_raw?: string; operation_id?: string } & Record<string, unknown>; since_ms: string } | null;
+  /** v1.4: exit-only NAV (synced liquid + owner report after the sync); null unless available. */
+  exit_nav_raw?: string | null;
   reasons: string[];
 }
 export interface RequestView {
@@ -226,8 +233,14 @@ export function disclosures(c: ConfigView, n: NavView, actualFullAccessKeys: str
     });
   }
   d.push({ label: "Upgrade method", value: `${c.upgrade_authority ?? "The owner can upgrade the code."} There is no claim of immutable custody, and no security audit has been done.`, risk: "warn" });
-  if (n.busy)
-    d.push({ label: "Operation unresolved", value: "An external operation's outcome is unknown. Until it resolves, deposits, NAV reports and redemption settlement are blocked, and there is no reset method; recovery may need a reviewed code upgrade.", risk: "urgent" });
+  if (n.busy) d.push({ label: "Operation in flight", value: "An external operation is waiting for its callback; vault calls wait until it returns.", risk: "warn" });
+  if (n.unresolved)
+    d.push({
+      label: "Operation unresolved",
+      value: `An external ${n.unresolved.operation?.kind ?? ""} operation's outcome has been unknown since ${new Date(Number(n.unresolved.since_ms)).toISOString()}. Deposits and settlement into shares stop and no fees crystallize. Exits continue: redemptions settle at an exit-only NAV once the owner has synced the vault's USDC and filed a report${n.exit_nav_raw ? " (available now)" : " (not available yet)"}. The owner resolves it with evidence; budgets are never reset.`,
+      risk: "urgent",
+    });
+  if (c.settlement_timing) d.push({ label: "Settlement timing", value: `${c.settlement_timing} Reports expire after ${Number(B(c.max_nav_age_ms) / 1000n)} s (the contract allows at most ${Number(B(c.max_nav_age_limit_ms ?? "900000") / 1000n)} s).`, risk: "info" });
   if (c.single_depositor) d.push({ label: "Custody mode", value: `Single depositor (${c.single_depositor}): only the owner deposits, shares can't be transferred, no fees.`, risk: "info" });
   return d;
 }

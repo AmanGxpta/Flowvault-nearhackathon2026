@@ -81,7 +81,9 @@ export type PlanObjective =
   | "stake"
   | "unstake"
   | "withdraw"
-  | "respond_to_change";
+  | "respond_to_change"
+  // Stream A: one owner action on a vault (deposit, redeem, cancel, claim, settle).
+  | "vault_operation";
 
 export type PlanState =
   | "draft" // understood, not yet evaluated
@@ -117,7 +119,13 @@ export type StepKind =
   | "credit_settlement"
   | "wait_until"
   // Funding mesh (Stream A): one cross-wallet leg, signed by the source account's own wallet.
-  | "fund_transfer";
+  | "fund_transfer"
+  // Vault operations (Stream A): owner-signed calls on a FlowVault vault contract (vault-ops.ts).
+  | "vault_deposit"
+  | "vault_redeem"
+  | "vault_cancel"
+  | "vault_claim"
+  | "vault_settle";
 
 export type StepState =
   | "pending" // dependencies not met
@@ -139,7 +147,7 @@ export interface FundingChoice {
   chain?: Chain;
   id: string;
   /** "multi_source" (Stream A): funded from one or more proven accounts; legs in ActionPlan funding extras. */
-  kind: "idle_cash" | "withdraw" | "unstake" | "sell" | "borrow" | "multi_source";
+  kind: "idle_cash" | "withdraw" | "unstake" | "sell" | "borrow" | "multi_source" | "vault_operation";
   eligible: boolean;
   reasons: string[];
   amountUsdcRaw: string;

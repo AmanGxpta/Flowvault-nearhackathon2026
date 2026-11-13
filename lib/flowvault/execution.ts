@@ -34,7 +34,13 @@ export type PreparationKind =
   // P2 (Engines): native validator staking (staking-native.ts owns preparation and verification).
   | "native_stake"
   | "native_unstake"
-  | "native_withdraw";
+  | "native_withdraw"
+  // Stream A: vault operations (vault-ops.ts owns their preparation and verification).
+  | "vault_deposit"
+  | "vault_redeem"
+  | "vault_cancel"
+  | "vault_claim"
+  | "vault_settle";
 export type WalletPreparation =
   | import("./sale.ts").SalePreparation
   | SupplyPreparation
@@ -42,7 +48,8 @@ export type WalletPreparation =
   | PayPreparation
   | LendingPreparation
   | StakingPreparation
-  | NativeStakingPreparation;
+  | NativeStakingPreparation
+  | import("./vault-ops.ts").VaultPreparation;
 export interface WalletAttempt {
   /** LiNEAR client wallet handoff consumed once, durably before requesting the wallet. */
   stakingWalletHandoffAt?: string;

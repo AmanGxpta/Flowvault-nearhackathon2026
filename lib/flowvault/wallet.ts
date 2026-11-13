@@ -230,6 +230,14 @@ async function signPrepared(preparation: WalletPreparation) {
   });
 }
 
+/** Stream A: owner-signed vault operation, only after /api/transactions authorize. Guarded to the reviewed vault
+ * contract and the USDC contract (deposit), with the shape vault-ops.ts prepared. */
+export async function signVault(preparation: import("./vault-ops").VaultPreparation) {
+  if (!preparation.kind?.startsWith("vault_") || !preparation.vault?.contractId) throw new Error("Use a vault preparation for vault signing.");
+  if (preparation.transactions.some((tx) => tx.receiverId !== preparation.vault.contractId && tx.receiverId !== preparation.vault.assetId)) throw new Error("A vault operation may call only the vault and its USDC contract.");
+  return signPrepared(preparation as unknown as WalletPreparation);
+}
+
 /** Owner-only: journal authorization must succeed first; previews cannot reach the signer. */
 export async function signStaking(
   preparation: import("./staking-execution").StakingPreparation & {

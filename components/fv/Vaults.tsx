@@ -2,14 +2,16 @@
 // Strategy vaults (owner: Stream A). Holder view per proven NEAR account (shares, value, attributable exposure,
 // costs, exit terms, queue position, claims), an owner/curator view when one of your accounts holds the role, and
 // who controls the money (admin and upgrade keys checked against the account's actual keys, the trusted NAV
-// attestation). Read-only: deposits, redemptions and claims are signed in your own NEAR wallet.
+// attestation). Deposits, redemptions, cancellations, claims and settlement start plans (VaultActions) that your
+// own NEAR wallet signs; FlowVault never signs.
 import { useCallback, useEffect, useState } from "react";
 import type { VaultSnapshot } from "@/lib/flowvault/vault-contract";
 import { api, type Scope } from "./live";
+import { VaultActions, VaultOperations, type VaultOperation } from "./VaultActions";
 
 type VaultEntry = VaultSnapshot | { contractId: string; error: string };
 interface Listing { id: string; stage: string; opportunity: { title: string }; updatedAt: string; deployment: { contractId: string } | null }
-interface State { source: "live" | "example"; vaults: VaultEntry[]; listings: Listing[]; readiness: { custody: boolean; evidence: Record<string, string> }; accounts: string[] }
+interface State { source: "live" | "example"; vaults: VaultEntry[]; listings: Listing[]; readiness: { custody: boolean; evidence: Record<string, string> }; accounts: string[]; operations?: VaultOperation[]; policyAllowed?: Record<string, boolean>; signer?: string | null }
 
 const muted: React.CSSProperties = { color: "var(--fvc-5B6458)", fontSize: "12.5px", lineHeight: 1.45 };
 const btn: React.CSSProperties = { padding: "7px 12px", borderRadius: "9px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", fontSize: "12.5px", fontWeight: 500, cursor: "pointer" };
@@ -58,6 +60,16 @@ export function VaultsCard({ scope }: { scope: Scope }) {
       current = false;
     };
   }, [scope, tick]);
+  // Re-read when a plan changes, and every 15 s while one of your vault requests is in flight.
+  const inFlight = !!st?.operations?.some((o) => ["awaiting_wallet", "submitted", "unknown", "partial"].includes(o.state));
+  useEffect(() => {
+    window.addEventListener("fv:plans-refresh", read);
+    const t = inFlight ? setInterval(read, 15_000) : null;
+    return () => {
+      window.removeEventListener("fv:plans-refresh", read);
+      if (t) clearInterval(t);
+    };
+  }, [read, inFlight]);
 
   const act = async (body: Record<string, unknown>, done: string) => {
     setBusy(true);
@@ -80,7 +92,7 @@ export function VaultsCard({ scope }: { scope: Scope }) {
         Strategy vaults {st?.source === "example" ? <span style={{ ...muted, fontWeight: 500, marginLeft: "6px", padding: "2px 7px", borderRadius: "7px", background: "var(--fvb-EEF0E8)" }}>Example</span> : null}
       </h3>
       <p style={{ ...muted, margin: "4px 0 10px" }}>
-        A vault holds pooled USDC in a NEAR contract and issues shares. Its value outside the vault is reported by the owner or curator, not proven on-chain, and exits wait in a first-in, first-out queue for USDC the vault holds. Deposits, redemptions and claims are signed in your own NEAR wallet; FlowVault only reads.
+        A vault holds pooled USDC in a NEAR contract and issues shares. Its value outside the vault is reported by the owner or curator, not proven on-chain, and exits wait in a first-in, first-out queue for USDC the vault holds. Deposits, redemptions and claims become plans that your own NEAR wallet signs; FlowVault never signs.
       </p>
       {err ? <p role="alert" style={muted}>Couldn’t read vaults: {err}</p> : null}
       {note ? <p role="status" style={{ ...muted, color: "var(--fvc-1E2A22)" }}>{note}</p> : null}
@@ -99,7 +111,8 @@ export function VaultsCard({ scope }: { scope: Scope }) {
           {st.source === "live" ? <button type="button" style={{ ...btn, marginTop: "6px" }} disabled={busy} onClick={() => void act({ action: "unwatch", contractId: v.contractId }, "Stopped following.")}>Stop following</button> : null}
         </div>
       ) : (
-        <Vault key={v.contractId} v={v} live={st.source === "live"} busy={busy} unwatch={() => void act({ action: "unwatch", contractId: v.contractId }, "Stopped following.")} />
+        <Vault key={v.contractId} v={v} live={st.source === "live"} busy={busy} unwatch={() => void act({ action: "unwatch", contractId: v.contractId }, "Stopped following.")}
+          actions={st.source === "live" && st.signer ? { signer: st.signer, scope, policyAllowed: !!st.policyAllowed?.[v.contractId], ops: (st.operations ?? []).filter((o) => o.contractId === v.contractId), changed: read } : null} />
       )))}
       {st?.listings.length ? (
         <div style={box}>
@@ -114,7 +127,8 @@ export function VaultsCard({ scope }: { scope: Scope }) {
   );
 }
 
-function Vault({ v, live, busy, unwatch }: { v: VaultSnapshot; live: boolean; busy: boolean; unwatch: () => void }) {
+interface ActionProps { signer: string; scope: Scope; policyAllowed: boolean; ops: VaultOperation[]; changed: () => void }
+function Vault({ v, live, busy, unwatch, actions }: { v: VaultSnapshot; live: boolean; busy: boolean; unwatch: () => void; actions: ActionProps | null }) {
   const n = v.nav;
   const reportAge = n.report ? v.readAt - Number(n.report.observed_at_ms) : null;
   const queued = v.requests.filter((r) => r.status === "queued").sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
@@ -169,6 +183,12 @@ function Vault({ v, live, busy, unwatch }: { v: VaultSnapshot; live: boolean; bu
                 </details>
               </>
             )}
+            {actions && h.account === actions.signer ? (
+              <>
+                <VaultActions v={v} account={h.account} scope={actions.scope} policyAllowed={actions.policyAllowed} ops={actions.ops} changed={actions.changed} />
+                <VaultOperations ops={actions.ops} />
+              </>
+            ) : actions && !empty ? <div style={muted}>Operate this account’s position by signing in with {h.account}.</div> : null}
           </div>
         );
       })}

@@ -2,6 +2,7 @@ import { saleStepAdapter } from "./adapters/sale-step";
 import { creditSettlementAdapter } from "./adapters/credit-settlement-step";
 import {stakingStepAdapter} from "./adapters/staking-step";
 import { fundingLegAdapter } from "./adapters/funding-leg-step"; // Stream A: fund_transfer legs
+import { vaultStepAdapter } from "./adapters/vault-step"; // Stream A: vault operations
 // Step-adapter registry and plan executor (owner: Interface). The executor ONLY orchestrates: every signed
 // step is prepared, authorized, signed and verified by an existing journal. The built-in adapters call the
 // existing journal route handlers in-process, so their guards (policy, fences, idempotency, handoff locks,
@@ -351,6 +352,7 @@ registerStepAdapter(rheaCreditAdapter); // Engines: collateral_add, borrow, repa
 registerStepAdapter(nativeStakingAdapter); // Engines P2: native_stake, native_unstake, native_withdraw
 registerStepAdapter(stakingStepAdapter); // Positions: LiNEAR stake, unstake, withdraw_unstaked
 registerStepAdapter(fundingLegAdapter); // Stream A: fund_transfer (cross-wallet funding legs)
+registerStepAdapter(vaultStepAdapter); // Stream A: vault deposit, redeem, cancel, claim, settle
 
 registerStepAdapter(creditSettlementAdapter);
 

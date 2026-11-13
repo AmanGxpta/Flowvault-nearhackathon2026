@@ -193,7 +193,11 @@ test("adapter: contract views become the model book with no differences; disclos
   assert.deepEqual(snap.roles, [{ account: "owner.near", role: "owner" }]);
   assert.equal(snap.disclosures.find((d) => d.label === "Code upgrade keys")!.risk, "urgent", "an undisclosed full-access key");
   assert.match(snap.disclosures.find((d) => d.label === "NAV is attested, not proven")!.value, /trusted valuation attestation/);
-  assert.equal(disclosures(fx.config, { ...fx.nav, busy: { kind: "supply" } }, [], 0).at(-1)!.label, "Operation unresolved");
+  assert.ok(disclosures(fx.config, { ...fx.nav, busy: { kind: "supply" } }, [], 0).some((d) => d.label === "Operation in flight"));
+  const un = disclosures(fx.config, { ...fx.nav, unresolved: { operation: { kind: "supply" }, since_ms: "1000" }, exit_nav_raw: "40000000" }, [], 0).find((d) => d.label === "Operation unresolved")!;
+  assert.equal(un.risk, "urgent");
+  assert.match(un.value, /Exits continue.*available now/);
+  assert.match(disclosures({ ...fx.config, settlement_timing: "Settlement is permissionless." }, fx.nav, [], 0).find((d) => d.label === "Settlement timing")!.value, /at most 900 s/);
   const q: RequestView[] = [
     { ...fx.requests[3], id: "7", owner_id: "zed.near", status: "queued", amount_raw: "4" },
     { ...fx.requests[3], id: "9", owner_id: "bob.near", status: "queued", amount_raw: "2" },

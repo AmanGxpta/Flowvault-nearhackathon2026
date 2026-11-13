@@ -21,6 +21,11 @@ import { CUSTODY_METHODS, advance, amend, authorizationMessage, listingDigest, r
 import { bookFromViews } from "@/lib/flowvault/vault-contract";
 import type { StrategySpec } from "@/lib/flowvault/strategy-spec";
 import { registeredKinds } from "@/lib/flowvault/step-adapters";
+import { listAttempts } from "@/lib/flowvault/attempts";
+import { planIdFor, planInsert, planGet } from "@/lib/flowvault/plans-store";
+import { vaultPlan } from "@/lib/flowvault/vault-plans";
+import { effectsOf } from "@/lib/flowvault/vault-ops-live";
+import { isVaultKind, isVaultPreparation, vaultInPolicy, vaultPolicyEntries, type VaultPreparation } from "@/lib/flowvault/vault-ops";
 
 /** Custody rests on the v1 contract interface (local implementation; not deployed or audited). Deployment re-checks the code. */
 const READINESS = () => readiness({ interfaceDoc: "docs/handoff/vault-interface.md v1.2 (contracts/vault, not deployed, no security review)", verifiedMethods: CUSTODY_METHODS });
@@ -38,7 +43,16 @@ export async function GET(r: Request) {
     const mine = nearAccounts(s);
     const ids = await watched(s.id);
     const vaults = await Promise.all(ids.map((id) => readVault(id, mine).catch((e) => ({ contractId: id, error: (e as Error).message }))));
-    return json({ source: "live", vaults, listings: (await listings(s.id)).map((x) => ({ ...x.listing, digest: x.listing.spec && x.listing.terms ? listingDigest(x.listing) : null })), readiness: rd, accounts: mine }, s.cookie);
+    // Your vault requests from the wallet journal: confirmed effects (receipt- or vault-record-verified) and those in flight.
+    const operations = (await listAttempts(s.id))
+      .filter((a) => isVaultKind(a.kind) && isVaultPreparation(a.preparation))
+      .map((a) => {
+        const p = a.preparation as unknown as VaultPreparation;
+        return { id: a.id, kind: a.kind, state: a.state, message: a.message, contractId: p.vault.contractId, detail: p.vault.detail, amountRaw: p.vault.amountRaw, sharesRaw: p.vault.sharesRaw, requestId: p.vault.requestId, hashes: a.hashes, effects: effectsOf(a), updatedAt: a.updatedAt };
+      });
+    const policy = s.workspace.policy;
+    const policyAllowed = Object.fromEntries(ids.map((id) => [id, vaultInPolicy(policy, id)]));
+    return json({ source: "live", vaults, operations, policyAllowed, signer: s.workspace.accountId ?? null, listings: (await listings(s.id)).map((x) => ({ ...x.listing, digest: x.listing.spec && x.listing.terms ? listingDigest(x.listing) : null })), readiness: rd, accounts: mine }, s.cookie);
   } catch (e) {
     return failure(e);
   }
@@ -51,6 +65,15 @@ const body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("listing_create"), title: z.string().min(3).max(120), thesis: z.string().min(10).max(2000), venues: z.array(z.string().max(100)).max(10), origin: z.enum(["research", "monitor", "owner"]) }),
   z.object({ action: z.literal("listing_amend"), id: z.string(), spec: z.any().optional(), terms: z.record(z.string(), z.unknown()).optional() }),
   z.object({ action: z.literal("listing_challenge"), id: z.string() }),
+  z.object({
+    action: z.literal("plan"),
+    key: z.string().uuid(),
+    op: z.enum(["vault_deposit", "vault_redeem", "vault_cancel", "vault_claim", "vault_settle"]),
+    contractId: account,
+    amountRaw: z.string().regex(/^[1-9]\d{0,30}$/).optional(),
+    sharesRaw: z.string().regex(/^[1-9]\d{0,40}$/).optional(),
+    requestId: z.string().regex(/^\d{1,20}$/).optional(),
+  }),
   z.object({
     action: z.literal("listing_advance"),
     id: z.string(),
@@ -82,6 +105,24 @@ export async function POST(r: Request) {
     if (b.action === "unwatch") {
       await unwatch(s.id, b.contractId);
       return json({ ok: true }, s.cookie);
+    }
+    if (b.action === "plan") {
+      // One owner action on one vault, as a plan with one wallet-signed step. Dry-run against live views first.
+      if (!(await watched(s.id)).includes(b.contractId)) throw new Error("Follow this vault first.");
+      if (!s.workspace.accountId) throw new Error("Sign in with your NEAR account to operate a vault.");
+      const id = await planIdFor(s.id, b.key);
+      const existing = await planGet(s.id, id);
+      if (existing) return json({ plan: existing.plan, replay: true }, s.cookie);
+      const plan = await vaultPlan(s, id, b.key, { op: b.op, contractId: b.contractId, accountId: s.workspace.accountId, amountRaw: b.amountRaw, sharesRaw: b.sharesRaw, requestId: b.requestId });
+      const current = await session(r);
+      if (current.revision !== s.revision) throw new Error("Workspace changed while the vault was read. Try again.");
+      try {
+        return json({ plan: await planInsert(s.id, plan), policyAllowed: vaultInPolicy(s.workspace.policy, b.contractId), policyNeeds: vaultPolicyEntries(b.contractId) }, s.cookie);
+      } catch (e) {
+        const activePlanId = (e as { activePlanId?: string }).activePlanId;
+        if (activePlanId) return json({ error: (e as Error).message, activePlanId }, s.cookie, 409);
+        throw e;
+      }
     }
     if (b.action === "listing_create") {
       const at = new Date(now).toISOString();

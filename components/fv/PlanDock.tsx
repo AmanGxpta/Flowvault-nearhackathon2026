@@ -54,6 +54,7 @@ const STEP_LABEL: Record<string, string> = {
   collateral_release: "Release collateral", pay_quote: "Get a live exact-output quote", pay_deposit: "Deposit to the 1Click address",
   verify_payout: "Verify the payout on the destination chain", wait_until: "Wait",
   fund_transfer: "Move USDC to your NEAR account", // Stream A
+  vault_deposit: "Deposit USDC into the vault", vault_redeem: "Request a vault redemption", vault_cancel: "Cancel a queued vault request", vault_claim: "Claim USDC from the vault", vault_settle: "Settle a vault request", // Stream A
 };
 const STATE_LABEL: Record<string, string> = {
   pending: "waiting for the step before", ready: "ready", prepared: "prepared · not signed", awaiting_wallet: "in your wallet",
@@ -76,6 +77,7 @@ const OBJECTIVE: Record<string, string> = {
   deploy_surplus: "Put surplus to work", pay_obligation: "Pay a calendar payment", borrow: "Borrow under stress limits",
   repay: "Repay a loan", respond_to_change: "Respond to a changed payment", stake: "Stake", unstake: "Unstake",
   withdraw: "Withdraw", access_cash: "Access cash",
+  vault_operation: "Vault operation", // Stream A
 };
 
 const code = (c: string) => {
