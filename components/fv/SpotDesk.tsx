@@ -33,13 +33,13 @@ export function SpotDesk({ token, buy, picker }: { token: { chain: string; addre
     return () => clearTimeout(t);
   }, [r?.priceUsd, token.chain, token.address]);
 
-  const signals = detail?.signals ?? [];
-  const good = signals.filter(s => s.tone === "good").length, worst = signals.some(s => s.tone === "bad") ? "bad" : signals.some(s => s.tone === "warn") ? "warn" : "good";
+  const signals = detail?.signals ?? [], safety = detail?.safety ?? null;
+  const worst = signals.some(s => s.tone === "bad") ? "bad" : signals.some(s => s.tone === "warn") ? "warn" : "good";
   const t24 = r?.txns.h24;
   const stats: [string, React.ReactNode][] = [
     ["Mcap", compact(r?.marketCap ?? r?.fdv)], ["FDV", compact(r?.fdv)], ["Liquidity", compact(r?.liquidityUsd)], ["Vol 24h", compact(r?.volume.h24)],
     ["Txns 24h", t24 ? (t24.buys + t24.sells).toLocaleString() : "—"], ["Age", r?.createdAt ? ago(r.createdAt).replace(" ago", "") : "—"],
-    ["Safety", signals.length ? <span className={"fv-safety is-" + worst}>{good}/{signals.length}<i><em style={{ width: (good / signals.length) * 100 + "%" }} /></i></span> : "—"],
+    ["Safety", safety ? <span className={"fv-safety is-" + (safety.score >= 70 ? "good" : safety.score >= 40 ? "warn" : "bad")} title={`${safety.score}/100 from ${signals.length} public checks${safety.redFlags ? ` · ${safety.redFlags} red flag${safety.redFlags > 1 ? "s" : ""} cap the score at 39` : ""}${safety.unknown.length ? ` · not known: ${safety.unknown.join(", ")}` : ""}. Size alone never raises it.`}>{safety.score}/100<i><em style={{ width: safety.score + "%" }} /></i></span> : "—"],
   ];
   return <div className="fv-spot-desk">
     <section className="fv-panel fv-spot-bar">
@@ -62,7 +62,8 @@ export function SpotDesk({ token, buy, picker }: { token: { chain: string; addre
             : detail ? <TradePanel key={token.chain + token.address} chain={token.chain} address={token.address} symbol={token.symbol} /> : <p className="fv-muted">Checking availability…</p>}
         </section>
         <section className="fv-panel fv-trust fv-spot-trust">
-          <h2>{worst === "bad" ? <ShieldAlert size={16} /> : <ShieldCheck size={16} />} Safety checks</h2>
+          <h2>{worst === "bad" ? <ShieldAlert size={16} /> : <ShieldCheck size={16} />} Safety checks{safety && <small className="fv-safety-head">{safety.score}/100</small>}</h2>
+          {safety?.unknown.length ? <p className="fv-muted fv-chat-small">Couldn’t check: {safety.unknown.join(", ")}. Unknown checks don’t count as passing.</p> : null}
           {signals.map(s => <div key={s.label} className={"fv-signal is-" + s.tone}><span className="fv-signal-dot" /><div><strong>{s.label}</strong><small>{s.detail}</small></div></div>)}
           {!signals.length && <p className="fv-muted">{detail ? "No public checks available." : "Reading…"}</p>}
         </section>

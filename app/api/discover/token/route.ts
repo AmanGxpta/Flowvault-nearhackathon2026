@@ -1,7 +1,7 @@
 import { publicJson } from "@/lib/flowvault/research-service";
 import { swapTokenCatalog } from "@/lib/flowvault/swap-catalog";
 import { snapshot } from "@/lib/flowvault/snapshot-cache";
-import { bestPairs, parseOhlcv, trustSignals, CHAINS } from "@/lib/flowvault/market-scan";
+import { bestPairs, parseOhlcv, trustSignals, safetyScore, CHAINS } from "@/lib/flowvault/market-scan";
 import { view } from "@/lib/flowvault/near";
 
 const FRAMES: Record<string, [string, number]> = { "15m": ["minute", 15], "1h": ["hour", 1], "4h": ["hour", 4], "1d": ["day", 1] };
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
     }
     return Response.json({
       row, pairs: rows.length, candles, timeframe: tf, swapId: swap?.id ?? null, capturedAt: new Date().toISOString(),
-      signals: trustSignals(row, { listedForSwap: !!swap, verifiedMetadata: verified }),
+      ...(() => { const signals = trustSignals(row, { listedForSwap: !!swap, verifiedMetadata: verified }); return { signals, safety: safetyScore(signals) }; })(),
       source: "DexScreener pair stats · GeckoTerminal candles" + (chain === "near" ? " · NEAR RPC metadata" : "") + ". Display only; not an endorsement.",
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {

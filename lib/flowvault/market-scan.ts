@@ -95,16 +95,38 @@ export function parseOhlcv(raw: unknown): Candle[] {
   });
   return [...new Map(rows.map(r => [r.time, r])).values()].sort((a, b) => a.time - b.time).slice(-120);
 }
+export interface TrustSignal { key?: "liquidity" | "age" | "turnover" | "route" | "metadata"; label: string; tone: "good" | "warn" | "bad"; detail: string }
+/** What each check is worth in the safety score (a passing check earns its weight, a warning half). */
+export const SAFETY_WEIGHTS = { liquidity: 35, age: 25, turnover: 15, metadata: 15, route: 10 } as const;
+/**
+ * A 0–100 safety score from the checks FlowVault could run. Checks that couldn't run are listed as unknown and left
+ * out (never counted as passing); the score covers only what was checked. Any red flag caps the score at 39, so a
+ * large token with a thin pool can't look safe because of its size.
+ */
+export function safetyScore(signals: TrustSignal[]) {
+  let earned = 0, possible = 0;
+  const checked = new Set<string>();
+  for (const s of signals) {
+    if (!s.key) continue;
+    const w = SAFETY_WEIGHTS[s.key];
+    checked.add(s.key); possible += w;
+    earned += s.tone === "good" ? w : s.tone === "warn" ? w / 2 : 0;
+  }
+  if (!possible) return null;
+  const red = signals.filter((s) => s.tone === "bad").length;
+  const raw = Math.round((earned / possible) * 100);
+  return { score: red ? Math.min(39, raw) : raw, redFlags: red, unknown: (Object.keys(SAFETY_WEIGHTS) as (keyof typeof SAFETY_WEIGHTS)[]).filter((k) => !checked.has(k)) };
+}
 /** Plain-language trust signals from public data. Not an endorsement; each says what it is based on. */
 export function trustSignals(r: MarketRow, ctx: { listedForSwap: boolean; verifiedMetadata: boolean | null; now?: number }) {
-  const now = ctx.now ?? Date.now(), out: { label: string; tone: "good" | "warn" | "bad"; detail: string }[] = [];
+  const now = ctx.now ?? Date.now(), out: TrustSignal[] = [];
   const liq = r.liquidityUsd ?? 0, vol = r.volume.h24 ?? 0, ageDays = r.createdAt ? (now - r.createdAt) / 86_400_000 : null;
-  out.push(liq >= 1_000_000 ? { label: "Deep liquidity", tone: "good", detail: "Over $1M in the main pool, so typical trades move the price little." }
-    : liq >= 50_000 ? { label: "Moderate liquidity", tone: "warn", detail: "$50k–$1M in the main pool. Larger trades will move the price." }
-    : { label: "Thin liquidity", tone: "bad", detail: "Under $50k in the main pool. Expect high price impact and exit risk." });
-  if (ageDays !== null) out.push(ageDays >= 90 ? { label: "Established pool", tone: "good", detail: `Main pool is ${Math.floor(ageDays)} days old.` } : ageDays >= 7 ? { label: "Young pool", tone: "warn", detail: `Main pool is ${Math.floor(ageDays)} days old.` } : { label: "Brand-new pool", tone: "bad", detail: "Main pool is under a week old. New tokens carry the most risk." });
-  if (liq > 0) { const turn = vol / liq; out.push(turn > 20 ? { label: "Unusual turnover", tone: "warn", detail: `24h volume is ${turn.toFixed(0)}× liquidity, which can signal wash trading or a short-lived spike.` } : { label: "Normal turnover", tone: "good", detail: `24h volume is ${turn.toFixed(1)}× liquidity.` }); }
-  out.push(ctx.listedForSwap ? { label: "Swappable in FlowVault", tone: "good", detail: "Listed in the NEAR Intents / Ref catalog FlowVault quotes from." } : { label: "Routed through LI.FI", tone: "good", detail: "Not in the NEAR catalog; FlowVault quotes it live through LI.FI from your own wallets, and shows when no route exists." });
-  if (ctx.verifiedMetadata !== null) out.push(ctx.verifiedMetadata ? { label: "Metadata matches", tone: "good", detail: "On-chain token metadata matches the catalog’s symbol and decimals." } : { label: "Metadata mismatch", tone: "bad", detail: "On-chain metadata differs from the catalog. Check the contract before trading." });
+  out.push(liq >= 1_000_000 ? { key: "liquidity", label: "Deep liquidity", tone: "good", detail: "Over $1M in the main pool, so typical trades move the price little." }
+    : liq >= 50_000 ? { key: "liquidity", label: "Moderate liquidity", tone: "warn", detail: "$50k–$1M in the main pool. Larger trades will move the price." }
+    : { key: "liquidity", label: "Thin liquidity", tone: "bad", detail: "Under $50k in the main pool. Expect high price impact and exit risk." });
+  if (ageDays !== null) out.push(ageDays >= 90 ? { key: "age", label: "Established pool", tone: "good", detail: `Main pool is ${Math.floor(ageDays)} days old.` } : ageDays >= 7 ? { key: "age", label: "Young pool", tone: "warn", detail: `Main pool is ${Math.floor(ageDays)} days old.` } : { key: "age", label: "Brand-new pool", tone: "bad", detail: "Main pool is under a week old. New tokens carry the most risk." });
+  if (liq > 0) { const turn = vol / liq; out.push(turn > 20 ? { key: "turnover", label: "Unusual turnover", tone: "warn", detail: `24h volume is ${turn.toFixed(0)}× liquidity, which can signal wash trading or a short-lived spike.` } : { key: "turnover", label: "Normal turnover", tone: "good", detail: `24h volume is ${turn.toFixed(1)}× liquidity.` }); }
+  out.push(ctx.listedForSwap ? { key: "route", label: "Swappable in FlowVault", tone: "good", detail: "Listed in the NEAR Intents / Ref catalog FlowVault quotes from." } : { key: "route", label: "Routed through LI.FI", tone: "good", detail: "Not in the NEAR catalog; FlowVault quotes it live through LI.FI from your own wallets, and shows when no route exists." });
+  if (ctx.verifiedMetadata !== null) out.push(ctx.verifiedMetadata ? { key: "metadata", label: "Metadata matches", tone: "good", detail: "On-chain token metadata matches the catalog’s symbol and decimals." } : { key: "metadata", label: "Metadata mismatch", tone: "bad", detail: "On-chain metadata differs from the catalog. Check the contract before trading." });
   return out;
 }

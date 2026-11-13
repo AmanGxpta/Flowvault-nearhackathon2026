@@ -661,3 +661,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .fv-prochart{display:flex;flex-direction:column;min-width:0}.fv-prochart-canvas{position:relative;width:100%;min-height:240px;padding:0 6px 0 12px;box-sizing:border-box}
 .fv-prochart .fv-candle-readout{font-size:10.5px}
 @media(max-width:700px){.fv-prochart-canvas{height:280px!important}}
+.fv-safety-head{margin-left:auto;font-size:12px;font-weight:500;color:var(--fvc-6F786B)}
+.fv-perp-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;padding:0 22px 14px;border-bottom:1px solid var(--fvb-EEF0E8);margin-bottom:12px}
+.fv-perp-strip>div{display:flex;flex-direction:column;gap:2px;min-width:0}.fv-perp-strip small{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fvc-8A9285)}.fv-perp-strip strong{font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:700px){.fv-perp-strip{grid-template-columns:repeat(3,minmax(0,1fr));padding:0 16px 12px}}

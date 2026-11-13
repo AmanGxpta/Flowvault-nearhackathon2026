@@ -9,7 +9,7 @@ import { TradePanel } from "./TradePanel";
 import { fmtUsd, fmtPct, ago } from "./swap-format";
 import type { Candle } from "@/lib/flowvault/market-display";
 
-export interface Detail { row: ScreenRow; candles: Candle[]; signals: { label: string; tone: "good" | "warn" | "bad"; detail: string }[]; swapId: string | null; pairs: number; source: string; capturedAt: string }
+export interface Detail { row: ScreenRow; candles: Candle[]; signals: { label: string; tone: "good" | "warn" | "bad"; detail: string }[]; safety?: { score: number; redFlags: number; unknown: string[] } | null; swapId: string | null; pairs: number; source: string; capturedAt: string }
 interface PolicyView { policy?: { protectedAssets: string[]; venues: string[]; assetRows?: { asset: string; uses: string[] }[]; perActionCap: string; dailyCap: string; version: number } }
 const priceFmt = (n: number) => n >= 1 ? n.toLocaleString("en-US", { maximumFractionDigits: 4 }) : n.toPrecision(4);
 
