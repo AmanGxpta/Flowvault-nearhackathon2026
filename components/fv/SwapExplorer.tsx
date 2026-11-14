@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { ArrowDownUp, ArrowUpRight, RefreshCw, Settings2, Zap, Wallet } from "lucide-react";
 import { useTokenCatalog } from "./useTokenCatalog";
 import { useWalletBalances } from "./useWalletBalances";
+import { DemoSwapReview } from "./demo/DemoSwapReview";
+import { EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
 import { TokenPicker } from "./TokenPicker";
 import { SwapReview } from "./SwapReview";
 import { fmtAmount, fmtUsd } from "./swap-format";
@@ -18,9 +20,11 @@ const NATIVE_KEEP = 100_000_000_000_000_000_000_000n; // 0.1 NEAR left for fees 
 
 type Cta = { label: string; disabled?: boolean; spin?: boolean; onClick?: () => void; href?: string; icon?: React.ReactNode };
 
-export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }: { owner: string; example: boolean; onManaged: () => void; onConnect?: () => void; onSettled?: () => void }) {
+export function SwapExplorer({ owner: liveOwner, example, onManaged, onConnect, onSettled }: { owner: string; example: boolean; onManaged: () => void; onConnect?: () => void; onSettled?: () => void }) {
   const { tokens, error: catalogError } = useTokenCatalog();
-  const holdings = useWalletBalances(owner, tokens, !example);
+  // Demo Mode: the example workspace's fictional wallets stand in for yours, and a swap plays as a simulation.
+  const owner = example ? EXAMPLE_NEAR_ACCOUNT : liveOwner;
+  const holdings = useWalletBalances(owner, tokens, true, example);
   const [fromId, setFrom] = useState("near:native"), [toId, setTo] = useState(USDC_NEAR);
   const [amount, setAmount] = useState(""), [slippage, setSlippage] = useState("100");
   const [sender, setSender] = useState(owner), [recipient, setRecipient] = useState(owner);
@@ -32,7 +36,10 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
   // A prefill may name the receiving address (e.g. funding one Hyperliquid account); it holds while that token is the destination.
   const [pin, setPin] = useState<{ to: string; address: string } | null>(null);
   const q = useSwapQuote({ tokens, holdings, owner, example, fromId, toId, amount, slippage, sender, recipient, paused: review });
-  const { from, to, preview, busy, error, routes, best, chosen, expires, validAmount, quote, rawOf } = q, setSelected = q.setSelected;
+  const { from, to, preview, busy, error, routes, best, expires, validAmount, quote, rawOf } = q, setSelected = q.setSelected;
+  // Demo Mode can't always get a live route for fictional wallets: estimate one from catalog prices, labelled as such.
+  const estimate = example && !q.chosen && !busy && from && to && from.price && to.price && validAmount ? (() => { const out = Number(amount) * Number(from.price) / Number(to.price) * 0.997; const d = Math.min(6, to.decimals); return { venue: from.network === "near" && to.network === "near" ? "Rhea / Ref" : "NEAR Intents", output: out.toFixed(d), minimum: (out * 0.99).toFixed(d), eta: from.network === "near" && to.network === "near" ? 3 : 45, execution: "example", url: "", feeNote: "Example estimate from catalog prices; a real swap uses a live quote." }; })() : null;
+  const chosen = q.chosen ?? estimate ?? undefined;
   const addrFor = (n?: string) => ownAddress(holdings, n);
   const senderAuto = fromBal?.account ?? addrFor(from?.network), recipientAuto = pin && pin.to === toId ? pin.address : addrFor(to?.network);
   useEffect(() => { const t = setTimeout(() => { setSender(senderAuto); setRecipient(recipientAuto); }, 0); return () => clearTimeout(t); }, [senderAuto, recipientAuto]);
@@ -74,8 +81,9 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
     if (from.network !== "near" && !sender && owner && !example && !holdings.covered.has(from.network)) return { label: "Reading your wallets…", disabled: true, spin: true };
     if (busy && !preview) return { label: "Finding the best route…", disabled: true, spin: true };
     if (!chosen) return { label: error ? "No route for this amount" : "No route yet", disabled: true };
+    if (example && chosen === estimate) return overBalance ? { label: `Not enough ${from.symbol} in the example wallets`, disabled: true } : { label: `Swap via ${chosen.venue} · example`, onClick: () => setReview(true), icon: <Zap size={16} /> };
     if (inApp(chosen)) {
-      if (example) return { label: "Connect your own wallet to swap", disabled: true };
+      if (example) return overBalance ? { label: `Not enough ${from.symbol} in the example wallets`, disabled: true } : { label: `Swap via ${chosen.venue} · example`, onClick: () => setReview(true), icon: <Zap size={16} /> };
       if (!owner) return { label: "Connect wallet to swap", onClick: onConnect, disabled: !onConnect };
       if (overBalance) return { label: `Not enough ${from.symbol}`, disabled: true };
       return { label: `Swap via ${chosen.venue}`, onClick: () => setReview(true), icon: <Zap size={16} /> };
@@ -130,7 +138,8 @@ export function SwapExplorer({ owner, example, onManaged, onConnect, onSettled }
       </section>
       <section className="fv-panel fv-managed-swap-callout"><div><h3>Funding a payment?</h3><p>USDC → NEAR and approved sales keep FlowVault’s payment checks.</p></div><button type="button" className="fv-button" onClick={onManaged}>Managed funding <ArrowUpRight size={14} /></button></section>
     </div>
-    {review && from && to && chosen && <SwapReview from={from} to={to} amount={amount} slippage={Number(slippage)} route={chosen.venue === "NEAR Intents" ? "intents" : "ref"} sender={sender} recipient={recipient}
+    {review && example && from && to && chosen && <DemoSwapReview from={from} to={to} amount={amount} route={chosen} close={() => { setReview(false); setAmount(""); }} />}
+    {review && !example && from && to && chosen && <SwapReview from={from} to={to} amount={amount} slippage={Number(slippage)} route={chosen.venue === "NEAR Intents" ? "intents" : "ref"} sender={sender} recipient={recipient}
       close={() => setReview(false)} onSettled={() => { void holdings.refresh(); onSettled?.(); setAmount(""); }} />}
   </div>;
 }
