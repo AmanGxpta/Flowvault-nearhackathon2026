@@ -1150,17 +1150,24 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-hub-tabs button{padding:9px 16px;border-radius:12px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF);font-size:14px;cursor:pointer;color:var(--fvc-1E2A22)}
 .fv-hub-tabs button[aria-selected="true"]{background:var(--fvb-2B4233);border-color:var(--fvb-2B4233);color:var(--fvc-EAF0E2)}
 .fv-strategy-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.fv-strategy{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:16px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF)}
-.fv-strategy-top{display:flex;gap:14px}.fv-strategy-top>div{flex:1;min-width:0}
-.fv-strategy-art{width:110px;height:110px;flex:0 0 auto}
-.fv-strategy-art .bg{fill:var(--fvb-E2EAD6)}.fv-strategy-art .a{fill:#7FA071}.fv-strategy-art .b{fill:#4E7A4A}.fv-strategy-art .stroke{fill:none;stroke:#4E7A4A;stroke-width:9;stroke-linecap:round}.fv-strategy-art .thin{stroke:#9DB48C;stroke-width:5}
-.fv-strategy-title{display:flex;justify-content:space-between;gap:8px;color:var(--fvc-8A9285)}.fv-strategy h3{margin:0;font-size:17px;color:var(--fvc-1E2A22)}
-.fv-strategy p{margin:4px 0 10px;font-size:13px;line-height:1.45;color:var(--fvc-5B6458)}
-.fv-strategy-figures{display:flex;gap:16px}.fv-strategy-figures div{display:flex;flex-direction:column;gap:2px}.fv-strategy-figures small{font-size:11.5px;color:var(--fvc-8A9285)}
-.fv-strategy-figures strong{font-family:"Iowan Old Style",Palatino,Georgia,serif;font-weight:500;font-size:20px;color:var(--fvc-2F552D)}
-.fv-strategy-figures em{font-style:normal;font-size:12px;padding:2px 9px;border-radius:999px;background:var(--fvb-F1F2EB);color:var(--fvc-4A5349);align-self:flex-start}
-.fv-strategy-why{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:var(--fvb-F4F7EE);font-size:13px;color:var(--fvc-4A5349)}.fv-strategy-why b{color:var(--fvc-1E2A22)}
-.fv-strategy>.fv-button{align-self:center}
+/* Strategy cards: a subgrid so the art and copy, the "why" box and the button line up across the row whatever the
+   copy length, with the button full width at the bottom. */
+.fv-strategy{display:grid;grid-row:span 3;grid-template-rows:subgrid;row-gap:14px;padding:18px;border-radius:18px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF);box-shadow:0 1px 2px rgba(30,42,34,.04),0 8px 24px -12px rgba(30,42,34,.12)}
+.fv-strategy-top{display:flex;gap:16px}.fv-strategy-top>div{flex:1;min-width:0;display:flex;flex-direction:column}
+.fv-strategy-art{width:96px;height:96px;flex:0 0 auto;border-radius:14px;overflow:hidden}
+.fv-strategy-art .bg{fill:url(#fv-strategy-bg)}.fv-strategy-art .bg-stop1{stop-color:var(--fvb-EAF0E2)}.fv-strategy-art .bg-stop2{stop-color:var(--fvb-DCE4D0)}
+.fv-strategy-art .a{fill:#86AB78}.fv-strategy-art .b{fill:#3F7A3C}.fv-strategy-art .stroke{fill:none;stroke:#3F7A3C;stroke-width:9;stroke-linecap:round}.fv-strategy-art .thin{stroke:#93B884;stroke-width:5}
+.fv-strategy-title{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;color:var(--fvc-8A9285)}.fv-strategy-title svg{flex:none;margin-top:3px}
+.fv-strategy h3{margin:0;font-size:18px;line-height:1.25;letter-spacing:-.01em;color:var(--fvc-1E2A22)}
+.fv-strategy p{flex:1;margin:6px 0 12px;font-size:13px;line-height:1.5;color:var(--fvc-5B6458)}
+.fv-strategy-figures{display:flex;align-items:stretch;gap:14px}.fv-strategy-figures div{display:flex;flex-direction:column;gap:3px}
+.fv-strategy-figures div+div{padding-left:14px;border-left:1px solid var(--fvb-E3E6DB)}
+.fv-strategy-figures small{font-size:11.5px;color:var(--fvc-8A9285)}
+.fv-strategy-figures strong{font-family:"Iowan Old Style",Palatino,Georgia,serif;font-weight:600;font-size:21px;line-height:1.15;color:var(--fvc-2F552D);white-space:nowrap}
+.fv-strategy-figures em{font-style:normal;font-weight:600;font-size:12px;padding:3px 10px;border-radius:999px;background:var(--fvb-E2EAD6);color:var(--fvc-2F552D);align-self:flex-start;white-space:nowrap;margin-top:2px}
+.fv-strategy-why{display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:12px;background:var(--fvb-F4F7EE);font-size:13px;line-height:1.5;color:var(--fvc-4A5349)}.fv-strategy-why b{color:var(--fvc-1E2A22)}
+.fv-strategy-why svg{flex:none;color:var(--fvc-3F6B3C)}
+.fv-strategy>.fv-button{align-self:end;justify-content:center;width:100%;min-height:44px;border-radius:11px;font-size:14px;font-weight:500}
 .fv-hub-bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 .fv-hub-bottom>.fv-panel{padding:18px 20px}
 .fv-auto-picker{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
@@ -1191,7 +1198,7 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-approval dl{margin:8px 0 0;display:flex;flex-direction:column;gap:6px}.fv-approval dl div{display:flex;justify-content:space-between;gap:12px;font-size:13px;border-top:1px solid var(--fvb-E6E8DF);padding-top:6px}
 .fv-approval dt{color:var(--fvc-6F786B)}.fv-approval dd{margin:0;text-align:right;color:var(--fvc-1E2A22)}
 .fv-approval-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
-@media (max-width:1100px){.fv-hub-hero{grid-template-columns:1fr}.fv-hub-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.fv-strategy-grid{grid-template-columns:1fr}.fv-hub-bottom{grid-template-columns:1fr}}
+@media (max-width:1100px){.fv-hub-hero{grid-template-columns:1fr}.fv-hub-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.fv-strategy-grid{grid-template-columns:1fr}.fv-strategy{display:flex;flex-direction:column;grid-row:auto}.fv-hub-bottom{grid-template-columns:1fr}}
 @media (max-width:640px){.fv-hub-hero{padding:22px 18px}.fv-hub-hello h1{font-size:34px}.fv-hub-quick{grid-template-columns:1fr}.fv-hub-stats{grid-template-columns:1fr}.fv-strategy-top{flex-direction:column}.fv-strategy-art{width:72px;height:72px}.fv-auto-chip{display:none}}
 /* Motion system (Research page): enter, stagger, shimmer, crossfade, exit, pulse */
 @keyframes fv-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}

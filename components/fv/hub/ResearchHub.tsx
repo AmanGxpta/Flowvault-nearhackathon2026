@@ -292,12 +292,13 @@ function Strategy({ i, art, title, body, yieldText, risk, why, cta, onClick }: {
   return <article className="fv-strategy fv-rise" style={{ ["--i" as string]: i }}>
     <div className="fv-strategy-top"><StrategyArt kind={art} /><div><div className="fv-strategy-title"><h3>{title}</h3><Bookmark size={15} aria-hidden /></div><p>{body}</p>
       <div className="fv-strategy-figures"><div><small>Expected yield</small><strong>{yieldText}</strong></div><div><small>Risk</small><em>{risk}</em></div></div></div></div>
-    <div className="fv-strategy-why"><Target size={15} /><span><b>Why it matches you:</b> {why}</span></div>
+    <div className="fv-strategy-why"><Target size={22} strokeWidth={1.75} /><span><b>Why it matches you:</b> {why}</span></div>
     <button type="button" className="fv-button fv-primary" onClick={onClick}>{cta} <ArrowRight size={14} /></button>
   </article>;
 }
 function StrategyArt({ kind }: { kind: "coins" | "steps" | "arc" }) {
   return <svg className="fv-strategy-art" viewBox="0 0 120 120" aria-hidden>
+    <defs><linearGradient id="fv-strategy-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" className="bg-stop1" /><stop offset="1" className="bg-stop2" /></linearGradient></defs>
     <rect width="120" height="120" rx="14" className="bg" />
     {kind === "coins" && [0, 1, 2].map((col) => [0, 1, 2, 3, 4].slice(0, 5 - col).map((i) => <ellipse key={col + ":" + i} cx={34 + col * 26} cy={96 - i * 11} rx="14" ry="5.5" className={i % 2 ? "a" : "b"} />))}
     {kind === "steps" && [0, 1, 2, 3].map((i) => <rect key={i} x={18 + i * 21} y={92 - i * 18} width="22" height={12 + i * 18} rx="2" className={i % 2 ? "a" : "b"} />)}
