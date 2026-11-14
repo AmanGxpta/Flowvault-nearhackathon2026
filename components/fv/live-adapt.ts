@@ -1460,7 +1460,7 @@ export function liveDecide(snap: LiveSnapshot, v: any, ctx: { self: any; s: any;
 
   // ---- Supply / withdraw dialog: real preparation, real wallet, journal-backed tracking.
   const op = s.op;
-  if (op && s.modal === "op" && op.kind !== "replay") {
+  if (op && s.modal === "op") {
     const sup = op.kind === "supply";
     const rhea = (st?.strategies ?? []).find((x: any) => x.id === "rhea-usdc");
     const g = rhea?.gettingThisBack ?? {};
@@ -1586,7 +1586,7 @@ const stepForPay = (state?: string) =>
   !state ? "confirm" : ["planned", "needs-withdrawal", "withdrawal-prepared"].includes(state) ? "sources" : ["quoted", "deposit-prepared"].includes(state) ? "quote" : "tracking";
 
 
-/** Pay on a date, the live pay flow, Activity and Replays, in both workspaces. */
+/** Pay on a date, the live pay flow and Activity, in both workspaces. */
 export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; example: boolean }) {
   const { self, s, example } = ctx;
   const out: any = {};
@@ -1935,30 +1935,6 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
   // Statement: rendered by components/fv/Statement.tsx straight from Engines' GET /api/statement.
   out.noOps = (out.ops ?? []).length === 0;
 
-  // ---- Replays: simulated recordings from GET /api/replays, shown in their own dialog.
-  if ((snap.replays ?? []).length) {
-    const RC: any = { ok: ["#E2EAD6", "#3F6B3C"], warn: ["#F6EBDD", "#8A5F25"], bad: ["#F6E3DE", "#9A3F32"] };
-    const tone = (o: string) => (o === "success" ? "ok" : o === "refunded" || o === "deadline-passed" ? "warn" : "bad");
-    out.replaysIntro = "Each replay is a recorded outcome served by the engine, with simulated identifiers. Nothing is signed or sent, no wallet is needed, and replays never touch your workspace, Activity or budget.";
-    const order: Record<string, number> = { pay: 0, withdraw: 1, supply: 2 };
-    out.replays = [...snap.replays].sort((a: any, b: any) => (order[a.kind] ?? 3) - (order[b.kind] ?? 3)).map((r: any, i: number) => ({
-      n: String(i + 1).padStart(2, "0"),
-      title: phaseLabel(r.kind) + " · " + phaseLabel(r.outcome),
-      desc: r.message,
-      src: r.label ?? "SIMULATED — no funds moved",
-      end: String(r.state ?? r.outcome).replace(/-/g, " ").toUpperCase(),
-      endBg: RC[tone(r.outcome)][0], endColor: RC[tone(r.outcome)][1],
-      onClick: () => { self.remember(); self.setState({ modal: "op", asst: { ...s.asst, open: false }, op: { kind: "replay", step: "tracking", amount: r.amount, ack: false, replay: r } }); },
-    }));
-  }
-  if (s.modal === "op" && s.op?.kind === "replay") {
-    const r = s.op.replay;
-    out.replayOn = true;
-    out.m = { eyebrow: "REPLAY · " + (r.label ?? "SIMULATED — no funds moved"), title: phaseLabel(r.kind) + " · " + phaseLabel(r.outcome), hasSteps: false, steps: [] };
-    out.opv = { ...v.opv, track: stepsOf(r.timeline ?? []), finText: r.message + (typeof r.recording === "string" ? " " + r.recording : r.recording?.note ? " " + r.recording.note : r.recording?.description ? " " + r.recording.description : " Recorded provider shapes, not a funded FlowVault track record."), finBg: "#F6EBDD", finColor: "#7A521E", closeLabel: "Close" };
-    out.isOpReview = false; out.isOpPrepared = false; out.isOpTracking = true;
-    out.goActivityClose = () => self.setState({ modal: null, op: null });
-  }
   return out;
 }
 const PROP_KIND: Record<string, string> = { convert: "convert USDC to NEAR", pay: "payout", allocate_surplus: "surplus allocation", stress: "stress scenario", explain_block: "policy explanation", clarify: "needs details", borrow: "borrow under stress limits", repay: "repay a loan", respond_to_change: "changed payment" };

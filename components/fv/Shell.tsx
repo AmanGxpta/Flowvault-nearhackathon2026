@@ -16,7 +16,6 @@ import { ActivityView } from "./screens/ActivityView";
 import { PortfolioView } from "./screens/PortfolioView";
 import { PolicyView } from "./screens/PolicyView";
 import { PayOnADateView } from "./screens/PayOnADateView";
-import { ReplaysView } from "./screens/ReplaysView";
 import { RoadmapView } from "./screens/RoadmapView";
 import { OpportunitiesView } from "./screens/OpportunitiesView";
 import { ProtectionView } from "./screens/ProtectionView";
@@ -510,22 +509,6 @@ export function Shell({ v }: { v: any }) {
                 </span>
                 <button
                   type="button"
-                  onClick={v.goReplays}
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: "8px",
-                    border: "1px solid rgba(255,255,255,.4)",
-                    background: "transparent",
-                    color: "var(--fvc-FFF6E8)",
-                    fontSize: "12.5px",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  Open replays →
-                </button>
-                <button
-                  type="button"
                   onClick={v.resetExample}
                   aria-label="Reset the example workspace to its fictional seed"
                   style={{
@@ -557,28 +540,6 @@ export function Shell({ v }: { v: any }) {
                 >
                   Leave
                 </button>
-              </div>
-            </>
-          ) : null}
-          {v.replayOn ? (
-            <>
-              <div
-                style={{
-                  background: "var(--fvb-3F5A7A)",
-                  color: "var(--fvc-EEF3F9)",
-                  padding: `9px ${v.padX}`,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  fontSize: "13px",
-                  flexWrap: "wrap",
-                }}
-              >
-                <span style={{ fontWeight: "700", letterSpacing: ".1em", fontSize: "11px" }}>REPLAY</span>
-                <span style={{ flex: "1", minWidth: "200px" }}>
-                  Running on a frozen copy of this workspace. Closing the dialog restores every figure; the result is
-                  kept in Activity as a replay.
-                </span>
               </div>
             </>
           ) : null}
@@ -922,7 +883,6 @@ export function Shell({ v }: { v: any }) {
             {v.isHub ? <ResearchHub key={String(!!v.judge) + ":" + v.acc} v={v} /> : null}
             {v.isPolicy ? <RiskDesk v={v} /> : null}
             {v.isPay ? <SendDesk key="send" v={v} /> : null}
-            {v.isReplays ? <ReplaysView v={v} /> : null}
             {v.isRoadmap ? <RoadmapView v={v} /> : null}
             {v.isOpps ? <OpportunitiesView v={v} /> : null}
             {v.isProt ? <ProtectionView v={v} /> : null}

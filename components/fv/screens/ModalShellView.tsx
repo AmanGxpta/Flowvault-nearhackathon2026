@@ -49,23 +49,6 @@ export function ModalShellView({ v }: { v: any }) {
                 >
                   {v.m.eyebrow}
                 </span>
-                {v.replayOn ? (
-                  <>
-                    <span
-                      style={{
-                        fontSize: "10.5px",
-                        letterSpacing: ".08em",
-                        fontWeight: "600",
-                        padding: "3px 7px",
-                        borderRadius: "5px",
-                        background: "var(--fvb-E7ECF3)",
-                        color: "var(--fvc-3F5A7A)",
-                      }}
-                    >
-                      REPLAY · NOTHING IS SAVED
-                    </span>
-                  </>
-                ) : null}
               </div>
               <div style={{ marginTop: "8px", fontSize: "26px", fontWeight: "500", letterSpacing: "-0.03em" }}>
                 {v.m.title}
@@ -302,7 +285,7 @@ export function ModalShellView({ v }: { v: any }) {
                         cursor: "pointer",
                       }}
                     >
-                      {v.replayOn ? "Back to replays" : "View in Activity"}
+                      View in Activity
                     </button>
                     <button
                       type="button"

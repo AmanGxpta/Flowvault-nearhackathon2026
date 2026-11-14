@@ -12,7 +12,6 @@ const VIEW_ALIASES: Record<string, string> = { overview: 'portfolio', earn: 'str
 const VIEW_NAMES: Record<string, string> = { research: 'markets', strategies: 'earn', credit: 'borrow', pay: 'send', calendar: 'scheduled', policy: 'risk' };
 const DEMO_ACC = 'fictional example account';
 let ACC = LIVE_ACC;
-const WS_KEYS = ['wallet', 'rhea', 'evm', 'obs', 'intents', 'ops', 'reserve', 'reserveDraft', 'version', 'horizon', 'lead', 'planDraft', 'pol', 'polDraft', 'revisions'];
 const QS_LIST = [['Can I pay 1,000 USDT on BNB next week without touching my ETH?', 'Pay 1,000 USDT on BNB', 'pay'], ['Where should my surplus go?', 'Surplus', 'surplus'], ['What if ETH falls 50%?', 'ETH −50%', 'stress'], ['Why was my 6,000 USDC supply blocked?', 'Why blocked', 'blocked']];
 // Route costs come only from the API's quotes; nothing is assumed locally.
 const FEES: any = {};
@@ -54,14 +53,14 @@ export class DesignApp extends Component<any, any> {
       test: { kind: 'supply', amount: '6000', asset: 'usdc', venue: 'rhea' }, stk: { amt: '', by: null }, payPick: null, pfDate: null
     };
     s.ws = p.judge ? 'demo' : 'live'; s.intent = null; s.stress = { eth: { on: true }, linear: { on: true, dd: 60, cap: 50 }, rnear: { on: true, dd: 60, cap: 50 }, near: { on: false, dd: 60, cap: 50 } };
-    try { s.whyOff = JSON.parse(sessionStorage.getItem('fv-why') || '{}'); } catch (e) { s.whyOff = {}; } s.replay = null; s.connected = false; s.menu = null; s.confirm = null; s.vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+    try { s.whyOff = JSON.parse(sessionStorage.getItem('fv-why') || '{}'); } catch (e) { s.whyOff = {}; } s.connected = false; s.menu = null; s.confirm = null; s.vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
     Object.assign(s, this.wsData(s.ws)); s.pfLiveDate = 'now';
     if (s.ws !== 'live') { s.firstRun = false; } s.watchAddr = ''; s.watchDraft = ''; s.actTab = 'timeline'; s.proposals = [];
     return s;
   }
   componentDidMount() {
     try { if (sessionStorage.getItem('fv-demo-mode') === '1' && this.state.ws !== 'demo') setTimeout(() => this.setWorkspace('demo'), 0); } catch (e) {}
-    const known = ['portfolio','hub','swap','strategies','credit','trade','research','activity','calendar','policy','pay','replays','roadmap','opps','protection'];
+    const known = ['portfolio','hub','swap','strategies','credit','trade','research','activity','calendar','policy','pay','roadmap','opps','protection'];
     const readRoute = () => { const raw = new URL(window.location.href).searchParams.get('view') || ''; const view = VIEW_ALIASES[raw] ?? raw; this.setState({ screen: known.includes(view) ? view : 'hub' }); }; // Research is where everyone starts
     readRoute(); this.onPopState = readRoute; window.addEventListener('popstate', readRoute);
 
@@ -75,7 +74,7 @@ export class DesignApp extends Component<any, any> {
   }
   componentWillUnmount() { window.removeEventListener('popstate', this.onPopState); clearInterval(this.iv); clearTimeout(this.tt); document.removeEventListener('keydown', this.onKey); window.removeEventListener('resize', this.onResize); }
   findOb(id: any) { const s = this.state; return s.obs.find((o: any) => o.id === id) || (s.intents || []).find((o: any) => o.id === id); }
-  srcNow() { const s = this.state; return s.replay ? 'replay' : s.ws === 'demo' ? 'example' : 'session'; }
+  srcNow() { const s = this.state; return s.ws === 'demo' ? 'example' : 'session'; }
   isLive() { return this.state && this.state.ws === 'live'; }
   liveCall(fn: any, okMsg?: any) { Promise.resolve().then(fn).then(() => okMsg && this.toastMsg(okMsg)).catch((e: any) => this.toastMsg(e && e.message ? e.message : 'Something went wrong. Nothing was signed.')); }
   /** The one data-source adapter: the API snapshot for the selected slot (personal or example), else null while it loads. */
@@ -87,7 +86,7 @@ export class DesignApp extends Component<any, any> {
   /** A loading snapshot for the selected slot: reading states, never figures. */
   pendingSource(ws?: any) {
     const which = ws || (this.state && this.state.ws); const scope = which === 'demo' ? 'example' : 'personal'; const live = this.props.live || {};
-    return { ...emptySnapshot(scope), walletAccount: live.walletAccount ?? null, walletName: live.walletName ?? '', walletError: live.walletError ?? '', replays: live.replays ?? [], status: live.scope === scope && live.status === 'error' ? 'error' : 'loading', error: live.scope === scope ? live.error ?? '' : '' };
+    return { ...emptySnapshot(scope), walletAccount: live.walletAccount ?? null, walletName: live.walletName ?? '', walletError: live.walletError ?? '', status: live.scope === scope && live.status === 'error' ? 'error' : 'loading', error: live.scope === scope ? live.error ?? '' : '' };
   }
   wsData(ws: any, _ds?: any) {
     const snap = this.apiSource(ws);
@@ -101,19 +100,12 @@ export class DesignApp extends Component<any, any> {
     ACC = ws === 'demo' ? DEMO_ACC : LIVE_ACC;
     // Demo Mode survives a reload in this tab, so a judge who refreshes stays in the example workspace.
     try { if (ws === 'demo') sessionStorage.setItem('fv-demo-mode', '1'); else sessionStorage.removeItem('fv-demo-mode'); } catch (e) {}
-    this.setState({ ...this.wsData(ws), ws, judge: ws === 'demo', modal: null, replay: null, menu: null, pay: null, op: null, polTest: null, creditRes: null, cmpRes: null, stakeQuote: null, asst: { ...s.asst, msgs: [] } });
+    this.setState({ ...this.wsData(ws), ws, judge: ws === 'demo', modal: null, menu: null, pay: null, op: null, polTest: null, creditRes: null, cmpRes: null, stakeQuote: null, asst: { ...s.asst, msgs: [] } });
     if (this.props.actions) this.liveCall(() => this.props.actions.setMode(ws));
     this.toastMsg(ws === 'demo' ? 'Demo Mode: the fictional example workspace. Your personal workspace is untouched.' : 'Back in your personal workspace.');
   }
-  startReplay(fn: any) { const s = this.state; const snap: any = {}; WS_KEYS.forEach((k: any) => { snap[k] = clone(s[k]); }); this.setState({ replay: snap }, fn); }
   endModal(extra: any = {}) {
-    const s = this.state;
-    if (s.replay) {
-      const snap = s.replay; const ids = new Set(snap.ops.map((o: any) => o.id));
-      const fresh = s.ops.filter((o: any) => !ids.has(o.id)).map((o: any) => ({ ...o, src: 'replay' }));
-      this.setState({ ...snap, ops: [...fresh, ...snap.ops], replay: null, modal: null, confirm: null, ...extra });
-      this.toastMsg('Replay finished. Your figures are unchanged; the replay is kept in Activity.');
-    } else this.setState({ modal: null, confirm: null, ...extra });
+    this.setState({ modal: null, confirm: null, ...extra });
     this.refocus();
   }
   remember() { if (typeof document !== 'undefined') this.opener = document.activeElement; }
@@ -141,7 +133,7 @@ export class DesignApp extends Component<any, any> {
     this.setState({ asst: { ...this.state.asst, open: true, input: '', queued: { id, q } } });
   }
   opExtra(o: any) {
-    const SRC: any = ({ journal: ['JOURNAL', '#EEF0E8', '#4A5349'], example: ['EXAMPLE', '#F6EBDD', '#8A5F25'], session: ['THIS SESSION · SIMULATED WALLET', '#E7ECF3', '#3F5A7A'], replay: ['REPLAY', '#F6EBDD', '#8A5F25'] } as any)[o.src || 'example'];
+    const SRC: any = ({ journal: ['JOURNAL', '#EEF0E8', '#4A5349'], example: ['EXAMPLE', '#F6EBDD', '#8A5F25'], session: ['THIS SESSION · SIMULATED WALLET', '#E7ECF3', '#3F5A7A'] } as any)[o.src || 'example'];
     const pay = o.kind === 'Payout'; let phases: any = [];
     if (pay) {
       const g = ['#EEF0E8', '#4A5349'];
@@ -399,7 +391,7 @@ export class DesignApp extends Component<any, any> {
       const expired = pay.expires <= 0;
       const mm = Math.floor(pay.expires / 60), ss = String(pay.expires % 60).padStart(2, '0');
       pv = {
-        quoteTag: s.replay ? 'RECORDED QUOTE · EXACT OUTPUT' : 'LIVE QUOTE · EXACT OUTPUT', quoteSrc: s.replay ? 'Recorded 1Click response · not a live quote' : 'NEAR Intents 1Click · fetched 18:31:02',
+        quoteTag: 'LIVE QUOTE · EXACT OUTPUT', quoteSrc: 'NEAR Intents 1Click · fetched 18:31:02',
         amountF: num(payOb.amount) + ' ' + AS(payOb), depositF: num(q.deposit) + ' USDC',
         summary: [{ k: 'Recipient', v: payOb.recipient, font: "'DM Mono',monospace" }, { k: 'Chain', v: payOb.chain, font: 'inherit' }, { k: 'Asset', v: AS(payOb) + (AS(payOb) !== 'USDC' ? ' · swapped from your USDC' : ''), font: 'inherit' }, { k: 'Recipient receives', v: num(payOb.amount) + ' ' + AS(payOb) + ' (net)', font: 'inherit' }, { k: 'Policy rev ' + s.pol.rev, v: q.deposit <= s.pol.perAction && s.pol.used + q.deposit <= s.pol.daily ? 'Within per-action and daily caps' : 'Over a cap · will be refused at prepare', font: 'inherit' }, { k: 'Due', v: dlabel(payOb.due) + ', 2026 · in ' + days(payOb.due) + ' days', font: 'inherit' }],
         legs: [
@@ -410,7 +402,7 @@ export class DesignApp extends Component<any, any> {
         sourcesCta: needLeg && pay.leg === 'verifying' ? 'Verifying withdrawal…' : needLeg && !legDone ? 'Approve withdrawal of ' + num(pay.need) + ' USDC' : 'Get a live quote →',
         sourcesAction: needLeg && pay.leg === 'verifying' ? () => {} : needLeg && !legDone ? () => self.setState({ pay: { ...pay, leg: 'wallet' } }) : () => self.setState({ pay: { ...pay, step: 'quote', expires: pay.outcome === 'expired' ? 8 : 298 } }),
         expired, expLabel: expired ? 'Expired' : 'Expires in ' + mm + ':' + ss, expColor: expired ? '#9A3F32' : pay.expires < 30 ? '#8A5F25' : '#3F6B3C', quoteOpacity: expired ? 0.5 : 1,
-        quoteRows: [{ k: 'Input amount', v: num(q.input) + ' USDC', color: '#1E2A22' }, { k: 'Non-refundable fees', v: num(q.fee) + ' USDC', color: '#8A5F25' }, { k: 'Refundable buffer', v: num(q.buf) + ' USDC · returned if unused', color: '#3F6B3C' }, { k: 'Deposit address', v: s.replay ? '7a1fc0e4…b9d2e04c · recorded, not live' : '7a1fc0e4…b9d2e04c', color: '#1E2A22' }, { k: 'Refund address', v: '' + ACC + '', color: '#1E2A22' }, { k: 'Estimated delivery', v: q.time + ' on ' + payOb.chain, color: '#1E2A22' }],
+        quoteRows: [{ k: 'Input amount', v: num(q.input) + ' USDC', color: '#1E2A22' }, { k: 'Non-refundable fees', v: num(q.fee) + ' USDC', color: '#8A5F25' }, { k: 'Refundable buffer', v: num(q.buf) + ' USDC · returned if unused', color: '#3F6B3C' }, { k: 'Deposit address', v: '7a1fc0e4…b9d2e04c', color: '#1E2A22' }, { k: 'Refund address', v: '' + ACC + '', color: '#1E2A22' }, { k: 'Estimated delivery', v: q.time + ' on ' + payOb.chain, color: '#1E2A22' }],
         quoteCta: expired ? 'Get a new quote' : 'Approve deposit in wallet →',
         quoteAction: expired ? () => self.setState({ pay: { ...pay, expires: 298, outcome: 'success' } }) : () => self.setState({ pay: { ...pay, step: 'wallet' } }),
         track: deco(this.paySteps(payOb, pay)), isStuck: fin === 'stuck',
@@ -651,21 +643,7 @@ export class DesignApp extends Component<any, any> {
         onClick: () => o.ok ? self.toastMsg('Stake preparation reuses the supply handoff and is next in the build. Nothing was prepared.') : !o.allowed && self.go('policy') }; });
     const stkTabs = cashDates.slice(0, 4).map((o: any) => tab(stOb && o.id === stOb.id, dlabel(o.due) + ' · ' + o.name.split(' ')[0], () => self.setState({ stk: { ...s.stk, by: o.id } })));
 
-    // Account · replays
-    const rentId = (s.obs.find((o: any) => o.id === 'o6' && o.status === 'upcoming') || payables[0] || {}).id;
-    const rentOb = s.obs.find((o: any) => o.id === rentId);
     const RC: any = { ok: ['#E2EAD6', '#3F6B3C'], warn: ['#F6EBDD', '#8A5F25'], bad: ['#F6E3DE', '#9A3F32'] };
-    const needRent = () => self.toastMsg('No unpaid payment left to replay. Switch the dataset to reset.');
-    const runPay = (x: any) => () => rentOb ? self.openPay(rentOb.id, x) : needRent();
-    const replays = [
-      ['Delivered and verified', 'Pay Rent · Aman 1,000 USDT on BNB Chain from idle wallet USDC. It is marked paid only after the destination transfer is found.', '1Click SUCCESS + destination receipt', 'PAID · VERIFIED', 'ok', runPay({ outcome: 'success' })],
-      ['Withdraw, then pay', 'Funds the same payout from Rhea. The withdrawal is its own approval and must be verified before a payout quote is requested.', 'Rhea payout event + 1Click SUCCESS', 'TWO LEGS VERIFIED', 'ok', () => rentOb ? self.openPay(rentOb.id, { outcome: 'success', need: planFor(rentOb).q.deposit }) : needRent()],
-      ['Swap failed, refunded', 'The solver can’t fill the quote. The full deposit goes back to your account and the payment stays in your holdback.', '1Click REFUNDED', 'REFUNDED · NOT PAID', 'warn', runPay({ outcome: 'refunded' })],
-      ['Status unknown', 'The deposit lands but 1Click stops reporting. Recovery details are saved and paying again stays disabled.', '1Click PROCESSING, no update', 'NEEDS RECOVERY', 'bad', runPay({ outcome: 'stuck' })],
-      ['Quote expires', 'The exact-output quote runs out before any deposit. Nothing is sent and a new quote is required.', '1Click quote deadline', 'EXPIRED · NOTHING SENT', 'warn', runPay({ outcome: 'expired' })],
-      ['Blocked by policy', 'A 6,000 USDC supply is refused at prepare: it is over the per-action cap and would cut into the holdback.', 'Policy rev ' + P.rev + ' + holdback check', 'REFUSED AT PREPARE', 'bad', () => self.openOp('supply', '6000')],
-      ['Assistant proposal rejected', 'A question becomes a structured proposal. The engine rejects it, and the assistant explains why using only engine figures.', 'Example response', 'REJECTED BY ENGINE', 'bad', () => self.ask('Why was my 6,000 USDC supply blocked?', 'blocked')],
-    ].map(([title, desc, src, end, kind, onClick]: any, i: any) => ({ n: String(i + 1).padStart(2, '0'), title, desc, src, end, endBg: RC[kind][0], endColor: RC[kind][1], onClick: () => i === 6 ? onClick() : self.startReplay(onClick) }));
 
     // Later · roadmap
     const RS: any = { now: ['IN THIS BUILD', '#E2EAD6', '#3F6B3C', '#4E7A4A', '#fff'], part: ['PARTLY BUILT', '#E7ECF3', '#3F5A7A', '#E2EAD6', '#2F552D'], prev: ['SIMULATED PREVIEW', '#F6EBDD', '#8A5F25', '#F6EBDD', '#8A5F25'], plan: ['PLANNED', '#EEF0E8', '#5B6458', '#EEF0E8', '#5B6458'] };
@@ -779,19 +757,19 @@ export class DesignApp extends Component<any, any> {
     const navItem = (id: any, label: any, icon: any, badge?: any) => { const a = s.screen === id; return { active: a, label, icon, badge: badge || '', badgeBg: badge ? '#F6EBDD' : 'transparent', bg: a ? '#E2EAD6' : 'transparent', color: a ? '#1E2A22' : '#4A5349', weight: a ? 600 : 400, bar: a ? '#4E7A4A' : 'transparent', go: () => self.go(id), mBg: a ? '#fff' : 'transparent', mBorder: a ? '#9DB48C' : '#DDE1D4', isLink: true, isStatic: false }; };
     const navStatic = (label: any, icon: any, badge: any) => ({ label, icon, badge, isLink: false, isStatic: true });
     const soonCount = sorted.filter((o: any) => days(o.due) <= s.lead).length;
-    const crumbs: any = { overview: 'Observe / Overview', portfolio: 'Observe / Portfolio', calendar: 'Configure / Calendar', policy: 'Configure / Policy', strategies: 'Decide / Strategies', credit: 'Decide / Credit', pay: 'Execute / Pay on a date', activity: 'Account / Activity', replays: 'Account / Replays', roadmap: 'Roadmap', opps: 'Decide / Opportunities', protection: 'Execute / Protection' };
+    const crumbs: any = { overview: 'Observe / Overview', portfolio: 'Observe / Portfolio', calendar: 'Configure / Calendar', policy: 'Configure / Policy', strategies: 'Decide / Strategies', credit: 'Decide / Credit', pay: 'Execute / Pay on a date', activity: 'Account / Activity', roadmap: 'Roadmap', opps: 'Decide / Opportunities', protection: 'Execute / Protection' };
     const outcomes = [['success', 'Delivered'], ['expired', 'Quote expires'], ['refunded', 'Refunded'], ['stuck', 'Status unknown']].map(([k, label]: any) => { const on = pay && pay.outcome === k; return { label, bg: on ? '#2A4034' : '#fff', color: on ? '#fff' : '#4A5349', border: on ? '#2A4034' : '#DDE1D4', onClick: () => self.setState({ pay: { ...s.pay, outcome: k, expires: k === 'expired' && s.pay.step === 'quote' ? 8 : s.pay.expires } }) }; });
     const chunks = r.length > 20 ? r.match(/.{1,4}/g).join(' ') : r;
 
     let NG: any;
     const out: any = {
       // Your own workspace shows only working pages; sample and preview pages (Opportunities, Protection,
-      // Replays, the roadmap) appear in Demo Mode. No internal phase badges.
+      // the roadmap) appear in Demo Mode. No internal phase badges.
       planningOpen: !!s.planningOpen, navigate: (screen: string) => self.go(screen === 'overview' ? 'portfolio' : screen), screen: s.screen,
       navGroups: NG = [
         { title: '', items: [navItem('portfolio','Portfolio','◎'), navItem('hub','Research','✦'), navItem('research','Markets','⌕'), navItem('swap','Swap','⇄'), navItem('strategies','Earn','✧'), navItem('credit','Borrow','◐'), navItem('trade','Trade','↗'), navItem('activity','Activity','◷')] },
         { title: '', items: [navItem('pay','Send','↗'), navItem('calendar','Scheduled','▤',soonCount ? soonCount + ' due' : ''), navItem('policy','Risk & permissions','◇',polClean ? '' : 'unsaved')] },
-        ...(s.ws === 'demo' ? [{ title: '', items: [navItem('replays','Recovery examples','↻'),navItem('roadmap','Roadmap','→')] }] : []),
+        ...(s.ws === 'demo' ? [{ title: '', items: [navItem('roadmap','Roadmap','→')] }] : []),
       ],
       footNet: s.ws === 'demo' ? 'Demo Mode · example data' : 'NEAR mainnet',
       ovMetrics, ovPositions, headline: this.props.headline || 'Your whole portfolio, one plan.', barSrc: judge ? 'Example figures · example workspace' : 'Observed USDC · wallets + Rhea · block 224067523',
@@ -815,9 +793,9 @@ export class DesignApp extends Component<any, any> {
       proposals, revokeAgent: () => self.toastMsg('Revoking deletes the agent’s function-call key. In this preview nothing is sent on-chain.'),
       isOpps: s.screen === 'opps', isProt: s.screen === 'protection', protExposure, protTotal: usd(protSum), protExits, protNone: s.rhea <= 0,
       requestExit: () => s.rhea > 0 && self.openOp('withdraw', s.rhea.toFixed(2)),
-      isPolicy: s.screen === 'policy', isPay: s.screen === 'pay', isReplays: s.screen === 'replays', isRoadmap: s.screen === 'roadmap',
+      isPolicy: s.screen === 'policy', isPay: s.screen === 'pay', isRoadmap: s.screen === 'roadmap',
       layerEyebrow: EB[s.screen] || '', judge, dataTag: judge ? 'EXAMPLE WORKSPACE' : 'LIVE READS · MAINNET', dataTagBg: judge ? '#F6EBDD' : '#E2EAD6', dataTagColor: judge ? '#8A5F25' : '#3F6B3C',
-      toggleJudge: () => self.setWorkspace(judge ? 'live' : 'demo'), leaveDemo: () => self.setWorkspace('live'), replayOn: !!s.replay, acc: ACC, todayLabel: dlabel(iso(0)), goPolicy: () => self.go('policy'), judgeBg: judge ? '#F6EBDD' : '#fff', judgeBorder: judge ? '#EBD9BF' : '#E3E6DB', judgeTrack: judge ? '#8A5F25' : '#CDD3C2', judgeKnob: judge ? '14px' : '2px',
+      toggleJudge: () => self.setWorkspace(judge ? 'live' : 'demo'), leaveDemo: () => self.setWorkspace('live'), acc: ACC, todayLabel: dlabel(iso(0)), goPolicy: () => self.go('policy'), judgeBg: judge ? '#F6EBDD' : '#fff', judgeBorder: judge ? '#EBD9BF' : '#E3E6DB', judgeTrack: judge ? '#8A5F25' : '#CDD3C2', judgeKnob: judge ? '14px' : '2px',
       netLabel: judge ? 'Example workspace · no wallet' : s.connected ? 'Mainnet · wallet connected' : 'Not connected · read only', netColor: judge ? '#8A5F25' : s.connected ? '#4E7A4A' : '#8A9285',
       navFlat: NG.flatMap((g: any) => g.items).filter((n: any) => n.isLink), isMobile: L === 'm', notMobile: L !== 'm', shellDir: L === 'm' ? 'column' : 'row', asideW: '216px', asidePadX: '14px', lblDisp: 'block', fullFlex: 'flex', railDivider: 'none', navJustify: 'flex-start', padX: L === 'm' ? '16px' : '32px', padTop: L === 'm' ? '24px' : '40px',
       wsName: s.ws === 'demo' ? 'Example workspace' : 'Personal workspace', wsRole: s.ws === 'demo' ? 'Demo Mode · no wallet' : s.connected ? 'Owner · can approve' : 'Read only · not connected', wsInitial: s.ws === 'demo' ? 'E' : 'P', wsInitBg: s.ws === 'demo' ? '#F6EBDD' : '#E2EAD6',
@@ -832,8 +810,8 @@ export class DesignApp extends Component<any, any> {
       walletApprove: () => (s.connected || s.ws === 'demo') ? wallet.onApprove() : self.toastMsg('Connect a wallet first. Nothing was signed.'),
       isConfirm: s.modal === 'confirm', confirmText: s.confirm ? s.confirm.text : '',
       confirmYes: () => { const c = s.confirm; if (c) setDraft((d: any) => { if (!d.assets.eth.uses.includes(c.u)) d.assets.eth.uses.push(c.u); return d; }); self.setState({ modal: null, confirm: null }); self.refocus(); self.toastMsg('ETH protection removed in your draft. Save the revision to apply it.'); },
-      footLabel: judge ? 'Example workspace · replays from recorded responses' : 'Observed mainnet data · block 224067523',
-      goReplays: () => self.go('replays'), goRoadmap: () => self.go('roadmap'),
+      footLabel: judge ? 'Example workspace · fictional data' : 'Observed mainnet data · block 224067523',
+      goRoadmap: () => self.go('roadmap'),
       pfDateTabs, pfDlUpper: pfDl.toUpperCase(), pfStake, pfStakeNote,
       polRev: P.rev, polNextRev: P.rev + 1, polD: D, polClean, polSave, polAssets, polVenues, revisions: s.revisions,
       onPerAction: setLim('perAction'), onDaily: setLim('daily'), onMaxMove: setLim('maxMove'),
@@ -844,7 +822,7 @@ export class DesignApp extends Component<any, any> {
       test: T, onTest: { kind: setT('kind'), amount: setT('amount'), asset: setT('asset'), venue: setT('venue') }, testRows: tc, testVerdict, testAgainst: polClean ? 'Checked against revision ' + P.rev : 'Checked against your unsaved draft',
       hasPy: !!pyOb, noPy: !pyOb, pyTabs, pyPlans, pyChecks, pyHead,
       stkSub: 'Idle NEAR 42.10 · 0.50 kept as exit reserve · max 41.60', stkAmt: s.stk.amt, onStkAmt: (e: any) => self.setState({ stk: { ...s.stk, amt: e.target.value } }), stkTabs, stakeCards, stkDueUpper: stDl.toUpperCase(), lead: s.lead,
-      replays, roadmap, stretch,
+      roadmap, stretch,
       asstOpen: !!s.asst.open, asstQueued: s.asst.queued, asstEmpty: s.asst.msgs.length === 0, asstHasMsgs: s.asst.msgs.length > 0, asstMsgs, asstSuggest, asstChips, asstInput: s.asst.input,
       openAssistant: () => { self.remember(); self.setState({ asst: { ...s.asst, open: true } }); }, askQuestion: (q: string) => self.ask(q), closeAssistant: () => self.closeAsst(),
       onAsstInput: (e: any) => self.setState({ asst: { ...s.asst, input: e.target.value } }), asstSend: () => self.ask(s.asst.input), onAsstKey: (e: any) => { if (e.key === 'Enter') self.ask(s.asst.input); },
@@ -897,14 +875,14 @@ export class DesignApp extends Component<any, any> {
       payRecheck: () => self.toastMsg('Still unknown at 18:38. Checking again every 30 s; nothing will be re-sent.'),
       showOutcome: s.modal === 'pay' && pay && !pay.final, outcomes,
       hasToast: !!s.toast, toast: s.toast,
-      watchOpen: !!s.watchOpen, toggleWatch: () => self.setState({ watchOpen: !s.watchOpen, screen: s.screen }), pfStakeHead: 'aurora.pool.near · native', asstTag1: 'NEAR AI CLOUD · PRIVATE INFERENCE', asstTag2: 'EXAMPLE RESPONSES', replaysIntro: 'Each replay runs the real flow against a recorded 1Click, Rhea or RPC response. Nothing is signed or sent, and results appear in Activity labeled as replays.', creditPermNote: 'Read from policy rev ' + s.pol.rev + '. Change them in Policy.', stratEmptyTitle: 'No surplus to put to work yet.', stratEmptyBody: 'Once your reserve and dated payments are covered, whatever is left shows up here, ranked by what it nets by your next payment date.', stratEmptyCta: 'Finish your plan', stratEmptyAction: () => self.go('overview'), creditEthLine: '0.62 ETH · $2,000.00 · example price, 18:24', planMoveCost: usd(s.pol.maxMove) + ' per move', planBorrowLabel: s.pol.borrow ? 'Allowed to propose · preview only' : 'Off · needs verification', planRheaLabel: (s.pol.venues.rhea ? '✓ ' : '') + 'Rhea Lending · USDC',
+      watchOpen: !!s.watchOpen, toggleWatch: () => self.setState({ watchOpen: !s.watchOpen, screen: s.screen }), pfStakeHead: 'aurora.pool.near · native', asstTag1: 'NEAR AI CLOUD · PRIVATE INFERENCE', asstTag2: 'EXAMPLE RESPONSES', creditPermNote: 'Read from policy rev ' + s.pol.rev + '. Change them in Policy.', stratEmptyTitle: 'No surplus to put to work yet.', stratEmptyBody: 'Once your reserve and dated payments are covered, whatever is left shows up here, ranked by what it nets by your next payment date.', stratEmptyCta: 'Finish your plan', stratEmptyAction: () => self.go('overview'), creditEthLine: '0.62 ETH · $2,000.00 · example price, 18:24', planMoveCost: usd(s.pol.maxMove) + ' per move', planBorrowLabel: s.pol.borrow ? 'Allowed to propose · preview only' : 'Off · needs verification', planRheaLabel: (s.pol.venues.rhea ? '✓ ' : '') + 'Rhea Lending · USDC',
     };
     out.openSendNow = () => {
       if (s.ws !== 'demo' && !LV?.signedIn) { (out.openConnect || out.connectFirst)(); return; }
       self.remember(); self.setState({ modal: 'intent', intent: { amount: '', asset: 'USDC', rid: 'new', addr: '', chain: 'Base', due: iso(0), save: false, repeats: 'none' }, asst: { ...s.asst, open: false } });
     };
     if (!LV) return out;
-    out.dialogLabel = ({ intent: 'New payment', add: 'Add a payment', op: s.op && s.op.kind === 'replay' ? 'Replay' : s.op && s.op.kind === 'withdraw' ? 'Withdraw USDC from Rhea' : 'Supply USDC to Rhea', pay: 'Pay on a date', confirm: (s.confirm && s.confirm.title) || 'Confirm', wallet: 'Wallet' } as any)[s.modal] || 'FlowVault dialog';
+    out.dialogLabel = ({ intent: 'New payment', add: 'Add a payment', op: s.op && s.op.kind === 'withdraw' ? 'Withdraw USDC from Rhea' : 'Supply USDC to Rhea', pay: 'Pay on a date', confirm: (s.confirm && s.confirm.title) || 'Confirm', wallet: 'Wallet' } as any)[s.modal] || 'FlowVault dialog';
     const lctx = { self, s, example: s.ws === 'demo' };
     return { ...out, ...liveVals(LV, out, lctx), ...liveConfigure(LV, out, lctx), ...liveDecide(LV, out, lctx), ...liveExecute(LV, out, lctx), ...livePreviews(LV, out, lctx) };
   }

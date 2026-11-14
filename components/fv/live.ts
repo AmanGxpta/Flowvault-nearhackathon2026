@@ -88,7 +88,6 @@ export interface LiveSnapshot {
   plan: any | null;
   attempts: WalletAttempt[];
   payments: any[];
-  replays: any[];
   timeline: TimelineAttempt[];
   /** Staking options with rate source and exit fit (GET /api/staking/options). */
   staking: any | null;
@@ -126,7 +125,6 @@ export const emptySnapshot = (scope: Scope = currentScope): LiveSnapshot => ({
   plan: null,
   attempts: [],
   payments: [],
-  replays: [],
   timeline: [],
   staking: null,
   evm: { base: "", arb: "" },
@@ -186,7 +184,7 @@ export async function loadSnapshot(
     p.then((v) => onPartial?.({ ...apply(v), scope, workspace, revision: ws.revision })).catch(() => {});
     return p;
   };
-  const [ob, pf, pol, st, pl, tx, tl, pays, reps, stk] = await Promise.allSettled([
+  const [ob, pf, pol, st, pl, tx, tl, pays, stk] = await Promise.allSettled([
     part(get("/api/obligations"), (v) => ({ obligations: v })),
     part(get("/api/portfolio?" + q.toString()), (v) => ({ portfolio: v, portfolioError: "" })),
     part(get("/api/policy"), (v) => ({ policy: v })),
@@ -195,7 +193,6 @@ export async function loadSnapshot(
     part(get("/api/transactions"), (v) => ({ attempts: v.attempts })),
     part(get("/api/timeline"), (v) => ({ timeline: v.attempts })),
     part(get("/api/payments"), (v) => ({ payments: v.payments ?? [] })),
-    part(get("/api/replays"), (v) => ({ replays: v.replays ?? [] })),
     part(get("/api/staking/options"), (v) => ({ staking: v })),
   ]);
   const val = (r: PromiseSettledResult<any>) => (r.status === "fulfilled" ? r.value : null);
@@ -215,7 +212,6 @@ export async function loadSnapshot(
     attempts: val(tx)?.attempts ?? (prev.scope === scope ? prev.attempts : []),
     timeline: val(tl)?.attempts ?? (prev.scope === scope ? prev.timeline : []),
     payments: val(pays)?.payments ?? (prev.scope === scope ? prev.payments : []),
-    replays: val(reps)?.replays ?? prev.replays,
   };
 }
 

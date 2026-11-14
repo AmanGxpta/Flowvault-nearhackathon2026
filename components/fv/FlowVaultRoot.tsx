@@ -359,7 +359,7 @@ export function FlowVaultRoot() {
         if (getScope() === scope && snapRef.current.scope === scope) return;
         setScope(scope);
         seq.current++;
-        setSnap((s) => ({ ...emptySnapshot(scope), walletAccount: s.walletAccount, walletName: s.walletName, walletError: s.walletError, replays: s.replays }));
+        setSnap((s) => ({ ...emptySnapshot(scope), walletAccount: s.walletAccount, walletName: s.walletName, walletError: s.walletError }));
         await refresh();
       },
       strategies: (amount) => api("/api/strategies?amount=" + encodeURIComponent(amount), undefined, "GET"),
