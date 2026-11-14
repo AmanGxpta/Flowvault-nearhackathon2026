@@ -35,7 +35,13 @@ export function SupplyFundOffer({ tokenId, symbol, apy, owner: liveOwner, exampl
   // Pay with anything you hold that NEAR Intents can take, except the token itself.
   const payable = useMemo(() => tokens.filter((t) => !!t.assetId && PAY_NETWORKS.includes(t.network) && (example || t.network !== "sol" || t.contract === SOLANA_USDC) && t.id !== target?.id && BigInt(holdings.balances[t.id]?.raw ?? "0") > 0n), [tokens, holdings.balances, target?.id]);
   // Rank by value: the wallet's own valuation, else the catalog price, so the pick doesn't depend on which read lands first.
-  const suggestion = useMemo(() => defaultSource(payable.map((t) => { const b = holdings.balances[t.id]; return { token: t, raw: b?.largestRaw ?? b?.raw ?? "0", usd: b?.usd ?? (t.price && b ? String(Number(b.amount) * Number(t.price)) : null) }; })), [payable, holdings.balances]);
+  // Supplying a stablecoin: pay with stablecoins first (1:1, no price risk), then anything else.
+  const stableTarget = /^USD/i.test(symbol);
+  const suggestion = useMemo(() => {
+    const all = payable.map((t) => { const b = holdings.balances[t.id]; return { token: t, raw: b?.largestRaw ?? b?.raw ?? "0", usd: b?.usd ?? (t.price && b ? String(Number(b.amount) * Number(t.price)) : null) }; });
+    const stables = stableTarget ? all.filter((c) => /^USD/i.test(c.token.symbol) && Number(c.usd ?? 0) >= 1) : [];
+    return defaultSource(stables.length ? stables : all);
+  }, [payable, holdings.balances, stableTarget]);
   const [picked, setPicked] = useState<string | null>(null), [typed, setTyped] = useState<string | null>(null);
   const fromId = picked ?? suggestion?.token.id ?? "";
   const from = payable.find((t) => t.id === fromId);

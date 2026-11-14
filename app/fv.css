@@ -994,3 +994,19 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 @media (max-width:760px){.fv-collect-form{grid-template-columns:1fr}.fv-collect-row{grid-template-columns:24px minmax(0,1fr) 90px;row-gap:4px}.fv-collect-row>span:nth-child(3),.fv-collect-row>span:nth-child(5),.fv-collect-head>span:nth-child(n+3){display:none}.fv-collect-row>span:nth-child(6){grid-column:3}.fv-collect-row>span:nth-child(4){grid-column:2 / 4}.fv-collect-detail{grid-template-columns:1fr;padding-left:14px}.fv-collect-map-sources{width:40%}.fv-collect-node span{max-width:70px;overflow:hidden;text-overflow:ellipsis}}
 .fv-collect>.fv-panel,.fv-collect-run{padding:18px 20px}
 .fv-collect-sources .fv-section-head,.fv-collect-target .fv-section-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+/* What you can do today */
+.fv-today{margin:4px 0 6px}
+.fv-today-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.fv-today-head h2{margin:0;font-size:17px}.fv-today-head small{font-size:12px;color:var(--fvc-8A9285)}
+.fv-today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.fv-today-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;border-radius:14px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF)}
+.fv-today-card h3{margin:0;font-size:14.5px;line-height:1.35;color:var(--fvc-1E2A22)}
+.fv-today-card p{margin:0;font-size:12.5px;line-height:1.5;color:var(--fvc-5B6458);flex:1}
+.fv-today-top{display:flex;align-items:center;justify-content:space-between}
+.fv-today-icon{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--fvb-F1F2EB);color:var(--fvc-4A5349)}
+.fv-today-figure{font-size:13px;color:var(--fvc-3F6B3C)}
+.fv-today-card.is-earn .fv-today-icon,.fv-today-card.is-stake .fv-today-icon{background:var(--fvb-E2EAD6);color:var(--fvc-2F552D)}
+.fv-today-card.is-move-up .fv-today-icon{background:var(--fvb-E2EAD6);color:var(--fvc-2F552D)}
+.fv-today-card.is-move-down .fv-today-icon{background:var(--fvb-F6E3DE);color:var(--fvc-9A3F32)}.fv-today-card.is-move-down .fv-today-figure{color:var(--fvc-9A3F32)}
+.fv-today-card.is-trend .fv-today-icon{background:var(--fvb-F6EBDD);color:var(--fvc-8A5F25)}
+.fv-today-cta{align-self:flex-start;font-size:13px}

@@ -31,6 +31,7 @@ import { WalletHistory } from "./WalletHistory";
 import { RatesTable } from "./RatesTable";
 import { SupplyFlowView } from "./earn/SupplyFlowView";
 import { CollectSend } from "./collect/CollectSend";
+import { TodayCards } from "./today/TodayCards";
 import { OrderTicket, type OrderDraft } from "./OrderTicket";
 
 export const destinations = [
@@ -116,6 +117,7 @@ export function PortfolioHome({ v }: { v: any }) {
     {v.rec && !["READING", "IDLE", "LIQUID"].includes(v.rec.tag) && <details className="fv-attention"><summary><span><span className="fv-status-dot" />{v.rec.title}</span><span>Review <ChevronRight size={15} /></span></summary><p>{v.rec.body}</p><Button onClick={v.rec.onClick}>{v.rec.cta}</Button></details>}
     {gaps.length > 0 && <section className="fv-coverage" role="status"><button type="button" aria-expanded={gapsOpen} onClick={() => setGapsOpen(!gapsOpen)}><span className="fv-status-dot" /><span>{gaps.length === 1 ? gaps[0].name : gaps.length + " parts of your portfolio aren’t fully read"}</span><small>{gaps.every((g: any) => g.tag === "PARTIAL") ? "The total shows what’s read so far" : "Not counted until they read"}</small>{gapsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
       {gapsOpen && <ul>{gaps.map((g: any, i: number) => <li key={i}><strong>{g.name}</strong><small>{g.sub}</small></li>)}</ul>}</section>}
+    {!openWallet && <TodayCards key={String(!!v.judge)} owner={v.acc ?? ""} example={!!v.judge} navigate={v.navigate} />}
     {openWallet && <WalletBar wallets={wallets} value={wallet} set={pickWallet} />}
     {openWallet ? <WalletHeader w={openWallet} back={() => pickWallet("")} copy={(a) => { try { void navigator.clipboard.writeText(a); } catch { /* clipboard blocked */ } }} /> : <WalletCards wallets={summaries} open={pickWallet} />}
     <Allocation rows={scoped} network={network} setNetwork={setNetwork} multiWallet={!wallet && wallets.length > 1} wallets={walletNames} setWallet={pickWallet} />

@@ -23,6 +23,15 @@ export function RatesTable({ mode, onUsdc, usdcNote, fund }: { mode: "earn" | "b
       .catch(e => { if (!abort.signal.aborted) setError((e as Error).message); });
     return () => abort.abort();
   }, []);
+  // Deep link (e.g. from "What you can do today"): ?supply=<token> opens that market's sheet once the rates load.
+  useEffect(() => {
+    if (!rows || mode !== "earn") return;
+    const url = new URL(window.location.href), want = url.searchParams.get("supply");
+    const row = want ? rows.find((r) => r.token === want) : null;
+    if (!row) return;
+    url.searchParams.delete("supply"); history.replaceState(null, "", url);
+    const t = setTimeout(() => setOpen(row), 0); return () => clearTimeout(t);
+  }, [rows, mode]);
   const list = (rows ?? []).filter(r => (mode === "earn" ? r.canSupply : r.canBorrow || r.collateral) && (filter === "all" || (filter === "stable") === STABLE.test(r.symbol)) && (r.symbol + r.name).toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => mode === "earn" ? (b.supplyApy ?? 0) - (a.supplyApy ?? 0) : (b.borrowedUsd ?? 0) - (a.borrowedUsd ?? 0));
   const best = mode === "earn" ? Math.max(...list.map(r => r.supplyApy ?? 0)) : null;
