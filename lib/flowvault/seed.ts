@@ -8,6 +8,7 @@ import type {
 } from "./types.ts";
 import { SUPPLY_USDC as USDC } from "./supply.ts";
 import { defaultPolicy } from "./policy.ts";
+import { EXAMPLE_LIMITS } from "./example-policy.ts";
 const day = 86400000;
 export const FICTIONAL =
   "FICTIONAL EXAMPLE — no funds, accounts, prices or returns verified";
@@ -74,8 +75,8 @@ export function seed(now = Date.now()): Workspace {
       { receiver: "linear-protocol.near", method: "deposit_and_stake" },
       { receiver: "lst.rhealab.near", method: "deposit_and_stake" },
     ],
-    perActionCap: "5000",
-    dailyCap: "8000",
+    perActionCap: String(EXAMPLE_LIMITS.perActionCap),
+    dailyCap: String(EXAMPLE_LIMITS.dailyCap),
     protectedAssets: ["ETH"],
     venues: [
       "contract.main.burrow.near",
@@ -120,7 +121,7 @@ export function seed(now = Date.now()): Workspace {
     obligations,
     mandate: {
       source: "demo",
-      reserve: "2000",
+      reserve: String(EXAMPLE_LIMITS.reserve),
       cashAmount: "9550",
       cashDate: obligations[0].dueDate,
       destination: "base",

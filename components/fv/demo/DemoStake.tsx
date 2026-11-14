@@ -10,7 +10,7 @@ import { HazardScan } from "../approvals/HazardScan";
 import { fmtAmount } from "../swap-format";
 import { demoLedger, saveDemoLedger, simulateApproval, useDemoLedger } from "./ledger-store";
 import { applyClaim, applyFundNear, applyNativeStake, applyNativeUnstake, applyStake, applyUnstake, GAS_RESERVE_NEAR, WNEAR_ID } from "@/lib/flowvault/demo-ledger";
-import { exampleChecks } from "@/lib/flowvault/demo-sim";
+import { examplePasses, exampleChecks } from "@/lib/flowvault/demo-sim";
 
 type Venue = "linear" | "rnear";
 const NAME: Record<Venue | "native", string> = { linear: "LiNEAR", rnear: "rNEAR", native: "a validator" };
@@ -42,6 +42,7 @@ export function DemoStakeReview({ venue, near, nearPerShare, apr, nearUsd, close
       },
     });
   }
+  const checks = exampleChecks(near * (nearUsd ?? 0), [{ id: "code", label: venue === "native" ? "Validator pool contract verified" : `${NAME[venue]} contract code verified`, ok: true }, ...(source ? [{ id: "refund", label: `Refunds go back to your ${NET[source.network] ?? source.network} wallet if delivery fails`, ok: true }] : []), { id: "reserve", label: "0.5 NEAR stays for gas and a later unstake", ok: true }]), allowed = examplePasses(checks);
   return <ReviewFrame busy={busy} close={close} className="fv-dialog fv-swap-confirm" label={`Example stake ${venue === "native" ? "with " + pool : "into " + NAME[venue]}`}>
     {!busy && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
     <div className="fv-confirm-pair"><TokenIcon symbol="NEAR" network="near" core size={52} /></div>
@@ -58,10 +59,10 @@ export function DemoStakeReview({ venue, near, nearPerShare, apr, nearUsd, close
       {hash && <div><span>Transaction</span><strong className="fv-demo-hash">{hash} <small>(example, not on chain)</small></strong></div>}
     </div>
     {phase === "review" && <ol className="fv-confirm-steps">{source && <li><span>1</span>Pay {source.symbol} on {NET[source.network] ?? source.network} · NEAR Intents delivers NEAR<small>your {NET[source.network] ?? source.network} wallet</small></li>}<li><span>{source ? 2 : 1}</span>deposit_and_stake<small>{venue === "native" ? pool : CONTRACT[venue]}</small></li></ol>}
-    {phase === "review" && <HazardScan checks={exampleChecks(near * (nearUsd ?? 0), [{ id: "code", label: venue === "native" ? "Validator pool contract verified" : `${NAME[venue]} contract code verified`, ok: true }, ...(source ? [{ id: "refund", label: `Refunds go back to your ${NET[source.network] ?? source.network} wallet if delivery fails`, ok: true }] : []), { id: "reserve", label: "0.5 NEAR stays for gas and a later unstake", ok: true }])} />}
+    {phase === "review" && <HazardScan checks={checks} />}
     {phase === "done" && <div className="fv-confirm-success"><Check size={18} /> Example: {n4(near)} NEAR staked {venue === "native" ? `with ${pool}` : `for ≈ ${n4(shares)} ${NAME[venue]}`}. Your position is below.</div>}
     <div className="fv-confirm-actions">
-      {phase === "review" ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={approve}>Approve in wallet · example</button>
+      {phase === "review" ? (allowed ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={approve}>Approve in wallet · example</button> : <button type="button" className="fv-button fv-wide-button" disabled>Refused by your policy · example</button>)
         : busy ? <button type="button" className="fv-button fv-primary fv-wide-button" disabled><RefreshCw size={15} className="fv-spin" /> {phase === "wallet" ? "Waiting for the example wallet…" : "Settling on NEAR…"}</button>
         : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}
     </div>

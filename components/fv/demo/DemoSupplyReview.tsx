@@ -6,7 +6,7 @@ import { Check, RefreshCw, X } from "lucide-react";
 import { ReviewFrame } from "../ReviewFrame";
 import { TokenIcon } from "../AssetIdentity";
 import { HazardScan } from "../approvals/HazardScan";
-import { exampleChecks, simAttempt } from "@/lib/flowvault/demo-sim";
+import { examplePasses, exampleChecks, simAttempt } from "@/lib/flowvault/demo-sim";
 
 export function DemoSupplyReview({ symbol, icon, amount, apy, close }: { symbol: string; icon?: string | null; amount: string; apy: number | null; close: () => void }) {
   const [at, setAt] = useState<number | null>(null), [now, setNow] = useState(() => Date.now()), [id] = useState(() => "demo-supply-" + crypto.randomUUID());
@@ -15,6 +15,7 @@ export function DemoSupplyReview({ symbol, icon, amount, apy, close }: { symbol:
   const busy = a?.state === "awaiting_wallet" || a?.state === "submitted";
   const yearly = apy !== null ? Number(amount) * apy / 100 : null;
   const amt = Number(amount).toLocaleString("en-US");
+  const checks = exampleChecks(Number(amount), [{ id: "health", label: "No debt: nothing can be liquidated", ok: true }, { id: "oracle", label: "Priced by Rhea's own oracle", ok: true }]), allowed = examplePasses(checks);
   return <ReviewFrame busy={busy} close={close} className="fv-dialog fv-swap-confirm" label={`Example supply ${symbol}`}>
     {!busy && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
     <div className="fv-confirm-pair"><TokenIcon symbol={symbol} image={icon ?? undefined} network="near" core size={52} /></div>
@@ -26,10 +27,10 @@ export function DemoSupplyReview({ symbol, icon, amount, apy, close }: { symbol:
       <div><span>Network fees</span><strong>up to 0.003 NEAR</strong></div>
       {a?.hash && <div><span>Transaction</span><strong className="fv-demo-hash">{a.hash} <small>(example, not on chain)</small></strong></div>}
     </div>
-    {!a && <HazardScan checks={exampleChecks(Number(amount), [{ id: "health", label: "No debt: nothing can be liquidated", ok: true }, { id: "oracle", label: "Priced by Rhea's own oracle", ok: true }])} />}
+    {!a && <HazardScan checks={checks} />}
     {a?.state === "confirmed" && <div className="fv-confirm-success"><Check size={18} /> Example: {amt} {symbol} supplied to Rhea.</div>}
     <div className="fv-confirm-actions">
-      {!a ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => setAt(Date.now())}>Approve in wallet · example</button>
+      {!a ? (allowed ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => setAt(Date.now())}>Approve in wallet · example</button> : <button type="button" className="fv-button fv-wide-button" disabled>Refused by your policy · example</button>)
         : busy ? <button type="button" className="fv-button fv-primary fv-wide-button" disabled><RefreshCw size={15} className="fv-spin" /> {a.state === "awaiting_wallet" ? "Waiting for the example wallet…" : "Settling on NEAR…"}</button>
         : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}
     </div>

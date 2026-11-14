@@ -11,7 +11,13 @@ import { TokenIcon } from "./AssetIdentity";
 import { api, getScope } from "./live";
 import { demoLedger, saveDemoLedger, simulateApproval, useDemoLedger, useDemoMarkets } from "./demo/ledger-store";
 import { applyRhea, borrowCapacity, rheaHealth, STRESS, GAS_RESERVE_NEAR, type DemoLedger, type Markets } from "@/lib/flowvault/demo-ledger";
-import { exampleChecks } from "@/lib/flowvault/demo-sim";
+import { examplePasses, exampleChecks, type ExampleCheck } from "@/lib/flowvault/demo-sim";
+
+/** The example policy's verdict as a prepared review carries it: a failed cap is a violation the owner can't "allow" past. */
+function demoPolicy(checks: ExampleCheck[]) {
+  const violations = checks.filter((c) => c.ok === false).map((c) => ({ code: c.id === "daily" ? "DAILY_CAP" : c.id === "per-action" ? "PER_ACTION_CAP" : "POLICY", message: c.detail ?? c.label }));
+  return { allowed: examplePasses(checks), violations, missingEntries: [], revision: 0, version: 4, checks };
+}
 import { fmtAmount, fmtUsd } from "./swap-format";
 import { signRhea } from "@/lib/flowvault/wallet";
 import type { WalletAttempt } from "@/lib/flowvault/execution";
@@ -138,7 +144,7 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
       const r: Prepared = {
         attempt: { id, state: "prepared", message: "", hashes: [] } as unknown as WalletAttempt,
         review: { action, symbol, amount, usdValue: usd.toFixed(2), healthBefore: healthText(before), healthAfter: healthText(after), stressedAfter: stressed === null ? null : healthText(stressed), gasNearBound: DEMO_STEPS[action](tokenId, tokenId === WRAP && native).length > 1 ? "0.06" : "0.03", steps: DEMO_STEPS[action](tokenId, tokenId === WRAP && native), expiresAt: new Date(Date.now() + 120_000).toISOString(), newDebt: action === "borrow" && !(l.rhea[tokenId]?.borrowed) },
-        policy: { allowed: true, violations: [], missingEntries: [], revision: 0, version: 3, checks: exampleChecks(usd, extra) },
+        policy: demoPolicy(exampleChecks(usd, extra)),
       };
       if (!alive.current) return;
       setPrep(r); setAttempt(r.attempt); setPhase("review");

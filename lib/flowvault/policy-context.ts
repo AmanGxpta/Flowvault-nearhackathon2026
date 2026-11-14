@@ -1,5 +1,6 @@
 import type { Workspace } from "./types.ts";
 import type { LedgerEntry } from "./policy.ts";
+import { EXAMPLE_LIMITS } from "./example-policy.ts";
 /** Fictional usage is never inserted into the live authorization journal. */
 export function workspaceLedger(
   w: Workspace,
@@ -11,7 +12,7 @@ export function workspaceLedger(
     ? [
         {
           operationId: "fictional:prior-usage",
-          amount: "1250",
+          amount: String(EXAMPLE_LIMITS.usedToday),
           source: "demo",
           accountId,
           createdAt:

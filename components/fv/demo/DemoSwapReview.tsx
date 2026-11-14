@@ -7,7 +7,7 @@ import { ReviewFrame } from "../ReviewFrame";
 import { TokenIcon } from "../AssetIdentity";
 import { coreIdentity } from "../useTokenCatalog";
 import { fmtAmount, fmtUsd } from "../swap-format";
-import { exampleChecks, simAttempt, simDelivered } from "@/lib/flowvault/demo-sim";
+import { examplePasses, exampleChecks, simAttempt, simDelivered } from "@/lib/flowvault/demo-sim";
 import { HazardScan } from "../approvals/HazardScan";
 import { units, decimal } from "@/lib/flowvault/money";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
@@ -23,6 +23,7 @@ export function DemoSwapReview({ from, to, amount, route, close, onDone }: { fro
   useEffect(() => { if (delivered) onDone?.(delivered); }, [delivered]); // eslint-disable-line react-hooks/exhaustive-deps -- once, when it lands
   const busy = a?.state === "awaiting_wallet" || a?.state === "submitted";
   const cross = from.network !== to.network;
+  const checks = exampleChecks(Number(amount) * Number(from.price ?? 0), [{ id: "slippage", label: "Minimum received within 1% slippage", ok: true }]), allowed = examplePasses(checks);
   return <ReviewFrame busy={busy} close={close} className={"fv-dialog fv-swap-confirm"} label={`Example swap ${from.symbol} to ${to.symbol}`}>
     {!busy && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
     <div className="fv-confirm-pair"><TokenIcon symbol={from.symbol} network={from.network} core={coreIdentity(from)} image={from.icon} size={44} /><TokenIcon symbol={to.symbol} network={to.network} core={coreIdentity(to)} image={to.icon} size={44} /></div>
@@ -35,10 +36,10 @@ export function DemoSwapReview({ from, to, amount, route, close, onDone }: { fro
       <div><span>Route</span><strong>{route.venue}{route.eta ? ` · ~${route.eta}s` : ""}</strong></div>
       {a?.hash && <div><span>Transaction</span><strong className="fv-demo-hash">{a.hash} <small>(example, not on chain)</small></strong></div>}
     </div>
-    {!a && <HazardScan checks={exampleChecks(Number(amount) * Number(from.price ?? 0), [{ id: "slippage", label: "Minimum received within 1% slippage", ok: true }])} />}
+    {!a && <HazardScan checks={checks} />}
     {a?.state === "confirmed" && <div className="fv-confirm-success"><Check size={18} /> Example: {fmtAmount(delivered)} {to.symbol} arrived.<div className="fv-confirm-hashes"><span className="fv-demo-hash">View transaction <ExternalLink size={12} /> unavailable for examples</span></div></div>}
     <div className="fv-confirm-actions">
-      {!a ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => setAt(Date.now())}>Approve in wallet · example</button>
+      {!a ? (allowed ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => setAt(Date.now())}>Approve in wallet · example</button> : <button type="button" className="fv-button fv-wide-button" disabled>Refused by your policy · example</button>)
         : busy ? <button type="button" className="fv-button fv-primary fv-wide-button" disabled><RefreshCw size={15} className="fv-spin" /> {a.state === "awaiting_wallet" ? "Waiting for the example wallet…" : "In progress…"}</button>
         : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}
     </div>

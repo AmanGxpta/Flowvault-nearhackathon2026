@@ -8,7 +8,7 @@ import { ReviewFrame } from "../ReviewFrame";
 import { HazardScan } from "../approvals/HazardScan";
 import { fmtAmount, fmtUsd } from "../swap-format";
 import { demoLedger, saveDemoLedger, simulateApproval } from "./ledger-store";
-import { exampleChecks } from "@/lib/flowvault/demo-sim";
+import { examplePasses, exampleChecks } from "@/lib/flowvault/demo-sim";
 import { exampleWalletHoldings } from "@/lib/flowvault/example-wallets";
 import { SOLANA_ID } from "@/lib/flowvault/trade-lifi";
 
@@ -42,6 +42,7 @@ export function DemoTradeReview({ side, symbol, paySymbol, chain, amount, q, sli
       landed: () => { const l = demoLedger(); saveDemoLedger({ ...l, activity: [{ at: Date.now(), text: `${side === "buy" ? "Bought" : "Sold"} ${fmtAmount(String(side === "buy" ? q.output : amount))} ${symbol} for ${fmtAmount(String(side === "buy" ? amount : q.output))} ${paySymbol} on ${chain} via LI.FI` }, ...l.activity].slice(0, 50) }); setPhase("done"); },
     }, { wallet: 1500, settle: 3500 });
   }
+  const checks = exampleChecks(q.fromUsd, [{ id: "slippage", label: `Minimum received within ${slippageBps / 100}% slippage`, ok: true }, { id: "approval", label: "Exact-amount token approval, not unlimited", ok: true }, { id: "fresh", label: "Price from the live pool", ok: true }]), allowed = examplePasses(checks);
   return <ReviewFrame busy={busy} close={close} className="fv-dialog fv-swap-confirm" label={`Example ${side} ${symbol}`}>
     {!busy && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
     <h2>{phase === "review" ? `${side === "buy" ? "Buy" : "Sell"} ${symbol}` : phase === "wallet" ? "Example wallet approving…" : phase === "settling" ? "Settling" : side === "buy" ? "Bought" : "Sold"}</h2>
@@ -53,10 +54,10 @@ export function DemoTradeReview({ side, symbol, paySymbol, chain, amount, q, sli
       <div><span>Route</span><strong>LI.FI · {chain} · fee {fmtUsd(q.feeUsd)} included</strong></div>
       {hash && <div><span>Transaction</span><strong className="fv-demo-hash">{hash} <small>(example, not on chain)</small></strong></div>}
     </div>
-    {phase === "review" && <HazardScan checks={exampleChecks(q.fromUsd, [{ id: "slippage", label: `Minimum received within ${slippageBps / 100}% slippage`, ok: true }, { id: "approval", label: "Exact-amount token approval, not unlimited", ok: true }, { id: "fresh", label: "Price from the live pool", ok: true }])} />}
+    {phase === "review" && <HazardScan checks={checks} />}
     {phase === "done" && <div className="fv-confirm-success"><Check size={18} /> Example: {side === "buy" ? "bought" : "sold"} ≈ {fmtAmount(String(side === "buy" ? q.output : amount))} {symbol}. It’s in this session’s activity.</div>}
     <div className="fv-confirm-actions">
-      {phase === "review" ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={approve}>Approve in wallet · example</button>
+      {phase === "review" ? (allowed ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={approve}>Approve in wallet · example</button> : <button type="button" className="fv-button fv-wide-button" disabled>Refused by your policy · example</button>)
         : busy ? <button type="button" className="fv-button fv-primary fv-wide-button" disabled><RefreshCw size={15} className="fv-spin" /> {phase === "wallet" ? "Waiting for the example wallet…" : "Settling…"}</button>
         : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}
     </div>

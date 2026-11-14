@@ -2,6 +2,7 @@
 // viewer "approves" waits briefly in the (pretend) wallet, then is in progress, then lands. State is derived from
 // the time each step was approved, so a reloaded page shows exactly where the run stands. Every hash is labelled as
 // an example and links nowhere.
+import { EXAMPLE_LIMITS } from "./example-policy.ts";
 export interface SimAttempt { id: string; state: string; message: string; hashes: number; hash: string | null; deliveredRaw?: string | null; refundedRaw?: null; suppliedRaw?: string | null }
 export interface SimTiming { walletMs: number; settleMs: number }
 export const SIM_DEFAULT: SimTiming = { walletMs: 1600, settleMs: 9000 };
@@ -31,13 +32,19 @@ export function simDelivered(expectedRaw: string | null | undefined, bps = 8n) {
   return (v - (v * bps) / 10_000n).toString();
 }
 
-/** The hazard scan an example approval shows: the example workspace's limits applied to this amount. */
-export function exampleChecks(amountUsd: number, extra: { id: string; label: string; ok: boolean | null }[] = []) {
+export interface ExampleCheck { id: string; label: string; ok: boolean | null; detail?: string }
+
+/** The hazard scan an example approval shows: the example workspace's own policy (Risk & permissions) applied to this amount. */
+export function exampleChecks(amountUsd: number, extra: ExampleCheck[] = []): ExampleCheck[] {
   const fmt = (n: number) => "$" + (n >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(2));
-  const daily = 50_000, perAction = 10_000, used = 750;
+  const { dailyCap, perActionCap, usedToday } = EXAMPLE_LIMITS, left = dailyCap - usedToday;
   return [
-    { id: "per-action", label: `Within your per-action cap (${fmt(perAction)})`, ok: amountUsd <= perAction },
-    { id: "daily", label: `${fmt(Math.max(0, daily - used - amountUsd))} left today after this (within limit)`, ok: used + amountUsd <= daily },
+    amountUsd <= perActionCap
+      ? { id: "per-action", label: `Within your per-action cap (${fmt(perActionCap)})`, ok: true }
+      : { id: "per-action", label: `Within your per-action cap (${fmt(perActionCap)})`, ok: false, detail: `${fmt(amountUsd)} is over it: lower the amount, or raise the cap in Risk & permissions.` },
+    amountUsd <= left
+      ? { id: "daily", label: `${fmt(left - amountUsd)} left today after this (within limit)`, ok: true }
+      : { id: "daily", label: `Within your daily cap (${fmt(dailyCap)})`, ok: false, detail: `Only ${fmt(left)} is left today.` },
     { id: "asset", label: "Asset may be used this way", ok: true },
     { id: "protected", label: "Not a protected asset", ok: true },
     { id: "venue", label: "Approved venue", ok: true },
@@ -46,4 +53,9 @@ export function exampleChecks(amountUsd: number, extra: { id: string; label: str
     { id: "gas", label: "Network fees within your budget", ok: true },
     ...extra,
   ];
+}
+
+/** Whether an example approval may go ahead: nothing in its hazard scan failed (the live path refuses at prepare). */
+export function examplePasses(checks: ExampleCheck[]) {
+  return checks.every((c) => c.ok !== false);
 }
