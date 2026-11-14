@@ -4,7 +4,8 @@
 // Nothing here reads or needs an account. Demo Mode never shows this; it opens the full page.
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowRight, BookOpen, CalendarClock, Check, Layers, Lock, PlayCircle, Sparkles, Wallet, X, Zap } from "lucide-react";
+import { ArrowRight, BookOpen, CalendarClock, Check, Layers, Wallet, X, Zap } from "lucide-react";
+import { LockedPreview } from "../Locked";
 import { PUBLIC_POSTS, type PublicPost } from "@/lib/flowvault/public-research";
 import type { YieldRate } from "./YieldsTable";
 
@@ -58,21 +59,14 @@ function PostReader({ post, usdc, linear, close }: { post: PublicPost; usdc: str
   </div>, document.body);
 }
 
-/** A blurred preview of the personal research (illustrative figures, never real ones) under a lock. */
+/** The personal research under a lock: an illustrative brief and counts (never real figures), blurred. */
 export function LockedResearch({ connect, demo }: { connect: () => void; demo: () => void }) {
   const lines: [string, string][] = [["Portfolio", "≈ $24,310 across 4 chains. Largest: USDC, ETH, NEAR."], ["Cash", "Spendable now $6,200; available after your reserve and payments $2,140."], ["Idle money", "Put $2,140 of idle stablecoins to work at today's best rate."], ["Next 7 days", "1,500 USDC to Payroll on Friday."]];
-  return <section className="fv-hub-locked" aria-label="Your research, locked until a wallet is connected">
-    <div className="fv-locked-preview" aria-hidden inert>
+  return <LockedPreview label="Your research, locked until a wallet is connected" title="Your research is locked" connect={connect} demo={demo}
+    body="Connect a wallet to unlock a daily brief built from what you hold, ideas for idle money, strategies, automations and approvals. FlowVault reads balances; it never signs for you."
+    preview={<>
       <div className="fv-hub-stats">{([["Active strategies", "3", <Layers key="l" size={16} />], ["Pending approvals", "1", <Check key="c" size={16} />], ["Automations running", "2", <Zap key="z" size={16} />], ["Deployable capital", "$2,140", <Wallet key="w" size={16} />]] as const).map(([label, value, icon]) => <div key={label} className="fv-hub-stat"><span className="fv-hub-stat-icon">{icon}</span><span className="fv-hub-stat-body"><span>{label}</span><strong>{value}</strong><small>this week</small></span></div>)}</div>
       <div className="fv-panel fv-brief"><div className="fv-brief-head"><span className="fv-brief-icon"><CalendarClock size={17} /></span><div><h2>Your brief</h2><small>Every morning at 8:00</small></div></div>
         <ol className="fv-brief-items">{lines.map(([l, t]) => <li key={l} className="fv-brief-item is-good"><span className="fv-brief-label">{l}</span><span className="fv-brief-text">{t}</span><span /></li>)}</ol></div>
-    </div>
-    <div className="fv-lock-card fv-pop" role="region" aria-label="Unlock your research">
-      <span className="fv-lock-icon"><Lock size={22} /></span>
-      <h3>Your research is locked</h3>
-      <p>Connect a wallet to unlock a daily brief built from what you hold, ideas for idle money, strategies, automations and approvals. FlowVault reads balances; it never signs for you.</p>
-      <div className="fv-lock-actions"><button type="button" className="fv-button fv-primary" onClick={connect}><Wallet size={15} /> Connect wallet</button><button type="button" className="fv-button" onClick={demo}><PlayCircle size={15} /> Try Demo Mode</button></div>
-      <small><Sparkles size={12} /> Demo Mode shows the full page with a fictional example workspace.</small>
-    </div>
-  </section>;
+    </>} />;
 }

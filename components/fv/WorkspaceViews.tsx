@@ -10,7 +10,7 @@ import { ArrowDownUp, ArrowUpRight, BarChart3, Sparkles, Wallet, Search, Sliders
 import { MarketPanel } from "./MarketPanel";
 import { TokenIcon, tokenLogo } from "./AssetIdentity";
 import { Skel } from "./Skel";
-import { NotConnectedBanner } from "./NotConnected";
+import { LockedPreview, PreviewRows } from "./Locked";
 import { Allocation, NftGrid, ProtocolList, SearchBox, TokenList, WalletBar, WalletCards, WalletHeader, money, toHolding, type Nft } from "./portfolio/Holdings";
 import { summarizeWallets, totals, walletNameMap, type HoldingRow } from "@/lib/flowvault/portfolio-view";
 import { PerpsCard } from "./Perps";
@@ -106,20 +106,27 @@ export function PortfolioHome({ v }: { v: any }) {
   const networks = [...new Set(scoped.map((h) => h.network))].sort();
   const tabs = ["Tokens" + (tokenCount ? " " + tokenCount : ""), "DeFi" + (defiCount ? " " + defiCount : ""), "NFTs" + (nfts.length ? " " + nfts.length : "")];
   const current = tabs.find((x) => x.startsWith(tab)) ?? tabs[0];
-  // No wallet in the personal workspace: every balance component says so instead of loading forever.
-  const nc = !!v.notConnected, connect = () => (v.openConnect ?? v.connectFirst)?.();
-  const empty = <div className="fv-empty"><Wallet size={28} /><h3>{v.portfolioLoading ? "Reading your portfolio" : v.portfolioReadError ? "Portfolio unavailable" : !v.pfHas ? "Connect a wallet to see your portfolio" : query || network || wallet ? "Nothing matches" : tab === "DeFi" ? "No DeFi positions" : tab === "NFTs" ? "No NFTs" : "No token balances to show"}</h3><p>{v.portfolioLoading ? "Fetching balances and positions from your connected wallets…" : v.portfolioReadError ? "Your balances could not be read. Nothing is assumed to be zero." : !v.pfHas ? "Connect your wallets to see everything you hold, on every chain." : query || network || wallet ? "Try another search, network or wallet." : "Nothing here in the wallets FlowVault reads."}</p>{!v.portfolioLoading && !nc && (v.portfolioReadError || !v.pfHas) && <Button onClick={v.portfolioReadError ? v.refreshPortfolio : v.openConnect ?? v.connectFirst}>{v.portfolioReadError ? "Try again" : "Connect wallet"}</Button>}</div>;
+  const empty = <div className="fv-empty"><Wallet size={28} /><h3>{v.portfolioLoading ? "Reading your portfolio" : v.portfolioReadError ? "Portfolio unavailable" : !v.pfHas ? "Connect a wallet to see your portfolio" : query || network || wallet ? "Nothing matches" : tab === "DeFi" ? "No DeFi positions" : tab === "NFTs" ? "No NFTs" : "No token balances to show"}</h3><p>{v.portfolioLoading ? "Fetching balances and positions from your connected wallets…" : v.portfolioReadError ? "Your balances could not be read. Nothing is assumed to be zero." : !v.pfHas ? "Connect your wallets to see everything you hold, on every chain." : query || network || wallet ? "Try another search, network or wallet." : "Nothing here in the wallets FlowVault reads."}</p>{!v.portfolioLoading && (v.portfolioReadError || !v.pfHas) && <Button onClick={v.portfolioReadError ? v.refreshPortfolio : v.openConnect ?? v.connectFirst}>{v.portfolioReadError ? "Try again" : "Connect wallet"}</Button>}</div>;
+  // No wallet in the personal workspace: the page is an illustrative preview under a lock (never real figures).
+  if (v.notConnected) return <>
+    <PageHeading title="Portfolio" description="Everything you hold, across every wallet, chain and protocol." />
+    <LockedPreview label="Your portfolio, locked until a wallet is connected" title="Your portfolio is locked" connect={() => (v.openConnect ?? v.connectFirst)?.()} demo={v.toggleJudge}
+      body="Connect a wallet to see everything you hold across every wallet, chain and protocol: tokens, DeFi positions, debt and NFTs, in one value. FlowVault only reads balances; it never signs for you."
+      preview={<>
+        <div className="fv-summary-grid">{([["Portfolio value", "$24,310.52", "Tokens $18,920 · DeFi $5,390"], ["Cash now", "$6,200.00", "Spendable today"], ["Committed", "$4,060.00", "Reserve and payments"]] as const).map(([l, val, sub], i) => <section key={l} className={"fv-summary" + (!i ? " fv-summary-main" : "")}><span>{l}</span><strong>{val}</strong><small>{sub}</small></section>)}</div>
+        <PreviewRows rows={[["USDC", "Base, NEAR, Arbitrum · wallet", "$9,840.10"], ["ETH", "Ethereum · wallet", "$6,212.44"], ["NEAR", "NEAR · staked with LiNEAR", "$3,105.00"], ["Rhea USDC supply", "NEAR · earning 10.8%", "$2,285.00"], ["SOL", "Solana · wallet", "$1,480.20"]]} />
+      </>} />
+  </>;
   return <>
     <PageHeading title="Portfolio" description="Everything you hold, across every wallet, chain and protocol." action={<button type="button" className="fv-button" onClick={() => setAccounts(true)}><Wallet size={15} /> Wallets ({v.pfAccounts?.length ?? 0})</button>} />
-    <div className="fv-summary-grid">{summary.map((b: any, i: number) => <section key={b.label} className={"fv-summary" + (!i ? " fv-summary-main" : "") + (nc ? " is-nc" : "")}>{nc && <NotConnectedBanner pill />}<span>{i === 0 ? (wallet ? "Wallet value" : "Portfolio value") : b.label}</span><strong>{nc ? "—" : i === 0 && wallet ? money(t.tokens + t.defi - t.debt) : <Skel v={b.value} />}</strong>
-      {i === 0 && (t.tokens > 0 || t.defi > 0) ? <div className="fv-summary-split"><span>Tokens <b>{money(t.tokens)}</b></span>{t.defi > 0 && <span>DeFi <b>{money(t.defi)}</b></span>}{t.debt > 0 && <span>Debt <b>−{money(t.debt)}</b></span>}{nftFloor > 0 && <span title="Floor estimate, not counted">NFTs <b>≈{money(nftFloor)}</b></span>}</div> : <small>{nc ? "Connect a wallet to read" : b.sub}</small>}</section>)}</div>
+    <div className="fv-summary-grid">{summary.map((b: any, i: number) => <section key={b.label} className={"fv-summary" + (!i ? " fv-summary-main" : "")}><span>{i === 0 ? (wallet ? "Wallet value" : "Portfolio value") : b.label}</span><strong>{i === 0 && wallet ? money(t.tokens + t.defi - t.debt) : <Skel v={b.value} />}</strong>
+      {i === 0 && (t.tokens > 0 || t.defi > 0) ? <div className="fv-summary-split"><span>Tokens <b>{money(t.tokens)}</b></span>{t.defi > 0 && <span>DeFi <b>{money(t.defi)}</b></span>}{t.debt > 0 && <span>Debt <b>−{money(t.debt)}</b></span>}{nftFloor > 0 && <span title="Floor estimate, not counted">NFTs <b>≈{money(nftFloor)}</b></span>}</div> : <small>{b.sub}</small>}</section>)}</div>
     <div className="fv-quick-actions"><Button primary onClick={() => v.navigate("swap")}><ArrowDownUp size={17} /> Swap</Button><Button onClick={v.goPay}><Send size={17} /> Send</Button><Button onClick={v.goStrategies}><Sprout size={17} /> Earn</Button><Button onClick={() => v.navigate("research")}><BarChart3 size={17} /> Markets</Button><Button disabled={!all.length} onClick={() => setSnapshot(true)}><Share2 size={16} /> Share snapshot</Button><Button onClick={v.goCalendar}>Scheduled payments <ChevronRight size={15} /></Button></div>
     {snapshot && <ShareCard title="My treasury, with a plan" subtitle={(v.upcoming?.length ? v.upcoming.length + " scheduled payment" + (v.upcoming.length === 1 ? "" : "s") + " planned" : "Every move checked against my limits") + " · FlowVault"} lines={allocation(all)} amount={summary[0]?.value} example={v.judge} close={() => setSnapshot(false)} />}
     {openWallet && <WalletBar wallets={wallets} value={wallet} set={pickWallet} />}
     {openWallet ? <WalletHeader w={openWallet} back={() => pickWallet("")} copy={(a) => { try { void navigator.clipboard.writeText(a); } catch { /* clipboard blocked */ } }} /> : <WalletCards wallets={summaries} open={pickWallet} />}
     <Allocation rows={scoped} network={network} setNetwork={setNetwork} multiWallet={!wallet && wallets.length > 1} wallets={walletNames} setWallet={pickWallet} />
     <section className="fv-panel fv-holdings-panel">
-      {nc && <NotConnectedBanner connect={connect} text="Connect a wallet to see your tokens, DeFi positions and NFTs on every chain. FlowVault only reads balances." />}
       <div className="fv-section-head"><Tabs values={tabs} value={current} set={(x) => setTab(x.split(" ")[0])} /></div>
       <div className="fv-table-tools"><SearchBox value={query} set={setQuery} /><select aria-label="Filter by network" value={network} onChange={e => setNetwork(e.target.value)}><option value="">All networks</option>{networks.map(x => <option key={x} value={x}>{x}</option>)}</select></div>
       {tab === "Tokens" ? (visible.some((h) => h.kind === "wallet") ? <TokenList rows={visible} act={act} /> : empty)
@@ -135,7 +142,7 @@ export function PortfolioHome({ v }: { v: any }) {
 
 export function ResearchDesk({ v }: { v: any }) {
   const [shared,setShared] = useState<{title:string;subtitle:string;lines:string[]} | null>(null);
-  return <><ResearchWorkspace owner={v.acc ?? ""} example={!!v.judge} shareCard={setShared} buy={id => {const url=new URL(window.location.href);url.searchParams.set("buy",id);history.replaceState(null,"",url);v.navigate("swap");}}/>{shared && <ShareCard {...shared} example={v.judge} close={() => setShared(null)} />}</>;
+  return <><ResearchWorkspace owner={v.acc ?? ""} example={!!v.judge} locked={!v.judge && !!v.notConnected} connect={() => (v.openConnect ?? v.connectFirst)?.()} demo={v.toggleJudge} shareCard={setShared} buy={id => {const url=new URL(window.location.href);url.searchParams.set("buy",id);history.replaceState(null,"",url);v.navigate("swap");}}/>{shared && <ShareCard {...shared} example={v.judge} close={() => setShared(null)} />}</>;
 }
 
 export function EarnDesk({ v }: { v: any }) {
