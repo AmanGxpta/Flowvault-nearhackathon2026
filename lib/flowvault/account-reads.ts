@@ -9,13 +9,18 @@ import { proven, shortAddress } from "./account-registry.ts";
 import { base58Decode, base58Encode } from "./account-proof.ts";
 import { sha256 } from "@noble/hashes/sha2";
 import { ed25519 } from "@noble/curves/ed25519";
-import type { LinkedAccount, Portfolio, PortfolioSection, Position, Workspace } from "./types.ts";
+import { readZerionWallet, zerionKey, type ZerionRead } from "./zerion.ts";
+import type { LinkedAccount, NftHolding, Portfolio, PortfolioSection, Position, Workspace } from "./types.ts";
 
 type Section = PortfolioSection;
 export interface AccountReads {
   positions: Position[];
   sections: Section[];
+  nfts: NftHolding[];
 }
+/** Without a Zerion key only FlowVault's own reads run, so the EVM total is said to be partial, never complete. */
+export const EVM_COVERAGE_GAP =
+  "Only ETH and USDC on Ethereum, Base and Arbitrum are read. Other tokens, chains, DeFi positions and NFTs need the Zerion API (server setting ZERION_API_KEY).";
 const NET = ["netWorth"] as Section["affects"];
 const EVM_NETS = [
   ["ethereum", "eth", "Ethereum"],
@@ -168,6 +173,8 @@ export interface Readers {
   near: (account: string) => Promise<Portfolio>;
   /** Stream C: Hyperliquid margin account of a proven EVM address (collateral; positive uPnL excluded). */
   hyperliquid?: (address: string, accountId: string) => Promise<Position[]>;
+  /** Whole-wallet read (every chain, token, DeFi position, NFT). null = not configured. */
+  zerion?: (address: string, opts: { hyperliquid: boolean }) => Promise<ZerionRead | null>;
 }
 async function readHyperliquid(address: string, accountId: string): Promise<Position[]> {
   const { parseClearinghouse, perpPortfolioPositions, HL_API } = await import("./hyperliquid.ts");
@@ -175,7 +182,11 @@ async function readHyperliquid(address: string, accountId: string): Promise<Posi
   if (!r.ok) throw new Error("Hyperliquid read failed: " + r.status);
   return perpPortfolioPositions(parseClearinghouse(address, await r.json()), accountId);
 }
-const DEFAULT: Readers = { evm: readEvmNetwork, solana: readSolana, near: readPortfolio, hyperliquid: readHyperliquid };
+async function readZerion(address: string, opts: { hyperliquid: boolean }) {
+  const key = await zerionKey();
+  return key ? readZerionWallet(address, { key, hyperliquid: opts.hyperliquid, budgetMs: 7500 }) : null;
+}
+const DEFAULT: Readers = { evm: readEvmNetwork, solana: readSolana, near: readPortfolio, hyperliquid: readHyperliquid, zerion: readZerion };
 
 /**
  * Everything the older readers don't cover: the main NEAR account and the first EVM account's Base/Arbitrum
@@ -183,7 +194,7 @@ const DEFAULT: Readers = { evm: readEvmNetwork, solana: readSolana, near: readPo
  * "unavailable" section (net worth then says what is missing); it is never shown as zero.
  */
 export async function readProvenAccounts(w: Workspace, readers: Readers = DEFAULT): Promise<AccountReads> {
-  const out: AccountReads = { positions: [], sections: [] };
+  const out: AccountReads = { positions: [], sections: [], nfts: [] };
   const now = () => new Date().toISOString();
   const jobs: Promise<void>[] = [];
   const run = (id: string, label: string, work: () => Promise<Position[]>) =>
@@ -205,6 +216,30 @@ export async function readProvenAccounts(w: Workspace, readers: Readers = DEFAUL
         const legacyUsdc = (chain === "base" && w.evmAddresses?.base === a.address) || (chain === "arb" && w.evmAddresses?.arb === a.address);
         run(`acct:${a.id}:${chain}`, `${shortAddress(a.label)} on ${name}`, () => readers.evm(chain, a.address, legacyUsdc));
       }
+    if (a.chain === "evm") {
+      const id = `acct:${a.id}:all`, label = `${shortAddress(a.label)} on every chain`;
+      if (!readers.zerion)
+        out.sections.push({ id, status: "partial", capturedAt: now(), reasons: [EVM_COVERAGE_GAP], positionIds: [], affects: NET });
+      else {
+        const z = readers.zerion, hl = !!readers.hyperliquid;
+        jobs.push(
+          z(a.address, { hyperliquid: hl }).then(
+            (r) => {
+              if (!r) {
+                out.sections.push({ id, status: "partial", capturedAt: now(), reasons: [EVM_COVERAGE_GAP], positionIds: [], affects: NET });
+                return;
+              }
+              out.positions.push(...r.positions);
+              out.nfts.push(...r.nfts);
+              out.sections.push({ id, status: "observed", capturedAt: now(), reasons: r.notes, positionIds: r.positions.map((p) => p.id), affects: NET });
+            },
+            (e) => {
+              out.sections.push({ id, status: "unavailable", capturedAt: now(), reasons: [label + ": " + (e instanceof Error ? e.message : String(e))], positionIds: [], affects: NET });
+            },
+          ),
+        );
+      }
+    }
     if (a.chain === "evm" && readers.hyperliquid) {
       const hl = readers.hyperliquid;
       run(`acct:${a.id}:hyperliquid`, `${shortAddress(a.label)} on Hyperliquid`, () => hl(a.address, a.id));

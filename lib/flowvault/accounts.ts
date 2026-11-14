@@ -39,7 +39,7 @@ export function displayPosition(
   return {
     ...p,
     label: p.label || p.asset + " position",
-    chain: p.chain ?? "near",
+    chain: p.chain ?? (p.network ? undefined : "near"),
     source,
     capturedAt: p.capturedAt ?? capturedAt,
     ownership: p.ownership ?? "owner",

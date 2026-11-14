@@ -445,7 +445,7 @@ export function capitalView(
   let wallet = 0n;
   for (const x of owner) {
     if (x.asset !== "USDC" || x.kind !== "wallet") continue;
-    const nearWallet = !x.chain || x.chain === "near";
+    const nearWallet = (!x.chain && !x.network) || x.chain === "near";
     const signable =
       nearWallet && (source === "demo" || (!!signer && portfolio.accountId === signer && (!x.accountId || x.accountId === signer)));
     if (signable) wallet += units(x.amount);

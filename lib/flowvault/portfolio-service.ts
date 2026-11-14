@@ -316,6 +316,7 @@ export async function workspacePortfolio(
       const extra = await settled(accountsRead);
       p.positions.push(...extra.positions);
       p.sections!.push(...extra.sections);
+      if (extra.nfts.length) p.nfts = extra.nfts;
     } catch (e) {
       recordSection("connected-accounts", "unavailable", [String(e)], [], ["netWorth"]);
     }

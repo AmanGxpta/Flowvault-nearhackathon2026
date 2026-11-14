@@ -65,6 +65,12 @@ export interface Position {
   } | null;
   /** Interface (A2): "solana" for connected Solana wallets; payouts and obligations stay on `Chain`. */
   chain?: Chain | "solana";
+  /** Display network for whole-wallet reads (Zerion): any chain, including ones without a FlowVault `chain`. */
+  network?: string;
+  networkId?: string;
+  icon?: string;
+  /** Legs of one liquidity pool share this id. */
+  groupId?: string;
   venue?: string;
   accountId?: string;
   rawAmount?: string;
@@ -93,8 +99,20 @@ export interface PortfolioSection {
     | "borrowingHeadroom"
   )[];
 }
+/** An NFT held by a connected wallet, at its collection floor. Listed beside net worth, never added to it. */
+export interface NftHolding {
+  id: string;
+  name: string;
+  collection: string | null;
+  network: string;
+  amount: string;
+  floorUsd: number | null;
+  image: string | null;
+  accountId: string;
+}
 export interface Portfolio {
   sections?: PortfolioSection[];
+  nfts?: NftHolding[];
   accountId: string | null;
   source: Source;
   positions: Position[];
