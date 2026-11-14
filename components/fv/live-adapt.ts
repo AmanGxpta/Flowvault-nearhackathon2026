@@ -1,4 +1,5 @@
 import { nearText } from "@/lib/flowvault/stake-flow";
+import { EXAMPLE_WALLETS } from "@/lib/flowvault/example-wallets";
 import { displayQuantity } from "@/lib/flowvault/research";
 /* eslint-disable @typescript-eslint/no-explicit-any -- adapters between untyped design view-model data and API JSON */
 // Maps live API snapshots onto the design's view model. Used only in the personal (live)
@@ -908,12 +909,12 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
     const val = posValue(p) ?? capVal.get(p.id) ?? null;
     const by = watched ? "Excluded" : prot ? "Protected" : fees ? "Fees only" : p.kind === "wallet" && isUsdc ? "✓ Usable" : p.kind === "supplied" ? (p.availableAt && !p.availabilityIsEstimate ? "From " + dlabel(String(p.availableAt).slice(0, 10)) : "Timing unverified") : p.kind === "debt" ? "Debt" : "Hold";
     return {
-      id: p.id, symbol: p.asset, kind: p.kind, network: p.chain ?? 'near', ownership: p.ownership ?? 'owner', accountLabel: shortAddress(p.accountId ?? (example ? 'fictional account' : acct)), quantity: displayQuantity(p.amount, p.asset),
+      id: p.id, symbol: p.displayAsset ?? p.asset, kind: p.kind, network: p.chain ?? 'near', ownership: p.ownership ?? 'owner', accountLabel: shortAddress(p.accountId ?? (example ? 'fictional account' : acct)), quantity: displayQuantity(p.amount, p.displayAsset ?? p.asset),
       name: p.label,
-      sub: (p.asset !== "USDC" ? (p.amount === "unknown" ? "quantity unknown" : num(Number(p.amount)) + " " + p.asset) : shortAddress(p.accountId ?? (example ? "fictional account" : acct))) + (p.venue ? " · " + p.venue : ""),
+      sub: (p.asset !== "USDC" ? (p.amount === "unknown" ? "quantity unknown" : num(Number(p.amount)) + " " + (p.displayAsset ?? p.asset)) : shortAddress(p.accountId ?? (example ? "fictional account" : acct))) + (p.venue ? " · " + p.venue : ""),
       chain: p.network ?? CHAIN_LABEL[p.chain ?? "near"] ?? String(p.chain),
-      usd: val, qty: p.amount === "unknown" ? null : Number(p.amount), account: String(p.accountId ?? (example ? "fictional account" : acct ?? "")).toLowerCase(),
-      walletLabel: shortAddress(p.accountId ?? (example ? "fictional account" : acct)), venue: p.venue ?? null, groupId: p.groupId, icon: p.icon,
+      usd: val, qty: p.amount === "unknown" ? null : Number(p.amount), account: ((a: string) => (/^0x/i.test(a) ? a.toLowerCase() : a))(String(p.accountId ?? (example ? "fictional account" : acct ?? ""))),
+      walletLabel: p.accountLabel ?? shortAddress(p.accountId ?? (example ? "fictional account" : acct)), venue: p.venue ?? null, groupId: p.groupId, icon: p.icon,
       value: val !== null ? usd(val) : "Unvalued",
       valColor: val !== null ? "#1E2A22" : "#8A5F25",
       by,
@@ -950,7 +951,10 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   const acctCall = (body: any, ok?: string) => self.liveCall(() => acts.accounts(body), ok);
   const proofText = (a: LinkedAccount) => (a.proof?.method === "nep413" ? "proven by a NEP-413 signature" : a.proof?.method === "siwe" ? "proven by Sign-In with Ethereum" : "proven by Sign-In with Solana");
   out.pfAccounts = example
-    ? [{ name: "Fictional example account", sub: "NEAR · no wallet · nothing can be approved", tag: "EXAMPLE", tagBg: "#F6EBDD", tagColor: "#8A5F25" }]
+    ? [
+        { name: "Main NEAR account", sub: "NEAR · fictional example account · nothing can be approved", tag: "EXAMPLE", tagBg: "#F6EBDD", tagColor: "#8A5F25" },
+        ...Object.values(EXAMPLE_WALLETS).map((x) => ({ name: x.label, sub: (x.address.startsWith("0x") ? "EVM" : "Solana") + " · " + shortAddress(x.address) + " · fictional · read only", tag: "EXAMPLE", tagBg: "#F6EBDD", tagColor: "#8A5F25" })),
+      ]
     : reg.map((a) => {
         const st = accountState(a, live);
         const nets = a.networks.map((n) => NET[n] ?? n).join(", ");

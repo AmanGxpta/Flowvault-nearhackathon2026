@@ -3,9 +3,9 @@
 // wallet, tokens grouped by asset (expand to see each network and wallet), DeFi grouped by protocol, and NFTs
 // at floor. Rows come from the live view model; values are the server's, never re-priced here.
 import { useMemo, useState } from "react";
-import { ArrowUpRight, ChevronDown, ChevronRight, Image as ImageIcon, Layers, Search, Wallet } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ChevronDown, ChevronRight, Copy, Image as ImageIcon, Layers, Search, Wallet } from "lucide-react";
 import { TokenIcon } from "../AssetIdentity";
-import { distribution, groupProtocols, groupTokens, splitSmall, type AssetGroup, type HoldingRow, type ProtocolGroup, type Slice } from "@/lib/flowvault/portfolio-view";
+import { distribution, groupProtocols, groupTokens, splitSmall, type AssetGroup, type HoldingRow, type ProtocolGroup, type Slice, type WalletSummary } from "@/lib/flowvault/portfolio-view";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- view-model rows */
 const NET_KEY: Record<string, string> = {
@@ -83,7 +83,7 @@ function AssetRow({ g, total, open, toggle, act }: { g: AssetGroup; total: numbe
   return <div className={"fv-asset-group" + (open ? " is-open" : "")}>
     <button type="button" className="fv-asset-main" aria-expanded={many ? open : undefined} onClick={many ? toggle : () => act(one)}>
       <span className="fv-asset-cell"><TokenIcon symbol={g.symbol} image={g.icon} network={many ? undefined : netKey(one.network)} />
-        <span><strong>{g.symbol}</strong><small>{many ? `${g.networks.length > 1 ? g.networks.length + " networks" : g.networks[0]}${g.wallets.length > 1 ? " · " + g.wallets.length + " wallets" : ""}` : `${g.name === g.symbol ? one.network : g.name} · ${one.walletLabel}`}</small></span></span>
+        <span><strong>{g.symbol}</strong><small>{many ? `${g.networks.length > 1 ? g.networks.length + " networks" : g.networks[0]}${g.wallets.length > 1 ? " · " + g.wallets.length + " wallets" : ""}` : `${one.network} · ${one.walletLabel}`}</small></span></span>
       <span className="fv-asset-price">{price(g.price)}</span>
       <span className="fv-asset-bal">{qty(g.quantity, g.symbol)}</span>
       <span className="fv-asset-val"><strong>{money(g.usd)}</strong>{g.usd !== null && total > 0 && <small>{pct(g.usd / total)}</small>}</span>
@@ -155,4 +155,53 @@ export function NftGrid({ nfts, wallets }: { nfts: Nft[]; wallets: Map<string, s
 
 export function SearchBox({ value, set }: { value: string; set: (s: string) => void }) {
   return <label className="fv-search-input"><Search size={16} /><input aria-label="Search your assets" placeholder="Search assets or protocols" value={value} onChange={(e) => set(e.target.value)} /></label>;
+}
+
+const kindOf = (account: string) => (/^0x[0-9a-f]{40}$/i.test(account) ? "EVM" : /\.near$|\.tg$|^[0-9a-f]{64}$/i.test(account) || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(account) ? "NEAR" : "Solana");
+const shortAcct = (a: string) => (a.length > 22 ? a.slice(0, 6) + "…" + a.slice(-4) : a);
+function NetworkStack({ networks, max = 5 }: { networks: string[]; max?: number }) {
+  return <span className="fv-netstack" title={networks.join(", ")}>
+    {networks.slice(0, max).map((n) => { const k = netKey(n); return <TokenIcon key={n} symbol={n.slice(0, 2)} network={undefined} core={false} image={NET_IMG[k]} size={20} />; })}
+    {networks.length > max && <span className="fv-netstack-more">+{networks.length - max}</span>}
+  </span>;
+}
+const NET_IMG: Record<string, string> = {
+  eth: "/assets/tokens/eth.png", base: "/assets/chains/base.png", arb: "/assets/chains/arbitrum.png", bnb: "/assets/chains/bnb.png", pol: "/assets/chains/polygon.png",
+  avax: "/assets/chains/avalanche.png", op: "/assets/chains/optimism.png", gnosis: "/assets/chains/gnosis.png", solana: "/assets/chains/solana.png", near: "/assets/tokens/near.jpg",
+  scroll: "/assets/chains/scroll.png", abstract: "/assets/chains/abstract.png", bera: "/assets/chains/bera.png", hyperliquid: "/assets/chains/hyperliquid.png",
+};
+
+/** Every connected wallet as a card: value and share, where it holds, counts, and its largest assets. */
+export function WalletCards({ wallets, open }: { wallets: WalletSummary[]; open: (account: string) => void }) {
+  if (wallets.length < 2) return null;
+  return <section className="fv-wallet-cards" aria-label="Your wallets">
+    <div className="fv-wallet-cards-head"><h2>Your wallets</h2><small>{wallets.length} connected · open one to see only what it holds</small></div>
+    <div className="fv-wallet-grid">{wallets.map((w) => <button key={w.account} type="button" className="fv-wallet-tile" onClick={() => open(w.account)}>
+      <span className="fv-wallet-tile-top"><span className="fv-wallet-avatar" data-kind={kindOf(w.account)}>{kindOf(w.account) === "EVM" ? "Ξ" : kindOf(w.account) === "NEAR" ? "N" : "◎"}</span>
+        <span className="fv-wallet-id"><strong>{w.label}</strong><small>{kindOf(w.account)} · {shortAcct(w.account)}</small></span><ChevronRight size={16} /></span>
+      <span className="fv-wallet-tile-value"><strong>{money(w.usd, true)}</strong><small>{pct(w.share)} of total</small></span>
+      <span className="fv-wallet-share"><i style={{ width: Math.max(w.share * 100, 1) + "%" }} /></span>
+      <span className="fv-wallet-tile-meta"><NetworkStack networks={w.networks} /><small>{w.tokens} token{w.tokens === 1 ? "" : "s"}{w.defi ? ` · ${w.defi} DeFi` : ""}{w.nfts ? ` · ${w.nfts} NFT${w.nfts === 1 ? "" : "s"}` : ""}</small></span>
+      {w.top.length > 0 && <span className="fv-wallet-top">{w.top.map((t) => <span key={t.symbol}><TokenIcon symbol={t.symbol} image={t.icon} size={18} />{t.symbol}<b>{money(t.usd)}</b></span>)}</span>}
+    </button>)}</div>
+  </section>;
+}
+
+/** The open wallet: who it is, what it's worth, its share of everything, and the way back. */
+export function WalletHeader({ w, back, copy }: { w: WalletSummary; back: () => void; copy: (a: string) => void }) {
+  const kind = kindOf(w.account);
+  return <section className="fv-wallet-header">
+    <button type="button" className="fv-text-button" onClick={back}><ArrowLeft size={14} /> All wallets</button>
+    <div className="fv-wallet-header-main">
+      <span className="fv-wallet-avatar is-large" data-kind={kind}>{kind === "EVM" ? "Ξ" : kind === "NEAR" ? "N" : "◎"}</span>
+      <div className="fv-wallet-id"><strong>{w.label}</strong><small>{kind} wallet · <code>{shortAcct(w.account)}</code> {/[0-9a-z]{20,}/i.test(w.account) && <button type="button" className="fv-icon-button fv-copy" aria-label="Copy address" onClick={() => copy(w.account)}><Copy size={13} /></button>}</small></div>
+      <div className="fv-wallet-header-value"><strong>{money(w.usd, true)}</strong><small>{pct(w.share)} of your portfolio</small></div>
+    </div>
+    <div className="fv-wallet-stats">
+      <span><small>Networks</small><b>{w.networks.length}</b><NetworkStack networks={w.networks} max={8} /></span>
+      <span><small>Tokens</small><b>{w.tokens}</b></span>
+      <span><small>DeFi protocols</small><b>{w.defi}</b></span>
+      <span><small>NFTs</small><b>{w.nfts}</b>{w.nftFloor > 0 && <em>≈ {money(w.nftFloor)} floor</em>}</span>
+    </div>
+  </section>;
 }

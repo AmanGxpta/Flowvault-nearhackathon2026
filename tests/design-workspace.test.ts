@@ -56,8 +56,10 @@ test("fictional valuations yield design totals; watched assets never contribute;
   const p = demoPortfolio(now);
   const u = usableBalances(p, ["2026-11-14"], "0", null, now);
   assert.equal(u.cashNow.amount, "15190");
-  assert.equal(u.netWorth.amount, "25526.48");
-  assert.equal(u.committedCapital.amount, "8201.76");
+  // 25,526.48 on the main accounts + 9,671.70 across the example EVM and Solana wallets (Aave loan subtracted).
+  assert.equal(u.netWorth.amount, "35198.18");
+  // Staking in the example wallets (Lido, Aethir, DAO Maker, CARV, Jito, …) counts as committed, like staked NEAR.
+  assert.equal(u.committedCapital.amount, "10967.09");
   p.positions.push({
     id: "watch-cash",
     asset: "USDC",

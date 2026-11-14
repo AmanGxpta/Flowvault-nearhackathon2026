@@ -9,8 +9,8 @@ import { ArrowDownUp, ArrowUpRight, BarChart3, Wallet, Search, SlidersHorizontal
 import { MarketPanel } from "./MarketPanel";
 import { TokenIcon, tokenLogo } from "./AssetIdentity";
 import { Skel } from "./Skel";
-import { Allocation, NftGrid, ProtocolList, SearchBox, TokenList, WalletBar, money, toHolding, type Nft } from "./portfolio/Holdings";
-import { totals, type HoldingRow } from "@/lib/flowvault/portfolio-view";
+import { Allocation, NftGrid, ProtocolList, SearchBox, TokenList, WalletBar, WalletCards, WalletHeader, money, toHolding, type Nft } from "./portfolio/Holdings";
+import { summarizeWallets, totals, walletNameMap, type HoldingRow } from "@/lib/flowvault/portfolio-view";
 import { PerpsCard } from "./Perps";
 import { VaultsCard } from "./Vaults";
 import { LendingVenues } from "./LendingVenues";
@@ -85,8 +85,11 @@ export function PortfolioHome({ v }: { v: any }) {
   const gaps = raw.filter((r: any) => r.status);
   // Empty balances (0, or dust worth $0.00 with no quantity) are noise once many wallets are connected.
   const holdings: HoldingRow[] = all.map(toHolding).filter((h: HoldingRow) => !(h.usd === 0 && Math.abs(h.quantity ?? 0) < 1e-9));
-  const walletNames = new Map(holdings.map((h) => [h.account, h.walletLabel || h.account]));
-  const wallets = [...walletNames].map(([account, label]) => ({ account, label, usd: holdings.filter((h) => h.account === account && h.usd !== null).reduce((s, h) => s + (h.kind === "debt" ? -h.usd! : h.usd!), 0) })).sort((a, b) => b.usd - a.usd);
+  const walletNames = walletNameMap(holdings);
+  const summaries = summarizeWallets(holdings, v.pfNfts ?? [], walletNames);
+  const wallets = summaries.map((w) => ({ account: w.account, label: w.label, usd: w.usd }));
+  const openWallet = summaries.find((w) => w.account === wallet);
+  const pickWallet = (a: string) => { setWallet(a); setNetwork(""); setTab("Tokens"); };
   const scoped = holdings.filter((h) => !wallet || h.account === wallet);
   const q = query.trim().toLowerCase();
   const visible = scoped.filter((h) => (!network || h.network === network) && (!q || (h.symbol + " " + h.name + " " + (h.venue ?? "") + " " + h.network).toLowerCase().includes(q)));
@@ -110,8 +113,9 @@ export function PortfolioHome({ v }: { v: any }) {
     {v.rec && !["READING", "IDLE", "LIQUID"].includes(v.rec.tag) && <details className="fv-attention"><summary><span><span className="fv-status-dot" />{v.rec.title}</span><span>Review <ChevronRight size={15} /></span></summary><p>{v.rec.body}</p><Button onClick={v.rec.onClick}>{v.rec.cta}</Button></details>}
     {gaps.length > 0 && <section className="fv-coverage" role="status"><button type="button" aria-expanded={gapsOpen} onClick={() => setGapsOpen(!gapsOpen)}><span className="fv-status-dot" /><span>{gaps.length === 1 ? gaps[0].name : gaps.length + " parts of your portfolio aren’t fully read"}</span><small>{gaps.every((g: any) => g.tag === "PARTIAL") ? "The total shows what’s read so far" : "Not counted until they read"}</small>{gapsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
       {gapsOpen && <ul>{gaps.map((g: any, i: number) => <li key={i}><strong>{g.name}</strong><small>{g.sub}</small></li>)}</ul>}</section>}
-    <WalletBar wallets={wallets} value={wallet} set={(a) => { setWallet(a); setNetwork(""); }} />
-    <Allocation rows={scoped} network={network} setNetwork={setNetwork} multiWallet={!wallet && wallets.length > 1} wallets={walletNames} setWallet={(a) => { setWallet(a); setNetwork(""); }} />
+    {openWallet && <WalletBar wallets={wallets} value={wallet} set={pickWallet} />}
+    {openWallet ? <WalletHeader w={openWallet} back={() => pickWallet("")} copy={(a) => { try { void navigator.clipboard.writeText(a); } catch { /* clipboard blocked */ } }} /> : <WalletCards wallets={summaries} open={pickWallet} />}
+    <Allocation rows={scoped} network={network} setNetwork={setNetwork} multiWallet={!wallet && wallets.length > 1} wallets={walletNames} setWallet={pickWallet} />
     <section className="fv-panel fv-holdings-panel">
       <div className="fv-section-head"><Tabs values={tabs} value={current} set={(x) => setTab(x.split(" ")[0])} /></div>
       <div className="fv-table-tools"><SearchBox value={query} set={setQuery} /><select aria-label="Filter by network" value={network} onChange={e => setNetwork(e.target.value)}><option value="">All networks</option>{networks.map(x => <option key={x} value={x}>{x}</option>)}</select></div>

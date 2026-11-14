@@ -61,3 +61,20 @@ test("network and wallet splits count debt against their slice and fold the tail
   assert.equal(t.debt, 10);
   assert.ok(Math.abs(t.defi - (93.95 + 48.47)) < 1e-9);
 });
+
+test("each wallet gets its own summary: value, share, counts, networks by size and top assets", async () => {
+  const { summarizeWallets, walletNameMap } = await import("../lib/flowvault/portfolio-view.ts");
+  const names = walletNameMap([{ account: "0xa", walletLabel: "0xa…" }, { account: "0xa", walletLabel: "DeFi wallet" }, { account: "0xb", walletLabel: "0xb…" }]);
+  assert.equal(names.get("0xa"), "DeFi wallet");
+  assert.equal(names.get("0xb"), "0xb…");
+  const w = summarizeWallets(ROWS, [{ accountId: "0xa", floorUsd: 50, amount: "2" }, { accountId: "0xa", floorUsd: null, amount: "1" }], names);
+  assert.deepEqual(w.map((x) => x.account), ["0xa", "0xb"]);
+  const a = w[0];
+  assert.equal(a.label, "DeFi wallet");
+  assert.equal(a.nfts, 2);
+  assert.equal(a.nftFloor, 100);
+  assert.equal(a.defi, 2);
+  assert.deepEqual(a.top.map((t) => t.symbol), ["ZRO", "WEFI", "ETH"]);
+  assert.equal(a.networks[0], "Ethereum");
+  assert.ok(Math.abs(w[0].share + w[1].share - 1) < 1e-9);
+});

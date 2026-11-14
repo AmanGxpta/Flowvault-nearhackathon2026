@@ -1,4 +1,5 @@
 import { exampleCreditRows } from "./example-credit.ts";
+import { EXAMPLE_WALLETS, exampleNfts, exampleWalletPositions } from "./example-wallets.ts";
 import type {
   MarketSnapshot,
   Portfolio,
@@ -362,6 +363,12 @@ export function demoPortfolio(now = Date.now()): Portfolio {
         "arb",
         "2000",
       ),
-    ],
+    ].map((p): Position =>
+      // The NEAR rows are the main account; the Base and Arbitrum rows sit in the main EVM wallet.
+      p.chain === "near"
+        ? { ...p, accountLabel: "Main NEAR account" }
+        : { ...p, accountId: EXAMPLE_WALLETS.main.address, accountLabel: EXAMPLE_WALLETS.main.label },
+    ).concat(exampleWalletPositions(valuation, capturedAt)),
+    nfts: exampleNfts(),
   };
 }

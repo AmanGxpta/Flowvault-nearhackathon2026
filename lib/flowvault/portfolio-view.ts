@@ -122,3 +122,59 @@ export function splitSmall<T extends { usd: number | null }>(groups: T[], min = 
   for (const g of groups) (g.usd !== null && g.usd < min ? hidden : shown).push(g);
   return { shown, hidden };
 }
+
+export interface WalletSummary {
+  account: string;
+  label: string;
+  /** Assets minus debt. */
+  usd: number;
+  share: number;
+  tokens: number;
+  defi: number;
+  nfts: number;
+  nftFloor: number;
+  networks: string[];
+  top: { symbol: string; icon?: string; usd: number }[];
+}
+/** One card per wallet: its value and share, what it holds and where, and its three largest assets. */
+export function summarizeWallets(rows: HoldingRow[], nfts: { accountId: string; floorUsd: number | null; amount: string }[], names: Map<string, string>): WalletSummary[] {
+  const out = new Map<string, WalletSummary>();
+  const get = (account: string) => {
+    let w = out.get(account);
+    if (!w) out.set(account, (w = { account, label: names.get(account) ?? account, usd: 0, share: 0, tokens: 0, defi: 0, nfts: 0, nftFloor: 0, networks: [], top: [] }));
+    return w;
+  };
+  for (const r of rows) {
+    const w = get(r.account);
+    if (r.usd !== null) w.usd += r.kind === "debt" ? -r.usd : r.usd;
+    if (!w.networks.includes(r.network)) w.networks.push(r.network);
+  }
+  for (const [account, w] of out) {
+    const mine = rows.filter((r) => r.account === account);
+    w.tokens = groupTokens(mine).length;
+    w.defi = groupProtocols(mine).length;
+    w.top = groupTokens(mine).filter((g) => g.usd !== null && g.usd > 0).slice(0, 3).map((g) => ({ symbol: g.symbol, icon: g.icon, usd: g.usd! }));
+    const order = distribution(mine, (r) => r.network, 99).map((s) => s.label);
+    w.networks.sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+  }
+  for (const n of nfts) {
+    const w = out.get(n.accountId);
+    if (!w) continue;
+    w.nfts += 1;
+    w.nftFloor += (n.floorUsd ?? 0) * (Number(n.amount) || 1);
+  }
+  const total = [...out.values()].reduce((s, w) => s + Math.max(w.usd, 0), 0);
+  for (const w of out.values()) w.share = total > 0 ? Math.max(w.usd, 0) / total : 0;
+  return [...out.values()].sort((a, b) => b.usd - a.usd);
+}
+
+/** A wallet's best name: the owner's label beats a shortened address. */
+export function walletNameMap(rows: { account: string; walletLabel: string }[]) {
+  const names = new Map<string, string>();
+  const looksLikeAddress = (s: string) => !s || s.includes("…") || /^0x[0-9a-f]{6,}$/i.test(s);
+  for (const r of rows) {
+    const had = names.get(r.account);
+    if (had === undefined || (looksLikeAddress(had) && !looksLikeAddress(r.walletLabel))) names.set(r.account, r.walletLabel || r.account);
+  }
+  return names;
+}
