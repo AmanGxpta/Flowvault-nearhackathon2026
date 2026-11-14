@@ -394,6 +394,7 @@ function AutomationChatCard({ card, env }: { card: Card<"automation">; env: Card
       if (env.example) { await env.edit(card, { createdId: "example" }); return; }
       const r = await api("/api/automations", { op: "create", kind: p.kind, tzOffsetMin: draft.schedule.tzOffsetMin, schedule: draft.schedule, params: draft.params, by: "assistant" }) as { automation: { id: string } };
       await env.edit(card, { createdId: r.automation.id });
+      window.dispatchEvent(new Event("fv:automations-refresh"));
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   return <div className="fv-chat-card fv-chat-automation">

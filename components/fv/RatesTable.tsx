@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { RheaSheet } from "./RheaSheet";
+import { DemoSupplyReview } from "./demo/DemoSupplyReview";
 import { TokenIcon } from "./AssetIdentity";
 import { fmtUsd, ago } from "./swap-format";
 
@@ -15,7 +16,7 @@ export function RatesTable({ mode, onUsdc, usdcNote, fund }: { mode: "earn" | "b
   /** Earn: lets a market you don't hold offer "swap into it and supply" (see SupplyFundOffer). */
   fund?: { owner: string; example: boolean; onFlow: (id: string) => void; connect?: () => void } }) {
   const [rows, setRows] = useState<Rate[] | null>(null), [at, setAt] = useState<string | null>(null), [error, setError] = useState("");
-  const [open, setOpen] = useState<Rate | null>(null);
+  const [open, setOpen] = useState<Rate | null>(null), [prefill, setPrefill] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "stable" | "other">("all"), [query, setQuery] = useState("");
   useEffect(() => {
     const abort = new AbortController();
@@ -29,8 +30,9 @@ export function RatesTable({ mode, onUsdc, usdcNote, fund }: { mode: "earn" | "b
     const url = new URL(window.location.href), want = url.searchParams.get("supply");
     const row = want ? rows.find((r) => r.token === want) : null;
     if (!row) return;
-    url.searchParams.delete("supply"); history.replaceState(null, "", url);
-    const t = setTimeout(() => setOpen(row), 0); return () => clearTimeout(t);
+    const amount = url.searchParams.get("amount");
+    url.searchParams.delete("supply"); url.searchParams.delete("amount"); history.replaceState(null, "", url);
+    const t = setTimeout(() => { setPrefill(amount && /^\d+(\.\d+)?$/.test(amount) ? amount : null); setOpen(row); }, 0); return () => clearTimeout(t);
   }, [rows, mode]);
   const list = (rows ?? []).filter(r => (mode === "earn" ? r.canSupply : r.canBorrow || r.collateral) && (filter === "all" || (filter === "stable") === STABLE.test(r.symbol)) && (r.symbol + r.name).toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => mode === "earn" ? (b.supplyApy ?? 0) - (a.supplyApy ?? 0) : (b.borrowedUsd ?? 0) - (a.borrowedUsd ?? 0));
@@ -64,7 +66,8 @@ export function RatesTable({ mode, onUsdc, usdcNote, fund }: { mode: "earn" | "b
       })}
     </div>
     <div className="fv-panel-foot">Finalized Rhea view · USD totals at Ref prices. Every market runs in-app: prices from Rhea’s own oracle, your reserve, health and limits checked, approved in your wallet.</div>
-    {open && <RheaSheet tokenId={open.token} symbol={open.symbol} icon={open.icon} mode={mode} rates={{ supply: open.supplyApy, borrow: open.borrowApy }} initial={mode === "borrow" && !open.canBorrow ? "collateral_add" : undefined} close={() => setOpen(null)} fund={fund && { ...fund, onFlow: (id) => { setOpen(null); fund.onFlow(id); } }} />}
+    {open && fund?.example && prefill && mode === "earn" && <DemoSupplyReview symbol={open.symbol} icon={open.icon} amount={prefill} apy={open.supplyApy} close={() => { setOpen(null); setPrefill(null); }} />}
+    {open && !(fund?.example && prefill && mode === "earn") && <RheaSheet tokenId={open.token} symbol={open.symbol} icon={open.icon} mode={mode} rates={{ supply: open.supplyApy, borrow: open.borrowApy }} initial={mode === "borrow" && !open.canBorrow ? "collateral_add" : undefined} initialAmount={prefill} close={() => { setOpen(null); setPrefill(null); }} fund={fund && { ...fund, onFlow: (id) => { setOpen(null); fund.onFlow(id); } }} />}
   </section>;
 }
 function fmtRate(v: number | null) { return v === null ? "—" : v < 0.01 && v > 0 ? "<0.01%" : v.toFixed(2) + "%"; }

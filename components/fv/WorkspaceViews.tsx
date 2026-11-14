@@ -6,7 +6,7 @@ import { OpenSupplyFlows } from "./earn/OpenSupplyFlows";
 import { PairPicker, type Pair } from "./PairPicker";
 import { SpotDesk } from "./SpotDesk";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
-import { ArrowDownUp, ArrowUpRight, BarChart3, Wallet, Search, SlidersHorizontal, Plus, X, ChevronRight, Send, Sprout, Activity, Share2, Download, Landmark, TrendingUp } from "lucide-react";
+import { ArrowDownUp, ArrowUpRight, BarChart3, Sparkles, Wallet, Search, SlidersHorizontal, Plus, X, ChevronRight, Send, Sprout, Activity, Share2, Download, Landmark, TrendingUp } from "lucide-react";
 import { MarketPanel } from "./MarketPanel";
 import { TokenIcon, tokenLogo } from "./AssetIdentity";
 import { Skel } from "./Skel";
@@ -31,12 +31,10 @@ import { WalletHistory } from "./WalletHistory";
 import { RatesTable } from "./RatesTable";
 import { SupplyFlowView } from "./earn/SupplyFlowView";
 import { CollectSend } from "./collect/CollectSend";
-import { TodayCards } from "./today/TodayCards";
-import { Community } from "./growth/Community";
 import { OrderTicket, type OrderDraft } from "./OrderTicket";
 
 export const destinations = [
-  { id: "portfolio", label: "Portfolio", Icon: Wallet }, { id: "research", label: "Markets", Icon: BarChart3 }, { id: "swap", label: "Swap", Icon: ArrowDownUp },
+  { id: "portfolio", label: "Portfolio", Icon: Wallet }, { id: "hub", label: "Research", Icon: Sparkles }, { id: "research", label: "Markets", Icon: BarChart3 }, { id: "swap", label: "Swap", Icon: ArrowDownUp },
   { id: "strategies", label: "Earn", Icon: Sprout }, { id: "credit", label: "Borrow", Icon: Landmark },
   { id: "trade", label: "Trade", Icon: TrendingUp }, { id: "activity", label: "Activity", Icon: Activity },
 ];
@@ -114,8 +112,6 @@ export function PortfolioHome({ v }: { v: any }) {
       {i === 0 && (t.tokens > 0 || t.defi > 0) ? <div className="fv-summary-split"><span>Tokens <b>{money(t.tokens)}</b></span>{t.defi > 0 && <span>DeFi <b>{money(t.defi)}</b></span>}{t.debt > 0 && <span>Debt <b>−{money(t.debt)}</b></span>}{nftFloor > 0 && <span title="Floor estimate, not counted">NFTs <b>≈{money(nftFloor)}</b></span>}</div> : <small>{b.sub}</small>}</section>)}</div>
     <div className="fv-quick-actions"><Button primary onClick={() => v.navigate("swap")}><ArrowDownUp size={17} /> Swap</Button><Button onClick={v.goPay}><Send size={17} /> Send</Button><Button onClick={v.goStrategies}><Sprout size={17} /> Earn</Button><Button onClick={() => v.navigate("research")}><BarChart3 size={17} /> Markets</Button><Button disabled={!all.length} onClick={() => setSnapshot(true)}><Share2 size={16} /> Share snapshot</Button><Button onClick={v.goCalendar}>Scheduled payments <ChevronRight size={15} /></Button></div>
     {snapshot && <ShareCard title="My treasury, with a plan" subtitle={(v.upcoming?.length ? v.upcoming.length + " scheduled payment" + (v.upcoming.length === 1 ? "" : "s") + " planned" : "Every move checked against my limits") + " · FlowVault"} lines={allocation(all)} amount={summary[0]?.value} example={v.judge} close={() => setSnapshot(false)} />}
-    {!openWallet && <TodayCards key={String(!!v.judge)} owner={v.acc ?? ""} example={!!v.judge} navigate={v.navigate} />}
-    {!openWallet && <Community key={"c" + String(!!v.judge)} example={!!v.judge} signedIn={!!v.acc && !v.judge} navigate={v.navigate} />}
     {openWallet && <WalletBar wallets={wallets} value={wallet} set={pickWallet} />}
     {openWallet ? <WalletHeader w={openWallet} back={() => pickWallet("")} copy={(a) => { try { void navigator.clipboard.writeText(a); } catch { /* clipboard blocked */ } }} /> : <WalletCards wallets={summaries} open={pickWallet} />}
     <Allocation rows={scoped} network={network} setNetwork={setNetwork} multiWallet={!wallet && wallets.length > 1} wallets={walletNames} setWallet={pickWallet} />

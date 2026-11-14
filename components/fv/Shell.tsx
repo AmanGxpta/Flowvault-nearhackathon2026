@@ -6,6 +6,7 @@ import { MoreHorizontal } from "lucide-react";
 import { tc } from "./theme";
 import { ThemeToggle } from "./ThemeToggle";
 import { ConnectWalletModal, ConnectedWalletRow } from "./WalletConnect";
+import { ResearchHub } from "./hub/ResearchHub";
 import { NotificationBell, notesFrom } from "./NotificationBell";
 import { ConvertNearDialog } from "./ConvertNear";
 import { OverviewView } from "./screens/OverviewView";
@@ -918,6 +919,7 @@ export function Shell({ v }: { v: any }) {
             {v.isStrategies ? <EarnDesk v={v} /> : null}
             {v.isActivity ? <ActivityDesk v={v} /> : null}
             {v.isPortfolio ? <PortfolioHome v={v} /> : null}
+            {v.isHub ? <ResearchHub key={String(!!v.judge) + ":" + v.acc} v={v} /> : null}
             {v.isPolicy ? <RiskDesk v={v} /> : null}
             {v.isPay ? <SendDesk key="send" v={v} /> : null}
             {v.isReplays ? <ReplaysView v={v} /> : null}

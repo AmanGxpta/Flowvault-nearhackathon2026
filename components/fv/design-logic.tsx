@@ -60,7 +60,7 @@ export class DesignApp extends Component<any, any> {
     return s;
   }
   componentDidMount() {
-    const known = ['portfolio','swap','strategies','credit','trade','research','activity','calendar','policy','pay','replays','roadmap','opps','protection'];
+    const known = ['portfolio','hub','swap','strategies','credit','trade','research','activity','calendar','policy','pay','replays','roadmap','opps','protection'];
     const readRoute = () => { const raw = new URL(window.location.href).searchParams.get('view') || ''; const view = VIEW_ALIASES[raw] ?? raw; this.setState({ screen: known.includes(view) ? view : 'portfolio' }); };
     readRoute(); this.onPopState = readRoute; window.addEventListener('popstate', readRoute);
 
@@ -786,7 +786,7 @@ export class DesignApp extends Component<any, any> {
       // Replays, the roadmap) appear in Demo Mode. No internal phase badges.
       planningOpen: !!s.planningOpen, navigate: (screen: string) => self.go(screen === 'overview' ? 'portfolio' : screen), screen: s.screen,
       navGroups: NG = [
-        { title: '', items: [navItem('portfolio','Portfolio','◎'), navItem('research','Markets','⌕'), navItem('swap','Swap','⇄'), navItem('strategies','Earn','✧'), navItem('credit','Borrow','◐'), navItem('trade','Trade','↗'), navItem('activity','Activity','◷')] },
+        { title: '', items: [navItem('portfolio','Portfolio','◎'), navItem('hub','Research','✦'), navItem('research','Markets','⌕'), navItem('swap','Swap','⇄'), navItem('strategies','Earn','✧'), navItem('credit','Borrow','◐'), navItem('trade','Trade','↗'), navItem('activity','Activity','◷')] },
         { title: '', items: [navItem('pay','Send','↗'), navItem('calendar','Scheduled','▤',soonCount ? soonCount + ' due' : ''), navItem('policy','Risk & permissions','◇',polClean ? '' : 'unsaved')] },
         ...(s.ws === 'demo' ? [{ title: '', items: [navItem('replays','Recovery examples','↻'),navItem('roadmap','Roadmap','→')] }] : []),
       ],
@@ -843,11 +843,11 @@ export class DesignApp extends Component<any, any> {
       stkSub: 'Idle NEAR 42.10 · 0.50 kept as exit reserve · max 41.60', stkAmt: s.stk.amt, onStkAmt: (e: any) => self.setState({ stk: { ...s.stk, amt: e.target.value } }), stkTabs, stakeCards, stkDueUpper: stDl.toUpperCase(), lead: s.lead,
       replays, roadmap, stretch,
       asstOpen: !!s.asst.open, asstQueued: s.asst.queued, asstEmpty: s.asst.msgs.length === 0, asstHasMsgs: s.asst.msgs.length > 0, asstMsgs, asstSuggest, asstChips, asstInput: s.asst.input,
-      openAssistant: () => { self.remember(); self.setState({ asst: { ...s.asst, open: true } }); }, closeAssistant: () => self.closeAsst(),
+      openAssistant: () => { self.remember(); self.setState({ asst: { ...s.asst, open: true } }); }, askQuestion: (q: string) => self.ask(q), closeAssistant: () => self.closeAsst(),
       onAsstInput: (e: any) => self.setState({ asst: { ...s.asst, input: e.target.value } }), asstSend: () => self.ask(s.asst.input), onAsstKey: (e: any) => { if (e.key === 'Enter') self.ask(s.asst.input); },
-      crumb: ({portfolio:'Portfolio',swap:'Swap',strategies:'Earn',credit:'Borrow',trade:'Trade',research:'Markets',pay:'Send',calendar:'Scheduled payments',policy:'Risk & permissions',activity:'Activity'} as any)[s.screen] || crumbs[s.screen], planLabel: 'Plan v' + s.version + ' · updated today', version: s.version, nextVersion: s.version + 1, horizon: s.horizon, horizonEnd: dlabel(new Date(TODAY + s.horizon * 864e5).toISOString().slice(0, 10)),
+      crumb: ({portfolio:'Portfolio',hub:'Research & Strategies',swap:'Swap',strategies:'Earn',credit:'Borrow',trade:'Trade',research:'Markets',pay:'Send',calendar:'Scheduled payments',policy:'Risk & permissions',activity:'Activity'} as any)[s.screen] || crumbs[s.screen], planLabel: 'Plan v' + s.version + ' · updated today', version: s.version, nextVersion: s.version + 1, horizon: s.horizon, horizonEnd: dlabel(new Date(TODAY + s.horizon * 864e5).toISOString().slice(0, 10)),
       lendingScope: LV?.scope ?? (judge ? 'example' : 'personal'), lendingAccounts: LV?.workspace?.accounts ?? [],
-      isTrade: s.screen === 'trade', isSwap: s.screen === 'swap', isResearch: s.screen === 'research', isOverview: false, isCalendar: s.screen === 'calendar', isStrategies: s.screen === 'strategies', isActivity: s.screen === 'activity', isPortfolio: s.screen === 'portfolio', isCredit: s.screen === 'credit',
+      isTrade: s.screen === 'trade', isHub: s.screen === 'hub', isSwap: s.screen === 'swap', isResearch: s.screen === 'research', isOverview: false, isCalendar: s.screen === 'calendar', isStrategies: s.screen === 'strategies', isActivity: s.screen === 'activity', isPortfolio: s.screen === 'portfolio', isCredit: s.screen === 'credit',
       showOnboarding: !!s.firstRun, showPlanView: !s.firstRun,
       ob1Bg: (s.reserveSet ?? s.reserve > 0) ? '#F4F7EE' : '#fff', ob1DotBg: (s.reserveSet ?? s.reserve > 0) ? '#4E7A4A' : '#EEF0E8', ob1DotColor: (s.reserveSet ?? s.reserve > 0) ? '#fff' : '#5B6458', ob1Glyph: (s.reserveSet ?? s.reserve > 0) ? '✓' : '1',
       reserveDraft: s.reserveDraft, onReserveDraft: (e: any) => self.setState({ reserveDraft: e.target.value }),
