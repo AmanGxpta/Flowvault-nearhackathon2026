@@ -1,355 +1,401 @@
-# FlowVault — capital, with a plan
+# FlowVault
 
-**One portfolio, dated obligations, and rules that carry a cash decision through to a verified result.**
+### Your entire portfolio. One intelligent capital account.
 
-A portfolio tracker shows what you own. It does not tell you what can pay next week's rent without touching protected assets or missing an exit window. FlowVault separates net worth, cash, dated liquidity, stress capacity and committed capital; protects the reserve and bills; compares earning/funding choices; and verifies an owner-approved result.
+FlowVault connects your wallets, earning positions and supported financial accounts into one capital account that follows your rules. Tell it what you need, for example *"pay Aman 1,000 USDT on BNB by the 23rd without touching my ETH"*. It works out where the money can come from, compares the routes, shows the cost and risk, and carries the plan you approve through to a verified result. Built on NEAR, with NEAR Intents for cross-chain settlement.
 
-Built on **NEAR**: Rhea USDC supply/withdrawal, NEAR Intents exact-output payment plumbing, native/LiNEAR/rNEAR reads, NEAR wallet signing, an optional NEAR AI Cloud intent parser, and a no-custody policy contract. **This checkout is a local Git repository with no remote; nothing has been published or deployed by the agents.** Funded end-to-end execution still needs the owner's rehearsal. The frontend is being wired separately; API availability is not a claim that every visual control is connected.
+**Live app:** _link added at deployment_ · **Demo video:** _link added at submission_ · **Try it without a wallet:** [Demo Mode](#16-try-it--get-started)
 
-## Revamped workspace — 13 November 2026
+> **Project history:** This project reuses the name and domain of an earlier hackathon-winning submission. The previous submission was a different product. The implementation, functionality, and architecture presented here were developed independently for the NEAR Hackathon.
 
-The app opens on **Portfolio**. Navigation is **Portfolio · Markets · Swap · Earn · Borrow · Trade · Activity**, with **Send**, **Scheduled** and **Risk & permissions** directly available. Cmd/Ctrl+K searches pages and runs commands such as `swap 1 NEAR to USDC`, `buy RHEA` or a token symbol. Views link as `?view=markets`, `?view=swap`, `?view=earn`, `?view=borrow` and so on.
+---
 
-- **Swap** quotes Rhea / Ref and NEAR Intents as you type, ranks routes by output (exact, in token units) and shows balances, Max, USD values, rate and minimum received. Swaps between NEAR tokens run **inside FlowVault**: `/api/swap/execute` prepares the exact transactions (wrap, registrations, Ref `ft_transfer_call`, Ref's own unwrap for NEAR output), checks balances, storage and prices, and evaluates them against the owner's policy (a swap sells its input asset). The review card offers "Allow and continue", which saves a policy revision adding only that swap's venue and methods. The owner signs in their own wallet after `/api/transactions` authorize; receipts are verified (`swap-exec.ts`), and the result appears in Activity. **NEAR Intents routes also run in-app** (`swap-intents.ts`): from NEAR, Ethereum, Base or Arbitrum into the owner's own proven wallet on the destination network, FlowVault takes a live 1Click quote, checks balance, gas and policy, asks the wallet that holds the token to sign one deposit to the quote's deposit address, verifies that deposit on the origin chain, then records delivery or refund from 1Click's status. Balances come from every connected wallet, and sending/receiving addresses fill from the wallet that holds the token. Solana-origin routes still open the venue.
-- **Markets** is a screener (DexScreener pairs: price, change, liquidity, volume, trades, market cap; NEAR markets, Trending, New; 5m–24h; chain filter; sorting; watchlist). Each token opens a page with GeckoTerminal candles, 24h flow, plain-language risk signals and a check against the owner's policy, plus Buy/Sell into Swap.
-- **Earn** and **Borrow** open on live Rhea market tables (APY, totals, utilization, LTV). USDC rows lead into FlowVault's own supply and credit flows; other markets open Rhea.
-- **Trade** has an always-visible order ticket (long/short, size, leverage, TP/SL, margin and estimated liquidation). Orders still go through the owner-configured Hyperliquid agent and signed mandate; the ticket shows which setup steps remain.
-- **Portfolio** headline figures never go blank: partial reads show "≥ known subtotal", failed reads keep the last good figure with its time. A status bar shows portfolio, spendable cash, the next payment and guardrails.
-- **Activity** adds the connected account's on-chain history (NearBlocks) beside FlowVault's journal.
-- **Ask FlowVault** is a chat that reads your balances, limits, quotes and markets through typed tools and drafts cards (swap, supply, stake, pay, trade) that you review and sign yourself; it never signs, changes limits or adds recipients. It currently runs on Claude through the Anthropic API (server setting `ANTHROPIC_API_KEY`; Claude Haiku 5.5 by default, `ANTHROPIC_MODEL` overrides) and will move to NEAR AI Cloud.
-- Token and network logos are bundled in `public/assets`.
+## Contents
 
-No deployment or owner-funded operation is implied. Perps execution needs the owner's agent key secret on the server.
+1. [Project identity](#flowvault) · 2. [The problem](#2-the-problem) · 3. [The core insight](#3-the-core-insight) · 4. [The solution](#4-the-solution) · 5. [System architecture](#5-system-architecture) · 6. [Explain it simply](#6-explain-it-simply) · 7. [Competitive differentiation](#7-competitive-differentiation) · 8. [Core mechanisms](#8-core-mechanisms) · 9. [The intelligence and decision layer](#9-the-intelligence-and-decision-layer) · 10. [User value and experience](#10-user-value-and-experience) · 11. [Business model](#11-business-model) · 12. [Technical significance](#12-technical-significance) · 13. [Why this works](#13-why-this-works) · 14. [Executive summary](#14-executive-summary) · 15. [Roadmap](#15-roadmap) · 16. [Try it](#16-try-it--get-started) · 17. [Implementation evidence](#17-implementation-evidence) · 18. [Developer operations](#18-developer-operations) · 19. [Limitations and disclaimers](#19-limitations-and-disclaimers)
 
-## Run and see the pitch — no wallet or key required
+---
 
-Node **22.13+**, npm, and two terminals:
+## 2. The problem
 
-```sh
-npm ci
-npm run dev
-```
+Your money is everywhere.
 
-Open **http://127.0.0.1:5173/**. In the second terminal:
+Some of it sits in wallets. Some is earning yield in DeFi. Some is staked, locked in lending positions or held on exchanges. Different chains, different protocols, different interfaces.
 
-```sh
-npm run pitch-story
-```
+**Your capital is fragmented, even when your financial decisions aren't.**
 
-`pitch-story` drives the seeded example through HTTP, asserts consistency across endpoints, and prints each completed story beat. It never opens a wallet, requests a non-dry quote, calls a paid model, or changes personal state.
+Imagine you need to pay someone **$1,000 USDT on BNB**. You have enough wealth to cover it. But your stablecoins are on another chain, your ETH is earning yield, and your other positions have withdrawal periods.
 
-### Judge mode: do X, see Y
+Do you sell? Withdraw? Borrow? Bridge? Which assets should you touch? What does each option actually cost? And will paying this bill leave enough for the rent that's due next week?
 
-Select **Example workspace / Judge mode**. All example accounts, prices, rates and quantities are fictional. Dates stay relative to today's UTC date: the Nov 12 story becomes Nov 14 / Nov 23 / Nov 25 / Dec 1, and rolls forward on later days.
+Today, you're the one connecting all those dots, and the tools don't help:
 
-| Do this | See this |
-| --- | --- |
-| Open **Overview / Portfolio** | Net worth **25,526.48**, wallet USDC **15,190**, committed capital **8,201.76**, dated native-USDC liquidity **22,690**, and **54.54 illustrative** borrowing headroom against the example LSTs (no actual collateral or borrowing execution). Watched LP/NFT positions are excluded. |
-| Open **Calendar / Policy** | Reserve **2,000** plus four obligations totaling **9,550** = **11,550** held back. Studio rent 2,500 USDC on Base (+2 days), Rent to Aman 1,000 USDT on BNB (+11), software 50 USDC on Arbitrum (+13), payroll 6,000 USDC to aman.near (+19). |
-| Test a **6,000 USDC supply** | The **5,000 per-action cap** rejects it. The example's simulated daily usage is **1,250**, leaving **6,750** of its 8,000 daily cap. Testing an unsaved draft changes nothing. |
-| Open **Plan to action / Strategies** | **2,690 USDC of NEAR-wallet surplus**; modeled liquid Rhea fits, while the higher-rate seven-day vault misses the first bill's exit window. Live unverified exits are excluded from automatic recommendations. |
-| Open **Credit** and use the PRD scenario | 2,000 value −90% → **200** stressed; 70% cap → **140**; 80% liquidation threshold / 1.5 health → **106.666666** exact capacity, displayed **106.67**. Read-only; no loan is created. |
-| Ask **“Pay Aman 1,000 USDT on BNB”** | Fictional idle-cash/Rhea source comparison with the reserve and ETH protected. BNB/USDT live routing is supported; this Judge result remains fictional planning, not a delivered payment. |
-| Ask **“can I pay 1,000 USDT on BNB by Nov 23 without touching my ETH”** | A strict proposal, engine verdict and answer using only engine figures. No wallet payload, authorization or model-generated balance. |
-| Open **Replays** | All five outcomes—success, refunded, partial, failed, deadline passed—for supply, withdraw and pay. Every record says **SIMULATED**, and cannot enter the live journal. |
+- **Portfolio trackers** show your net worth, but net worth isn't spendable. They can't tell you what you can actually use by a given date without breaking a reserve or missing an exit window.
+- **Wallets, swaps and bridges** each perform one step. You still plan the route, size every leg and check that the money actually arrived.
+- **Lending and staking apps** each show their own silo. None of them knows about your bills, your other positions, or the assets you've decided never to sell.
+- **AI chat assistants** turn a sentence into a transaction, but the safety of that transaction rests on the model getting it right.
 
-The example's NEAR wallet has 14,240 USDC, Base 640, Arbitrum 310, Rhea supply 7,500, native stake/unstaking, LiNEAR/rNEAR, gas NEAR and protected ETH valued fictionally at 2,000. Example reservation assumes USDT = USDC; **live unknown FX is refused**. Economic cross-chain cash is not automatically spendable by the NEAR signer.
+This matters because mistakes cost real money: an unnecessary sale, a loan at the wrong health factor, a withdrawal that misses a deadline, a payment that "succeeded" but never reached the recipient.
 
-For API-driven screening, send `X-FlowVault-Workspace: example` or `?workspace=example` on session-backed requests. Personal and example workspaces have separate records, revisions, policies and journals; toggling Judge mode does not fence prepared personal actions. See [the API contract](docs/BACKEND_API.md) and [frontend handoff queue](docs/FRONTEND_REQUESTS.md).
+## 3. The core insight
 
-## What is real, simulated, dry or planned?
+**Every financial decision is a constrained choice against your own rules and your own calendar.**
 
-| Evidence class | Implemented behavior | What it does not prove |
+The number that decides "can I pay this?" isn't net worth. It's **usable capital, by date, under your rules**: what's left after your reserve and your scheduled payments, counting only exits that complete in time, and never touching the assets you've protected.
+
+Once that number exists, money decisions become comparable. Paying from idle cash, withdrawing from a lending pool, selling an approved asset or borrowing against collateral are all answers to the same question, and each can be ranked by what it costs you by the date that matters.
+
+There's a second insight about authority: **the AI drafts, deterministic engines decide, and the owner signs.** A model can understand a request, but every figure comes from an engine, every action passes your policy, and nothing moves without your wallet's signature.
+
+## 4. The solution
+
+FlowVault is a **policy-driven capital orchestration platform**. Every action, whether a swap, a supply, a stake, a payment or a trade, runs through the same five layers:
+
+| Layer | What it does | In this build |
 | --- | --- | --- |
-| **Real public reads** | Finalized NEAR/Rhea views; Base/Arbitrum native-USDC RPC reads; native/LiNEAR/rNEAR lifecycle reads; explicit freshness and coverage. | Ownership, complete seven-chain coverage, or verified USD prices for every asset. Unknown is never silently zero. |
-| **Implemented owner execution** | Mainnet MyNearWallet and Meteor helpers; guarded Rhea supply/withdrawal; exact-output 1Click deposit preparation/status/destination-proof code. | A funded FlowVault track record. The owner must sign each step; [funded rehearsal](docs/OWNER_RUNBOOK.md) remains required. |
-| **Live dry quote** | `dry:true`, exact output, no deposit address or funds moved. Current sanitized minimum/fee observations are recorded. | A reserved executable route, permanent minimum, realized fee or successful payout. |
-| **Fictional example** | Shared deterministic engines with clearly labeled fixture assets/rates/valuations and rolling dates. | Live holdings, returns, actual collateral capacity, or a funded execution. |
-| **SIMULATED replay** | Sanitized recorded/derived provider schemas plus synthetic NEAR receipt fixtures; 15 disconnected scenarios. | Fifteen funded executions. IDs are non-signable and separate from live attempts. |
-| **Built, undeployed contracts** | Rust policy contract (rules/proposals/approval/revocation, 14 tests) and the pooled vault contract (NEP-141 shares, queued deposits, FIFO claims, owner-only fee crystallization, trusted NAV, bounded Rhea authority, 42 tests); local WASM artifacts. | A deployed contract, real custody, a security audit or a verified outcome. Policy records say `unverified_record`. |
-| **Read-only assistant / staking quote** | Strict intent schema, engine-only answer; verified SDK unsigned stake quotes with exit reserve. | Autonomous execution, cryptographically verified private inference, or a funded staking handoff. NEAR-to-USDC cap valuation remains gated. |
-| **Implemented, not yet demonstrated (Phase 4)** | Cross-wallet funding, Solana USDC → NEAR, EVM fees in USDC, approved-asset sales, Aave v3 credit, autonomous mandates, Hyperliquid perpetuals and strategy vaults: code, tests and UI (see below). | Any funded, owner-signed or deployed run. The owner signs every step; see the owner actions below. |
-| **Planned business/product** | Performance-fee revenue, premium automation and flow research are in the PRD. Card spending is deferred to a future phase. | Current fee revenue, forecast alpha, or a deployed pooled vault. |
+| **Observe** | Understands what you own, where it lives, what it earns and how much you can actually access, counted once. | Portfolio across NEAR, EVM chains and Solana; tokens, lending, staking, debt and NFTs; freshness and coverage shown; unknown values are never treated as zero. |
+| **Configure** | You define how money should behave: reserve, scheduled payments, per-action and daily caps, protected assets, approved venues and recipients, borrowing limits. | Risk & permissions with numbered revisions; Scheduled payments; the policy is checked again when an action is prepared, so a stale approval can't slip through. |
+| **Decide** | Evaluates liquidity and compares withdrawals, swaps, sales and eligible borrowing against your rules. | Bigint engines for valuation, usable balances, ranking by net-to-date and stress-tested credit; the chat drafts cards from those engines' figures. |
+| **Execute** | Builds the exact transactions and hands them to your wallet, one reviewed step at a time. | NEAR wallet signing (MyNearWallet, Meteor), EVM and Solana wallets; Rhea, NEAR Intents, staking, Aave v3, LI.FI and Hyperliquid paths. |
+| **Account** | Tracks every transaction and reconciles what actually happened. | Wallet journal with prepared → submitted → confirmed / partial / failed / unknown states; a payment is "paid" only after the recipient's transfer is proven on the destination chain. |
 
-A source deposit becoming `confirmed` does **not** mark a payment paid. `paid` requires a confirmed source deposit plus an independently checked canonical/finalized ERC-20 Transfer of the exact configured token amount to the recipient on Base/Arbitrum, BNB USDT or Ethereum USDC/USDT. Provider SUCCESS alone is insufficient. Refund reports, unknown status and source proof remain distinct.
+Capital orchestration isn't only about getting money out. FlowVault also helps put surplus to work (supply, staking, strategies), keeps watching it once deployed (monitoring, automations, alerts), and lets you pre-authorize narrowly scoped actions through signed mandates.
 
-## Phase 4 capabilities — 13 November 2026
-
-Implemented code and tests; **nothing here has been funded, owner-signed or deployed**. Checks: 494 app tests, typecheck and build passed; 42 vault and 14 policy contract tests passed. Details: [`docs/PHASE4.md`](docs/PHASE4.md), [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md), [`docs/BACKEND_API.md`](docs/BACKEND_API.md).
-
-| Capability | What the code does | Where | Owner action before it is real |
-| --- | --- | --- | --- |
-| Cross-wallet orchestration | Funds a plan from one or several proven wallets (cheapest single vs mixed after costs), one wallet approval per leg, per-leg ledger and recovery, no atomicity claim | Plan panel | rehearse with their own wallets |
-| Solana USDC → NEAR | SPL transfer rebuilt and checked in the browser, signed in Phantom/Solflare, delivered through 1Click | Convert to NEAR | rehearse with a Solana wallet |
-| EVM fees in USDC | Circle Paymaster through the wallet's own call batching; only the reviewed transfer is sponsored; ETH stays the default | Convert to NEAR | HTTPS deployment + an ERC-7677 wallet |
-| Approved-asset sales | Sells only assets the policy allows, sized for exact net USDC, refund-aware | Credit | sale rows in policy; a signed sale |
-| Broader lending | Rhea and Aave v3 (Ethereum, Base, Arbitrum) with venue-local stressed capacity and a settlement proof gate | Credit | allow the venues in policy; a signed borrow/repay |
-| Autonomous mandates | Signed terms, deterministic checks, scheduled runs that prepare owner-signed plans; optional custody through a single-depositor vault | Policy | sign/activate; for custody, deploy a vault, provision a scoped key, set `FLOWVAULT_CUSTODY_SIGNERS` |
-| Perpetuals (Hyperliquid) | Trade-only agent under a signed mandate; unrealized gains never count as cash | Strategies | set `FLOWVAULT_AGENT_KEY_SECRET`, sign `approveAgent`, deposit on Hyperliquid |
-| Strategy vaults | NEAR vault contract plus holder/owner views and wallet-signed deposit, redeem, cancel, claim and settle | Strategies | deploy and register the vault, file NAV reports, allow it in policy, security review |
-| Card spending | Deferred by the owner | — | — |
-
-## NEAR features by submission track
-
-These describe technical fit, not a claim of eligibility or an award.
-
-| Track | Concrete NEAR contribution | Boundary / demonstration needed |
-| --- | --- | --- |
-| **defi** | Rhea native-USDC supply/withdrawal, reserve protection, calendar-aware net ranking, staking lifecycle and stress preview. | Owner-funded receipts; no borrow execution or guaranteed returns. |
-| **realworld** | Dated payroll/rent and NEAR Intents EXACT_OUTPUT settlement to Base/Arbitrum, BNB USDT and Ethereum USDC/USDT. | L1 funded source-to-recipient proof; All funded route evidence remains owner-required; Judge results are labelled fictional. |
-| **security** | Bigint units, policy caps/allowlists, revisions, signer binding, one-time handoff, refund and exact-outcome checks; Rust NEAR policy contract. | Contract is undeployed; an on-chain rule demonstration and external review remain owner steps. |
-| **agents** | Natural-language proposals are schema-validated and evaluated by deterministic engines; contract supports registered agent proposals/revocation. | No unattended trading, deployed agent key or live contract integration is claimed. |
-| **privacy** | Ask FlowVault runs on Claude through the Anthropic API for now. A turn shares only what its tools read (for example balances, limits, scheduled payments or a quote), and the chat names what it shared. The intent parser can already run on NEAR AI Cloud, sending only the question, date and schema; the chat moves to NEAR AI Cloud next. | The NEAR AI Cloud move is planned, not done. Attestation, response signatures and E2EE are **not verified** by this app yet. |
-| **open** | MIT source, public read adapters, auditable local engines and reproducible pitch tests. | A public repository and hosted demo are the owner's publication actions. |
-
-## Verification and owner operations
-
-With the dev server running:
-
-```sh
-npm test
-npm run typecheck
-npm run build
-npm run smoke
-npm run pitch-story
-node tests/design-api-smoke.mjs
-node tests/mechanics-smoke.mjs
-```
-
-`smoke` includes a public Rhea market read; a public-RPC outage fails that check honestly. The story/design/mechanics suites use fresh isolated example sessions and no funded wallet. Amounts use bigint base units (USDC six decimals, NEAR 24, Rhea inner precision read explicitly).
-
-Optional Rust checks:
-
-```sh
-cargo test --locked --manifest-path contracts/policy/Cargo.toml
-cargo build --locked --manifest-path contracts/policy/Cargo.toml --target wasm32-unknown-unknown --release
-```
-
-- [Owner funded-camera runbook](docs/OWNER_RUNBOOK.md): fresh minimum checks, supply → withdrawal → exact-output Base payout, Activity evidence and recovery.
-- [Cloudflare hosting runbook](docs/CLOUDFLARE_DEPLOY.md): owner-created D1, server secrets, prepared config and owner-run deployment. Nothing is deployed by these docs.
-- [Build status](docs/BUILD_STATUS.md): actual verification and remaining owner-only checks.
-
-The local D1/cookie model is development-session isolation, **not production identity/authentication**. No private wallet key is collected by the backend. The owner wallet signs and sends; the agent never signs, spends, deploys or publishes. Staking preparation is a non-signable quote until valuation/cap checks and a funded handoff are implemented.
-
-## Revenue model — proposed, not charged
-
-PRD §9.1 proposes **15% performance / 0% management** as an initial vault pricing hypothesis, with high-water marks/loss recovery and explicit curator/platform splits. Additional planned modules are premium risk/reporting/bounded automation, disclosed execution services, and treasury/API/SDK distribution partnerships. No FlowVault performance, subscription or routing fee is configured in this build; 1Click/provider costs are separate.
-
-For illustration only: 100 USDC of new eligible realized profit above a high-water mark would split into 15 fee / 85 user profit under that hypothesis. Future fee revenue, user NAV, reward tokens and speculative incentives must remain separate. No emissions, token appreciation or historical PnL are used as revenue evidence. See [the product requirements](docs/PRODUCT.md#91-revenue-modules).
-
-## Diagrams
-
-These describe the current code boundary. Dashed edges and labels identify owner-only or planned integration. Diagram syntax is checked with pinned Mermaid; diagrams are not funded-execution evidence.
-
-### 1. User journey
-
-```mermaid
-journey
-    title FlowVault from a cash date to evidence
-    section Observe
-      Select isolated Judge example: 5: Judge
-      Inspect five balances and coverage: 5: Judge
-    section Configure
-      Reserve and dated obligations: 5: Owner
-      Test a risky action against policy: 5: Owner
-    section Decide
-      Compare net earnings before each date: 5: Owner
-      Ask FlowVault for an engine proposal: 5: Owner
-    section Execute
-      Connect MyNearWallet or Meteor: 3: Owner, Wallet
-      Review supply then withdraw then pay: 3: Owner, Wallet
-    section Account
-      Check source receipts: 5: FlowVault
-      Require exact recipient proof for paid: 5: FlowVault
-      Inspect separate simulated recovery replays: 5: Judge
-```
-
-### 2. System architecture
+## 5. System architecture
 
 ```mermaid
 flowchart LR
-    UI["React interface and Judge selector"] --> API["Session-scoped APIs"]
-    UI <--> W["Wallet Selector: MyNearWallet and Meteor"]
-    API --> E["Bigint engines: obligations, usable, policy, credit, ranking"]
-    API --> D1[("D1: isolated workspaces and journals")]
-    API --> NR["Finalized NEAR RPC and staking SDK reads"]
-    NR --> R["Rhea and native USDC"]
-    API --> OC["1Click: dry previews, checked executable quotes, status"]
-    API --> ER["Base, Arbitrum, BNB and Ethereum public RPC: exact token proof"]
-    W -->|"Owner signs and sends"| R
-    W -->|"Owner USDC deposit"| OC
-    API --> AS["Assistant: strict intent then engine answer"]
-    AS -. "Optional question-only inference" .-> AI["NEAR AI Cloud; verification not implemented"]
-    PC["Rust NEAR policy contract: built, undeployed, no asset custody"]
-    E -. "Planned deployed coordination integration" .-> PC
-    RE["SIMULATED replay fixtures"] --> UI
+    subgraph Client["Browser"]
+        UI["FlowVault app: Portfolio, Research, Markets, Swap, Earn, Borrow, Trade, Activity"]
+        CHAT["Ask FlowVault chat with action cards"]
+        WAL["Owner wallets: NEAR, EVM, Solana"]
+    end
+    subgraph Worker["Cloudflare Worker"]
+        API["Session-scoped APIs"]
+        ENG["Deterministic engines: valuation, usable balances, obligations, policy, ranking, credit stress"]
+        AGENT["Chat agent with typed tools: reads and drafts only"]
+        CRON["Cron: monitoring, recurring payments, automations, mandates"]
+        DB[("D1: workspaces, policy revisions, journals, payment proofs")]
+    end
+    subgraph Chains["Execution and data"]
+        NEAR["NEAR RPC: Rhea Lending, Ref swaps, LiNEAR, rNEAR, validators"]
+        INT["NEAR Intents 1Click: swaps and exact-output payments"]
+        EVM["EVM RPC: Ethereum, Base, Arbitrum, BNB, Polygon"]
+        SOL["Solana RPC"]
+        EXT["Aave v3, Hyperliquid, LI.FI, market data"]
+    end
+    LLM["Claude via Anthropic API today; NEAR AI Cloud next"]
+    CONTRACTS["Rust NEAR contracts: policy and strategy vault (built, not yet deployed)"]
+
+    UI --> API
+    CHAT --> AGENT
+    AGENT --> LLM
+    AGENT --> ENG
+    API --> ENG
+    API --> DB
+    CRON --> ENG
+    ENG --> NEAR
+    ENG --> INT
+    ENG --> EVM
+    ENG --> SOL
+    ENG --> EXT
+    UI <--> WAL
+    WAL -->|"Owner signs every step"| NEAR
+    WAL -->|"Owner signs deposits"| INT
+    WAL -->|"Owner signs"| EVM
+    ENG -.-> CONTRACTS
 ```
 
-### 3. Transfer cycle: supply, withdraw and exact-output pay
+| Component | Role |
+| --- | --- |
+| **App** | React interface (Next.js-compatible, built with vinext on Vite) served from a Cloudflare Worker. Cmd/Ctrl+K command bar (`swap 1 NEAR to USDC`, `buy RHEA`). |
+| **APIs** | 44 API groups and 65 route handlers, each scoped to a session and a workspace (personal or Demo). |
+| **Engines** | Pure TypeScript with bigint base units (USDC 6 decimals, NEAR 24). Shared by every screen, the chat, automations and the cron, so all of them show the same figures. |
+| **Journal** | D1 tables for workspaces (revision-checked), wallet attempts and hashes, policy ledger and daily budgets, payment plans, destination proofs and locks. |
+| **Chat agent** | Ask FlowVault: typed, schema-validated tools that read evidence or draft non-executable cards. |
+| **Cron** | Advances recurring payments, runs monitoring, due automations and mandates. Reads and proposes; never signs. |
+| **Contracts** | `contracts/policy` (rules, proposals, approval, revocation) and `contracts/vault` (NEP-141 shares, queued deposits, FIFO redemptions, high-water-mark fees, bounded Rhea authority). |
+
+## 6. Explain it simply
+
+**The analogy:** FlowVault is a personal treasurer with your rulebook in hand. The treasurer knows every account you have, every bill coming up and every rule you've set: "always keep $2,000 aside", "never sell my ETH", "no single move over $5,000". When you ask for money, they come back with options, the cheapest one first, and they never sign the cheque themselves.
+
+**The end-to-end journey:**
+
+1. **Connect your wallets.** NEAR, Ethereum/Base/Arbitrum and Solana. FlowVault reads every token, lending position, staking position and debt it can verify, and counts each one once.
+2. **Set the rules.** A $2,000 reserve. Scheduled payments: studio rent, rent to Aman, software, payroll. Your ETH is protected. Caps of $5,000 per action and $8,000 per day.
+3. **Ask.** *"Can I pay 1,000 USDT on BNB by Nov 23 without touching my ETH?"*
+4. **FlowVault decides.** It holds back the reserve plus every payment due in the horizon, finds the surplus, compares paying from idle cash against withdrawing from Rhea, and leaves ETH alone. Every figure comes from the engines.
+5. **You review.** The card shows the route, the expected amount received, fees, gas and the policy checks it passed.
+6. **You sign.** Your wallet signs each step. FlowVault prepares the transactions; it never holds your keys.
+7. **FlowVault accounts.** It watches the deposit, the cross-chain settlement and the recipient's transfer on BNB, and marks the payment paid only when that transfer is proven.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor O as Owner
-    participant U as FlowVault UI
-    participant A as Backend and journal
+    participant F as FlowVault
+    participant P as Policy and engines
     participant W as Owner wallet
-    participant R as Rhea and USDC
-    participant C as 1Click
-    participant E as Destination RPC
-    O->>U: Review supply with reserve and obligations protected
-    U->>A: Prepare then authorize unchanged payload
-    A-->>U: Fresh guards and one-time wallet handoff
-    U->>W: signSupply
-    W->>R: ft_transfer_call with collateral off
-    U->>A: Attach hashes and verify FINAL resolved amount
-    O->>U: Review withdrawal
-    U->>A: Prepare execute Withdraw in verified inner units
-    U->>W: signWithdraw after authorization
-    W->>R: execute with one yocto and 250 Tgas
-    U->>A: Verify exact native USDC transfer to signer
-    O->>U: Pay an obligation to Base, Arbitrum, BNB or Ethereum
-    U->>A: Plan sources then request executable quote
-    A->>C: Non-dry EXACT_OUTPUT with owner refund address
-    C-->>A: Quote echo, funding bounds and retained signed response
-    A-->>U: Checked unsigned USDC deposit, not a paid result
-    U->>W: signPayment after one-time authorization
-    W->>C: Exact reviewed source deposit
-    A->>C: Poll correlated status and refund deadline
-    C-->>A: SUCCESS still needs destination proof
-    A->>E: Canonical FINAL native-USDC Transfer to recipient
-    E-->>A: Exact amount, token, recipient and unique log
-    A-->>U: Only now mark matching obligation paid
+    participant I as NEAR Intents
+    participant B as BNB Chain
+    O->>F: Pay Aman 1,000 USDT on BNB by Nov 23, keep my ETH
+    F->>P: Reserve plus dated payments, usable cash by date
+    P-->>F: Cheapest compliant source, ETH untouched
+    F->>I: Exact-output quote, refund to owner
+    I-->>F: Quote echo, minimums, deadline
+    F-->>O: Card with cost, route and checks passed
+    O->>W: Approve
+    W->>I: Signed source deposit
+    F->>I: Track settlement status
+    F->>B: Verify finalized USDT transfer to Aman
+    B-->>F: Exact token, amount and recipient
+    F-->>O: Paid, with proof
 ```
 
-### 4. Wallet attempt and payment lifecycles
+## 7. Competitive differentiation
 
-```mermaid
-stateDiagram-v2
-    [*] --> prepared
-    prepared --> awaiting_wallet: fresh checks and atomic handoff
-    awaiting_wallet --> submitted: hashes attached
-    awaiting_wallet --> unknown: ambiguous wallet result
-    unknown --> submitted: recover hashes
-    submitted --> confirmed: FINAL exact source evidence
-    submitted --> partial: only some steps established
-    submitted --> failed: receipt failure or refund or short amount
-    partial --> submitted: recover remaining evidence
-    confirmed --> destination_pending: payment source only
-    destination_pending --> paid: independent exact destination proof
-    destination_pending --> refunded: provider report kept distinct from cash proof
-    destination_pending --> recovery: unknown or failed or deadline passed
-    paid --> [*]
-```
+| Approach | What it does well | Where it stops | FlowVault |
+| --- | --- | --- | --- |
+| **Portfolio trackers** | Show everything you own in one place | Net worth only; nothing about what's spendable by a date, and no action | Separates net worth, cash now, withdrawable by date, borrowing headroom and committed capital, and acts on them |
+| **Wallets, swaps and bridges** | Execute one step well | You plan the route, size the legs and check delivery yourself | Plans multi-source, multi-chain routes, sizes each leg and verifies the result on the destination chain |
+| **Lending and staking apps** | Deep single-protocol features | Blind to your bills, other positions and protected assets | Every supply, borrow and stake is checked against your reserve, calendar and rules; collateral is off by default |
+| **AI chat assistants** | Natural-language convenience | The model's output decides what gets signed | The model only drafts cards. Engines supply every figure, the policy gates every action, and payment recipients come only from your saved list |
+| **All-in-one terminals** | Many tools on one screen | The tools don't share a plan, a policy or an outcome | One spine, Observe → Configure → Decide → Execute → Account, behind every action |
 
-Supply/withdrawal `confirmed` completes that source operation. A payment's source `confirmed` does not mean recipient `paid`. Local draft review is a separate non-signing state machine; SIMULATED replays never enter either live path.
+**The fundamental advantage:** FlowVault isn't a collection of actions. It's a capital account with a policy and a calendar, and every action is a decision made against them, then proven after the fact.
 
-### 5. Data flow and assistant authority boundary
+## 8. Core mechanisms
+
+Each mechanism below goes from the intuition to the implementation, with its status.
+
+### 8.1 One capital account
+*Intuition:* see everything once, and know what's actually usable.
+*Implementation:* wallet and position reads across NEAR (tokens, Rhea, native, LiNEAR and rNEAR staking), EVM chains and Solana, plus whole-wallet EVM reads through Zerion when enabled. A card per wallet plus totals by network and by wallet. The headline never goes blank: a partial read shows "≥ known subtotal", a failed read keeps the last good figure with its time, and accounts come in only through their own wallet. **Built.**
+
+### 8.2 Dated obligations and the reserve
+*Intuition:* money has jobs and due dates.
+*Implementation:* scheduled payments (amount, token, chain, recipient, due date, recurrence) plus a reserve form the **holdback**. Surplus is what's left above it. Withdrawable-by-date counts only exits that finish in time. Live obligations in other tokens get conservative USDC reservations, and unknown FX blocks automation. **Built.**
+
+### 8.3 Capital policy (Risk & permissions)
+*Intuition:* your rules decide, not the agent.
+*Implementation:* per-action and daily caps, a maximum moving cost, protected assets (never sell or pledge), venue, method and recipient allowlists, and borrowing permissions per asset, saved as numbered revisions. Every action is evaluated when it's prepared and again before the wallet handoff. Approval cards show one hazard scan listing every check that ran. **Built.** A Rust policy contract mirrors these rules on-chain (14 tests). **Built, not yet deployed.**
+
+### 8.4 Cash access and cross-chain payments
+*Intuition:* state the outcome, and let FlowVault find the route.
+*Implementation:* payment plans compare idle cash, Rhea withdrawal and approved sales. They request **exact-output** NEAR Intents quotes so the recipient gets the exact amount, and check the quote echoes the request. Payments settle to Base, Arbitrum, BNB (USDT) and Ethereum (USDC/USDT). A source deposit being confirmed is not "paid": paid requires an independently verified, finalized transfer of the exact token and amount to the recipient. **Built; owner-funded run pending.**
+
+### 8.5 Collect and send, and multi-wallet funding
+*Intuition:* pay from wherever the money is.
+*Implementation:* choose what the recipient should get (for example 3 USDC on Base), and FlowVault proposes the cheapest mix of your holdings across chains after gas and fees. Each leg is a NEAR Intents swap straight to the recipient, signed by the wallet that holds it, with a per-leg ledger and recovery. Sources include NEAR, Ethereum, Base, Arbitrum, BNB, Polygon and Solana USDC. No all-or-nothing atomicity is claimed. **Built.**
+
+### 8.6 Earn, borrow and stake
+*Intuition:* put surplus to work without endangering the calendar.
+*Implementation:* live Rhea markets with in-app supply, withdraw, borrow, repay, and add or release collateral. Health is stress-tested in protocol units, and new debt needs explicit approval. Aave v3 on Ethereum, Base and Arbitrum has venue-local capacity. Swap-then-supply lets you supply a market you don't hold in one flow. Staking (native validators, LiNEAR, rNEAR) is resumable, including funding it from USDC or ETH on other chains. **Built.**
+
+### 8.7 Markets and trading
+*Intuition:* trade from the same account, under the same rules.
+*Implementation:* a market screener with token pages, candles, plain-language risk signals and a 0–100 spot safety score. Any listed token can be bought or sold through LI.FI from your own wallets. Hyperliquid perpetuals use a trade-only agent under a signed mandate, and unrealized gains never count as cash. Trades fail closed when costs are unknown. **Built; the perps agent needs owner setup.**
+
+### 8.8 Strategy vaults and mandates
+*Intuition:* researched strategies anyone can allocate to, with defined entry, limits and exit.
+*Implementation:* a pooled vault contract (NEP-141 shares, queued deposits, FIFO fixed claims, high-water-mark fee crystallization on owner NAV reports, bounded Rhea authority, pause and shutdown) with holder and curator views and wallet-signed deposit, redeem, claim and settle steps (42 tests). Autonomous mandates are NEP-413-signed terms with deterministic checks, a kill switch and a freeze on uncertain operations. The cron prepares plans for the owner to sign. **Built, not yet deployed or audited.**
+
+## 9. The intelligence and decision layer
+
+**Engines decide.** Valuation, usable balances, the holdback, net-to-date ranking and stressed credit capacity are pure, deterministic functions. Every screen, the chat, automations and the cron call the same ones, so a figure never differs between places.
+
+**Ask FlowVault understands.** The chat reads your balances, limits, scheduled payments, markets and quotes through typed tools, and drafts cards: swap, supply, stake, pay or trade. It can't prepare, approve, sign, change limits or add recipients. Its guard rails:
+
+- Payment recipients come only from your saved Scheduled payments.
+- Swap output goes only to your own proven wallets.
+- A trade's contract address must be one you typed in the chat, or one from FlowVault's token list.
+- Text from other people's wallets or trending lists reaches the model as bounded, markup-free data and is never treated as instructions.
+
+The chat runs on **Claude through the Anthropic API today and moves to NEAR AI Cloud next.** The intent parser can already run on NEAR AI Cloud. Each turn shows what it shared.
+
+**It keeps watching.** "What you can do today" suggestions come from your holdings and the market (idle stablecoins, NEAR to stake, big moves), each with its numbers and one action. **Automations** cover a daily brief, a weekly surplus sweep proposal, idle-cash, allocation and price alerts. **Monitoring** on the cron proposes responses to changes. Everything ends at a proposal you approve.
 
 ```mermaid
 flowchart TB
-    O["Reserve and dated obligations"] --> H["Horizon holdback"]
-    P["Owned portfolio, source and freshness"] --> B["Five usable balances; unknown stays unknown"]
-    WATCH["Watched holdings"] --> X["Listed separately, excluded from economic engines"]
-    H --> E["Policy, stress credit and calendar ranking"]
-    B --> E
-    Q["Question"] --> I["Deterministic parser or optional model intent extractor"]
-    I --> S["Strict proposal schema and explicit-intent binding"]
-    S --> E
-    E --> AN["Template answer quoting only engine figures"]
-    E --> RV["Separate owner review of supported action"]
-    RV --> WF["Fresh preflight and wallet handoff"]
-    AN --> NO["No preparation or authorization capability"]
+    Q["Your question or a scheduled check"] --> M["Chat agent or automation"]
+    M --> T["Typed tools: read evidence or draft a card"]
+    T --> E["Engines: every figure"]
+    E --> P["Policy: caps, reserve, calendar, protected assets, allowlists"]
+    P --> C["Card or proposal with hazard scan"]
+    C --> O["Owner reviews"]
+    O --> W["Owner's wallet signs"]
+    W --> J["Journal verifies the outcome"]
+    M -. "cannot" .-> X["Sign, change limits, add recipients or move funds"]
 ```
 
-### 6. Storage model
+## 10. User value and experience
 
-```mermaid
-erDiagram
-    WORKSPACES ||--o{ WALLET_ATTEMPTS : scopes
-    WORKSPACES ||--o{ POLICY_LEDGER : journals
-    WORKSPACES ||--o{ POLICY_BUDGETS : reserves
-    WORKSPACES ||--o{ PAYMENT_PLANS : owns
-    WALLET_ATTEMPTS ||--o{ WALLET_HASHES : claims
-    PAYMENT_PLANS ||--o{ DESTINATION_CLAIMS : proves
-    PAYMENT_PLANS ||--o{ PAYMENT_LOCKS : serializes
-    WORKSPACES {
-        text id PK
-        text payload "plan, obligations, policy, history, accounts"
-        int revision "CAS"
-    }
-    WALLET_ATTEMPTS {
-        text id PK
-        text session_id
-        text payload "preparation, state, timeline and evidence"
-    }
-    WALLET_HASHES {
-        text hash PK
-        text attempt_id
-    }
-    POLICY_LEDGER {
-        text operation_id PK
-        text session_id
-        text payload
-    }
-    POLICY_BUDGETS {
-        text id PK
-        text total "bigint decimal text"
-        text nonce
-    }
-    PAYMENT_PLANS {
-        text id PK
-        text session_id
-        text obligation_id
-        text payload "retained quote, phases, proof"
-    }
-    DESTINATION_CLAIMS {
-        text proof_id PK
-        text payment_id
-    }
-    PAYMENT_LOCKS {
-        text session_id
-        text obligation_id
-        text payment_id
-    }
-```
+| You do | You get |
+| --- | --- |
+| Connect wallets on any supported chain | One portfolio, wallet by wallet and in total, with what's usable now and by each date |
+| Add bills and set a reserve | The surplus that's safe to put to work, and warnings when a plan would break a date |
+| Ask in plain English | A card with the route, cost, amount received and policy checks, ready to sign |
+| Send a payment | The cheapest compliant source, exact amount delivered, proof of arrival |
+| Supply, borrow, stake or trade | The same rules applied every time; collateral off by default; costs known before you sign |
+| Turn on an automation | A morning brief, a weekly sweep proposal or an alert, without giving up control |
 
-### 7. Concrete revenue use case — illustrative future vault
+The app opens on **Portfolio**, with a notifications bell for steps that need you. The sidebar runs **Portfolio · Research · Markets · Swap · Earn · Borrow · Trade · Activity**, with **Send a payment**, **Scheduled payments** and **Risk & permissions** one click away. **Demo Mode** is a header switch that loads a fictional example workspace, with nothing signable.
 
-```mermaid
-flowchart LR
-    V["Reviewed strategy vault: planned"] --> P["100 USDC new realized profit: illustration"]
-    P --> H["High-water mark and loss recovery"]
-    H --> U["85 USDC user profit"]
-    H --> F["15 USDC proposed performance fee"]
-    F --> C["Disclosed curator and platform split"]
-    T["Premium risk, reporting and treasury API: planned"] --> R["Separate protocol revenue accounting"]
-    C --> R
-```
+## 11. Business model
+
+Proposed and not yet charged. No FlowVault fee is configured in this build.
+
+| Revenue module | How it works |
+| --- | --- |
+| **Strategy vault performance fees** | 15% performance / 0% management as the initial hypothesis, with high-water marks and loss recovery. The split between curator and platform is disclosed. |
+| **Premium risk and automation** | Portfolio risk, reporting and bounded automation for individuals and treasuries. |
+| **Execution services** | Disclosed execution and routing service fees, kept separate from provider costs. |
+| **Treasury, API and SDK distribution** | Partnerships and institutional reporting. |
 
 ```mermaid
 pie showData
-    title Proposed split of 100 USDC eligible new profit
+    title Illustration: 100 USDC of new profit above the high-water mark
     "User profit" : 85
-    "Performance fee hypothesis" : 15
+    "Performance fee (hypothesis)" : 15
 ```
 
-### 8. Roadmap and proof gates
+Fee revenue, user NAV, partner incentives and any future token rewards are accounted separately. No token appreciation or emissions are counted as revenue.
 
-```mermaid
-flowchart LR
-    B["Built: engines, guarded wallet paths, replays, assistant and Rust artifact"] --> F["Owner-funded supply to withdraw to Base or BNB proof"]
-    B --> D["Owner testnet policy deployment and rule demo"]
-    F --> H["Owner hosts demo and submits by Nov 14 23:59 UTC"]
-    D --> H
-    H --> K["Keep demo available through Nov 25: owner"]
-    K --> V["Planned: reviewed strategy vaults and premium services"]
-    V --> A["Planned: broader credit, automation, exchanges and cards"]
-    A --> S["Planned: evaluate flow signals on held-out data"]
+## 12. Technical significance
+
+- **NEAR Intents (1Click)** make "pay exactly X on chain Y from whatever I hold" a single quoted, refundable operation, with **exact output** so the recipient gets the precise amount. That turns a multi-protocol problem into a plan FlowVault can compare and verify.
+- **NEAR accounts and access keys** let the owner sign every step while a scoped, finite-allowance function-call key can be provisioned for a vault operator. Authority stays narrow and revocable.
+- **Rhea Lending on NEAR** is the native earn and credit venue: supply, withdraw, borrow, repay and collateral management with Pyth-mode health, all run in-app.
+- **NEP-141 and NEP-413** carry vault shares and the owner's signed mandate terms.
+- **Rust NEAR contracts** put the policy and the vault's accounting on-chain where they can be inspected.
+- **Bigint everywhere.** Amounts are integer base units end to end; floats are only for display.
+- **Cloudflare Workers and D1** give revision-checked workspaces, idempotent journals and a cron, in one deployable unit.
+
+## 13. Why this works
+
+- **For users:** fewer decisions, fewer transactions, no surprises. The rules you set once apply to every action.
+- **For curators:** a path from researched strategy to a monitored vault with disclosed performance-fee sharing.
+- **For protocols:** a distribution channel that routes policy-compliant capital to supported venues (Rhea, staking, NEAR Intents).
+- **For NEAR:** NEAR becomes where cross-chain capital is coordinated, not just a deposit destination.
+- **For FlowVault:** revenue from vault performance, premium automation and execution services, earned only by value delivered.
+
+## 14. Executive summary
+
+| | |
+| --- | --- |
+| **Product** | Policy-driven capital account: observe, configure, decide, execute, account |
+| **Core question answered** | "Can I pay X on chain Y by date Z without breaking my rules?" |
+| **Chains read** | NEAR, Ethereum, Base, Arbitrum, BNB, Polygon, Solana (plus more through Zerion when enabled) |
+| **Execution** | Owner-signed: Rhea, Ref, NEAR Intents, native/LiNEAR/rNEAR staking, Aave v3, LI.FI, Hyperliquid |
+| **Payments** | Exact-output NEAR Intents to Base, Arbitrum, BNB and Ethereum; "paid" needs destination proof |
+| **AI** | Ask FlowVault drafts cards from engine figures; Claude today, NEAR AI Cloud next |
+| **Safety** | Caps, reserve, calendar, protected assets, allowlists, revisions, hazard scan, fail-closed on unknowns |
+| **Contracts** | Policy (14 tests) and strategy vault (42 tests), built, not yet deployed |
+| **Tests** | 615 app tests; wallet-free `pitch-story` passes all 9 story beats |
+| **Custody** | None. The owner's wallet signs every step |
+| **Revenue** | Proposed: 15% performance fee with high-water mark, premium automation, execution services |
+
+## 15. Roadmap
+
+| Stage | Milestones |
+| --- | --- |
+| **Now (this build)** | Capital account, dated obligations, policy, payments, collect & send, Rhea earn/borrow, staking, swaps, markets, LI.FI trading, perps under mandate, Ask FlowVault, automations, monitoring, Demo Mode, policy and vault contracts |
+| **Next** | Hosted deployment; owner-funded runs of supply → withdraw → exact-output payout on video; move the chat to NEAR AI Cloud with attestation verification; deploy the policy contract and show an on-chain rule; USDC-paid gas through an ERC-7677 wallet |
+| **Then** | Deploy and audit the strategy vault; curator publishing flow; capital partner program; more venues and chains |
+| **Later** | Exchange account integrations, partner-issued card spending, treasury and API distribution |
+
+## 16. Try it / Get started
+
+**Hosted:** _link added at deployment._ Turn on **Demo Mode** in the header to explore with fictional data. No wallet needed.
+
+**Locally** (Node 22.13+ and npm):
+
+```sh
+npm ci
+npm run dev            # http://127.0.0.1:5173
+npm run pitch-story    # in a second terminal: drives the Demo story through the API and checks every figure
 ```
 
-## Licensing and submission boundary
+`pitch-story` never opens a wallet, requests a live quote, calls a paid model or changes your personal workspace.
 
-FlowVault source is **MIT** ([LICENSE](LICENSE)). Bundled chart library and example artwork keep their own notices in [NOTICE](NOTICE); npm dependencies keep theirs in their packages.
+### Demo Mode: do this, see this
 
-Git is initialized locally with **no remote and no commit**. Private local D1 state, environment files, credentials, reference clones and personal live captures are ignored. Publication, first commit, funded signing, deployment, X demo post and final submission remain owner actions. This README does not claim they happened.
+All accounts, prices and amounts in Demo Mode are fictional. Dates roll forward with today.
+
+| Do this | See this |
+| --- | --- |
+| Open **Portfolio** | Net worth **$35,198.18** across NEAR, EVM chains and Solana; cash now **$15,190** (USDC on NEAR, Base and Arbitrum); committed capital **$10,967.09**; withdrawable by each payment date **$22,690**; illustrative borrowing headroom **$54.54** against the example's LiNEAR/rNEAR |
+| Open **Scheduled payments** | A **$2,000** reserve plus four payments of **$9,550** = **$11,550** held back: studio rent 2,500 USDC on Base, rent to Aman 1,000 USDT on BNB, software 50 USDC on Arbitrum, payroll 6,000 USDC to aman.near |
+| In **Risk & permissions**, test a **6,000 USDC supply** | Refused by the **$5,000 per-action cap**; $1,250 of the $8,000 daily cap used, $6,750 left. Testing a draft changes nothing |
+| Look at **Plan to action** | **2,690 USDC** of surplus to supply to Rhea; the higher-rate seven-day vault is ruled out because it misses the first bill's exit window |
+| In **Borrow**, run the stress example | 2,000 of collateral at −90% → **200**; 70% cap → **140**; 80% liquidation threshold at 1.5 health → **106.67** of capacity. Read-only |
+| Ask **"can I pay 1,000 USDT on BNB by Nov 23 without touching my ETH"** | A source comparison with ETH and the reserve protected, using engine figures only |
+| Open **Replays** | All five outcomes (success, refunded, partial, failed, deadline passed) for supply, withdraw and pay, each labelled **SIMULATED** |
+
+## 17. Implementation evidence
+
+| Check | Result |
+| --- | --- |
+| `npm test` | **615 passed**, 0 failed (runs with no API keys set) |
+| `npm run typecheck` / `npm run build` | Pass |
+| `cargo test` on `contracts/vault` | **42 passed** |
+| `cargo test` on `contracts/policy` | **14 passed** |
+| `npm run pitch-story` | All 9 story beats pass against a running server |
+| `npm run scan:secrets` | gitleaks: no leaks in the working tree (a separate gitleaks scan of the full Git history is also clean) |
+
+**What each kind of evidence proves:**
+
+| Evidence | What it is | What it doesn't prove |
+| --- | --- | --- |
+| **Live reads** | Finalized NEAR, Rhea, staking, EVM and Solana reads, with freshness and coverage | Complete coverage of every chain, or a verified USD price for every asset |
+| **Owner execution paths** | Wallet-signed supply, withdraw, borrow, repay, stake, swap, pay and trade, each with a journal and outcome checks | A funded FlowVault track record; the owner signs each step |
+| **Dry quotes** | Live NEAR Intents quotes with no deposit address and no funds moved | A reserved route or realized fee |
+| **Demo Mode** | The same engines running on clearly labelled fictional data | Live holdings or returns |
+| **SIMULATED replays** | 15 disconnected outcome scenarios with synthetic values | Funded executions |
+| **Contracts** | Built, tested WASM for the policy and vault contracts | Deployment, custody or a security audit |
+
+## 18. Developer operations
+
+```sh
+npm test                    # unit and integration tests
+npm run typecheck
+npm run build
+npm run smoke               # needs the dev server; reads public mainnet data
+npm run pitch-story         # needs the dev server
+npm run validate:diagrams   # checks this README's Mermaid diagrams
+npm run scan:secrets        # needs gitleaks
+cargo test --locked --manifest-path contracts/policy/Cargo.toml
+cargo test --locked --manifest-path contracts/vault/Cargo.toml
+cargo build --locked --manifest-path contracts/policy/Cargo.toml --target wasm32-unknown-unknown --release
+```
+
+**Server settings** (all optional for Demo Mode):
+
+| Setting | Purpose |
+| --- | --- |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Ask FlowVault chat (Claude Haiku 5.5 by default). Without a key, a built-in parser handles swaps, balances and wallet lookups |
+| `NEARAI_API_KEY`, `NEARAI_MODEL`, `NEARAI_BASE_URL` | NEAR AI Cloud intent parser |
+| `ZERION_ENABLED`, `ZERION_API_KEY` | Whole-wallet EVM portfolio reads (off by default) |
+| `SOLANA_RPC_URL` | Custom Solana RPC |
+| `FLOWVAULT_AGENT_KEY_SECRET` | Seals Hyperliquid agent keys |
+| `FLOWVAULT_CUSTODY_SIGNERS` | Scoped signers for vault custody mandates |
+
+**Layout:** `app/` (UI and API routes) · `components/` · `lib/flowvault/` (engines, adapters, journals, chat) · `worker/` (Worker entry and cron) · `contracts/` (Rust NEAR contracts) · `db/` and `drizzle/` (D1 schema) · `tests/` · `docs/` (API contract, architecture, runbooks).
+
+**Further reading:** [Backend API](docs/BACKEND_API.md) · [Architecture](docs/ARCHITECTURE.md) · [Product requirements](docs/PRODUCT.md) · [Build status](docs/BUILD_STATUS.md) · [Owner runbook](docs/OWNER_RUNBOOK.md) · [Cloudflare deployment](docs/CLOUDFLARE_DEPLOY.md) · [Demo script](docs/DEMO_SCRIPT.md)
+
+## 19. Limitations and disclaimers
+
+- **No funded track record yet.** Every money-moving path is implemented and tested, and the owner's funded rehearsal is pending. FlowVault never signs, holds keys or moves funds on its own.
+- **Contracts aren't deployed or audited.** The policy and vault contracts are built and tested locally; pooled deposits need an independent security review first.
+- **AI provider.** Ask FlowVault currently sends what its tools read (for example balances, limits, scheduled payments or a quote) to Anthropic, and names what it shared. The move to NEAR AI Cloud is planned; TEE attestation and response signatures aren't verified yet.
+- **Cross-chain legs aren't atomic.** Each leg settles on its own chain; FlowVault shows where every leg's money is and how to recover it.
+- **Public settlement.** Payments use public routes, so a source deposit and its payout can be linked by amount and timing.
+- **Session model.** Local D1 sessions isolate development workspaces; they are not production authentication.
+- **Third-party dependencies.** Rates, routes, minimums and fees come from external venues and can change between quote and execution; FlowVault re-checks before every handoff and refuses when evidence is missing.
+- **Not financial advice.** Variable rates aren't returns, and Demo Mode figures are fictional.
+
+---
+
+FlowVault source is **MIT** ([LICENSE](LICENSE)). The chart library and example artwork keep their own notices in [NOTICE](NOTICE).
