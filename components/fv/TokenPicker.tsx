@@ -15,7 +15,7 @@ export function TokenPicker({ tokens, value, onChange, label, balances = {}, cov
   const [open, setOpen] = useState(false);
   return <>
     <button type="button" className="fv-token-select" aria-label={label} aria-haspopup="dialog" onClick={() => setOpen(true)}>
-      {value ? <><TokenIcon key={value.id} symbol={value.symbol} network={value.network} core={coreIdentity(value)} image={value.icon} size={32} /><span><strong>{value.symbol}</strong><small><NetworkLabel network={value.network} /></small></span></> : "Select token"}
+      {value ? <><TokenIcon key={value.id} symbol={value.symbol} network={value.network} core={coreIdentity(value)} image={value.icon} size={32} /><span><strong>{value.symbol}</strong><small>{netName(value.network)}</small></span></> : "Select token"}
       <ChevronDown size={17} />
     </button>
     {open && createPortal(<PickerDialog tokens={tokens} label={label} balances={balances} covered={covered ?? new Set()} current={value} choose={t => { onChange(t); setOpen(false); }} close={() => setOpen(false)} />, document.body)}
