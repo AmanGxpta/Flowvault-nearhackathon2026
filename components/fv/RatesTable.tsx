@@ -32,6 +32,9 @@ export function RatesTable({ mode, onUsdc, usdcNote }: { mode: "earn" | "borrow"
         <div className="fv-segment fv-segment-small">{(["all", "stable", "other"] as const).map(f => <button type="button" key={f} aria-pressed={filter === f} onClick={() => setFilter(f)}>{f === "all" ? "All" : f === "stable" ? "Stablecoins" : "Other"}</button>)}</div>
       </div>
     </div>
+    <p className="fv-rates-explainer">{mode === "earn"
+      ? <>Supplying lends your tokens into a shared pool on <strong>Rhea</strong>, the NEAR lending protocol formerly called Burrow. Borrowers pay interest into the pool, you earn the supply APY, and you can withdraw whenever the pool has free liquidity.</>
+      : <>Borrowing on <strong>Rhea</strong>, the NEAR lending protocol formerly called Burrow: add tokens as collateral, borrow against them and pay the borrow APY. If your collateral falls in value too far, part of it can be sold to repay the loan.</>}</p>
     <div className="fv-screener-table">
       <div className="fv-rate-row fv-screener-head"><span>Asset</span><span>{mode === "earn" ? "Supply APY" : "Borrow APY"}</span><span>Total supplied</span><span>Total borrowed</span><span>Utilization</span><span>{mode === "earn" ? "Borrow APY" : "Max LTV"}</span><span /></div>
       {!rows && !error && Array.from({ length: 6 }, (_, i) => <div key={i} className="fv-rate-row fv-screener-skeleton"><span /><span /><span /><span /><span /><span /><span /></div>)}
