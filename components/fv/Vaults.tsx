@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { VaultSnapshot } from "@/lib/flowvault/vault-contract";
 import { api, type Scope } from "./live";
 import { VaultActions, VaultOperations, type VaultOperation } from "./VaultActions";
+import { DemoVaultActions } from "./demo/DemoVault";
 
 type VaultEntry = VaultSnapshot | { contractId: string; error: string };
 interface Listing { id: string; stage: string; opportunity: { title: string }; updatedAt: string; deployment: { contractId: string } | null }
@@ -183,6 +184,7 @@ function Vault({ v, live, busy, unwatch, actions }: { v: VaultSnapshot; live: bo
                 </details>
               </>
             )}
+            {!live && !role && v.source === "example" ? <DemoVaultActions contractId={v.contractId} pps={Number(n.pps_e18) / 1e6} baseShares={Number(BigInt(h.sharesRaw) / 10n ** 12n) / 1e6} running={n.status === "running"} /> : null}
             {actions && h.account === actions.signer ? (
               <>
                 <VaultActions v={v} account={h.account} scope={actions.scope} policyAllowed={actions.policyAllowed} ops={actions.ops} changed={actions.changed} />

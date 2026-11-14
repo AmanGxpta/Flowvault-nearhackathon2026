@@ -93,3 +93,20 @@ test("portfolio in Demo Mode: seed rows move by this session's changes, new posi
   assert.ok(Math.abs(r.deltaUsd) < 1e-9);
   assert.equal(r.spendableDelta, 35);
 });
+
+test("vaults: deposit queues, settles into shares at the price, redeems after the notice and pays out USDC", async () => {
+  const { applyVaultDeposit, applyVaultSettle, applyVaultRedeem, applyVaultClaim, applyVaultCancel, VAULT_NOTICE_DEMO_MS } = await import("../lib/flowvault/demo-ledger.ts");
+  const t0 = 1_000_000, cid = "rhea-usdc.vaults.example";
+  let l = applyRhea(seedLedger(), M, "withdraw", USDC_ID, 1000); // 1,004 USDC in the wallet
+  l = applyVaultDeposit(l, cid, 1000, t0);
+  assert.equal(l.wallet[USDC_ID], 4);
+  assert.throws(() => applyVaultDeposit(l, cid, 10, t0), /4 USDC on your NEAR account/);
+  l = applyVaultSettle(l, cid, 100, 1.25, t0);
+  assert.equal(l.vaults![cid].shares, 800);
+  l = applyVaultRedeem(l, cid, 400, 0, t0);
+  assert.throws(() => applyVaultClaim(l, cid, 101, 1.25, t0 + 1000), /notice period/);
+  l = applyVaultClaim(l, cid, 101, 1.25, t0 + VAULT_NOTICE_DEMO_MS);
+  assert.equal(l.wallet[USDC_ID], 504);
+  l = applyVaultCancel(applyVaultDeposit(l, cid, 4, t0), cid, 102, t0);
+  assert.equal(l.wallet[USDC_ID], 504);
+});

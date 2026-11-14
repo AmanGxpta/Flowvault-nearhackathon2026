@@ -14,6 +14,9 @@ export const UNSTAKE_DEMO_MS = 45_000;
 
 export type RheaAction = "supply" | "withdraw" | "collateral_add" | "collateral_release" | "borrow" | "repay";
 export interface RheaPos { supplied: number; collateral: number; borrowed: number }
+export interface DemoVaultRequest { id: number; kind: "deposit" | "redemption"; amount: number; at: number; readyAt: number; status: "queued" | "done" | "cancelled" }
+/** Redemption notice in the demo (the example vault's real notice is days). */
+export const VAULT_NOTICE_DEMO_MS = 30_000;
 export interface DemoPerp { coin: string; side: "long" | "short"; size: number; entry: number; leverage: number; openedAt: number }
 export interface DemoLedger {
   v: 1;
@@ -23,6 +26,8 @@ export interface DemoLedger {
   /** Liquid staking shares, NEAR staked natively per validator pool, and unstakes waiting to be withdrawn. */
   staking: { linear: number; rnear: number; native?: Record<string, number>; unstaking: { venue: "linear" | "rnear" | "native"; near: number; readyAt: number; pool?: string }[] };
   perps: { margin: number; positions: DemoPerp[]; realized: number };
+  /** Strategy-vault activity this session, per vault: shares gained or redeemed, and open requests. */
+  vaults?: Record<string, { shares: number; requests: DemoVaultRequest[]; pps?: number }>;
   activity: { at: number; text: string }[];
 }
 /** What a market looks like right now (from the public Rhea read): USD price, volatility ratio 0–1, rates, liquidity. */
@@ -304,7 +309,65 @@ export function demoPortfolio<R extends PortfolioRow>(rows: R[], l: DemoLedger, 
   move("rnear-shares", "staking", "lst.rhealab.near", l.staking.rnear - seed.staking.rnear, "rNEAR");
   const nativeSum = (x: DemoLedger) => Object.values(x.staking.native ?? {}).reduce((a, b) => a + b, 0);
   move("native-staked", "staking", WNEAR_ID, nativeSum(l) - nativeSum(seed), "Validator");
+  // Strategy vaults: this session's shares (and open requests) at the last price seen, as a vault position.
+  for (const [cid, v] of Object.entries(l.vaults ?? {})) {
+    const pps = v.pps ?? 1, open = v.requests.filter((r) => r.status === "queued");
+    const usd = (v.shares + open.filter((r) => r.kind === "redemption").reduce((a, r) => a + r.amount, 0)) * pps + open.filter((r) => r.kind === "deposit").reduce((a, r) => a + r.amount, 0);
+    if (Math.abs(usd) < 0.005) continue;
+    deltaUsd += usd;
+    if (usd > 0) { const home = out.find((r) => r.id === "near-wallet") ?? {} as Partial<R>; out.push({ ...home, id: `demo:vault:${cid}`, kind: "supplied", symbol: "USDC", name: `Strategy vault · ${cid}`, qty: usd, usd, value: money(usd), venue: "Strategy vault", ownership: "owner", tag: "FICTIONAL", groupId: undefined, icon: undefined } as unknown as R); }
+  }
   const unstaking = l.staking.unstaking.reduce((s, u) => s + u.near, 0);
   move(null, "staking", WNEAR_ID, unstaking, "Unstaking");
   return { rows: out, deltaUsd, spendableDelta };
+}
+
+const vaultOf = (n: DemoLedger, cid: string) => { n.vaults = { ...(n.vaults ?? {}) }; return (n.vaults[cid] = n.vaults[cid] ? { ...n.vaults[cid], requests: n.vaults[cid].requests.map((r) => ({ ...r })) } : { shares: 0, requests: [] }); };
+const nextReq = (v: { requests: DemoVaultRequest[] }) => 100 + v.requests.length;
+/** Vault deposit: USDC leaves the wallet and waits in the queue (not invested yet) until settled into shares. */
+export function applyVaultDeposit(l: DemoLedger, cid: string, usdc: number, now = Date.now()): DemoLedger {
+  const n = clone(l), w = n.wallet[USDC_ID] ?? 0;
+  if (!(usdc > 0)) throw new Error("Enter an amount above zero.");
+  if (usdc > w + 1e-9) throw new Error(`You have ${fmt(w)} USDC on your NEAR account.`);
+  const v = vaultOf(n, cid);
+  v.requests.push({ id: nextReq(v), kind: "deposit", amount: round(usdc), at: now, readyAt: now, status: "queued" });
+  n.wallet[USDC_ID] = round(w - usdc);
+  n.activity.unshift({ at: now, text: `Deposited ${fmt(usdc)} USDC into ${cid} (queued until settled)` });
+  return n;
+}
+/** Settlement: a queued deposit becomes shares at the vault's price per share. */
+export function applyVaultSettle(l: DemoLedger, cid: string, id: number, pps: number, now = Date.now()): DemoLedger {
+  const n = clone(l), v = vaultOf(n, cid), r = v.requests.find((x) => x.id === id && x.kind === "deposit" && x.status === "queued");
+  if (!r) throw new Error("That deposit isn't waiting to be settled.");
+  const got = round(r.amount / pps);
+  v.shares = round(v.shares + got); v.pps = pps; r.status = "done";
+  n.activity.unshift({ at: now, text: `Settled ${fmt(r.amount)} USDC into ${fmt(got)} shares of ${cid}` });
+  return n;
+}
+/** Redemption: shares leave your balance and wait first-in, first-out until the notice ends. */
+export function applyVaultRedeem(l: DemoLedger, cid: string, shares: number, baseShares: number, now = Date.now()): DemoLedger {
+  const n = clone(l), v = vaultOf(n, cid), free = baseShares + v.shares;
+  if (!(shares > 0) || shares > free + 1e-9) throw new Error(`You have ${fmt(free)} shares to redeem.`);
+  v.shares = round(v.shares - shares);
+  v.requests.push({ id: nextReq(v), kind: "redemption", amount: round(shares), at: now, readyAt: now + VAULT_NOTICE_DEMO_MS, status: "queued" });
+  n.activity.unshift({ at: now, text: `Requested redemption of ${fmt(shares)} shares of ${cid}` });
+  return n;
+}
+/** Claim a redemption whose notice ended: shares are paid out in USDC at the price per share. */
+export function applyVaultClaim(l: DemoLedger, cid: string, id: number, pps: number, now = Date.now()): DemoLedger {
+  const n = clone(l), v = vaultOf(n, cid), r = v.requests.find((x) => x.id === id && x.kind === "redemption" && x.status === "queued");
+  if (!r) throw new Error("That redemption isn't open.");
+  if (r.readyAt > now) throw new Error("The notice period hasn't ended yet.");
+  const usdc = round(r.amount * pps);
+  n.wallet[USDC_ID] = round((n.wallet[USDC_ID] ?? 0) + usdc); v.pps = pps; r.status = "done";
+  n.activity.unshift({ at: now, text: `Claimed ${fmt(usdc)} USDC from ${cid}` });
+  return n;
+}
+export function applyVaultCancel(l: DemoLedger, cid: string, id: number, now = Date.now()): DemoLedger {
+  const n = clone(l), v = vaultOf(n, cid), r = v.requests.find((x) => x.id === id && x.status === "queued");
+  if (!r) throw new Error("That request isn't open.");
+  r.status = "cancelled";
+  if (r.kind === "deposit") n.wallet[USDC_ID] = round((n.wallet[USDC_ID] ?? 0) + r.amount); else v.shares = round(v.shares + r.amount);
+  n.activity.unshift({ at: now, text: `Cancelled ${r.kind} #${r.id} on ${cid}` });
+  return n;
 }
