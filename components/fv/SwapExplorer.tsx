@@ -1,4 +1,6 @@
 "use client";
+import { demoLedger, saveDemoLedger } from "./demo/ledger-store";
+import { applySwap } from "@/lib/flowvault/demo-ledger";
 import { useEffect, useState } from "react";
 import { ArrowDownUp, ArrowUpRight, RefreshCw, Settings2, Zap, Wallet } from "lucide-react";
 import { useTokenCatalog } from "./useTokenCatalog";
@@ -138,7 +140,7 @@ export function SwapExplorer({ owner: liveOwner, example, onManaged, onConnect, 
       </section>
       <section className="fv-panel fv-managed-swap-callout"><div><h3>Funding a payment?</h3><p>USDC → NEAR and approved sales keep FlowVault’s payment checks.</p></div><button type="button" className="fv-button" onClick={onManaged}>Managed funding <ArrowUpRight size={14} /></button></section>
     </div>
-    {review && example && from && to && chosen && <DemoSwapReview from={from} to={to} amount={amount} route={chosen} close={() => { setReview(false); setAmount(""); }} />}
+    {review && example && from && to && chosen && <DemoSwapReview from={from} to={to} amount={amount} route={chosen} close={() => { setReview(false); setAmount(""); }} onDone={(got) => saveDemoLedger(applySwap(demoLedger(), { id: from.id, symbol: from.symbol, amount: Number(amount) }, { id: to.id, symbol: to.symbol, amount: Number(got ?? chosen.output) }))} />}
     {review && !example && from && to && chosen && <SwapReview from={from} to={to} amount={amount} slippage={Number(slippage)} route={chosen.venue === "NEAR Intents" ? "intents" : "ref"} sender={sender} recipient={recipient}
       close={() => setReview(false)} onSettled={() => { void holdings.refresh(); onSettled?.(); setAmount(""); }} />}
   </div>;

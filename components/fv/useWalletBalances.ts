@@ -6,9 +6,12 @@ import { useNearHoldings } from "./useNearHoldings";
 import { api } from "./live";
 import { units, decimal } from "@/lib/flowvault/money";
 import { exampleWalletHoldings, EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
+import { ledgerKey } from "@/lib/flowvault/demo-ledger";
+import { demoLedger } from "./demo/ledger-store";
 
 const NATIVE: Record<string, string> = { eth: "ETH", base: "ETH", arb: "ETH", op: "ETH", bsc: "BNB", pol: "POL", avax: "AVAX", sol: "SOL", near: "NEAR", gnosis: "XDAI" };
-/** Demo Mode: the example workspace's fictional wallets as balances, matched to catalog tokens. Nothing is read. */
+/** Demo Mode: the example workspace's fictional wallets as balances, matched to catalog tokens. Nothing is read. The
+ * example NEAR account's balances come from the demo ledger, so Swap, Earn, Borrow and Stake agree as flows run. */
 function exampleBalances(tokens: SwapToken[]) {
   const balances: Record<string, Holding> = {}, addresses: Record<string, string> = { near: EXAMPLE_NEAR_ACCOUNT };
   for (const h of exampleWalletHoldings()) {
@@ -18,6 +21,15 @@ function exampleBalances(tokens: SwapToken[]) {
     let raw: bigint; try { raw = units(h.amount, t.decimals); } catch { continue; }
     balances[t.id] = { raw: raw.toString(), amount: decimal(raw, t.decimals), usd: h.usd, account: h.account, largestRaw: raw.toString() };
     addresses[h.network] ??= h.account;
+  }
+  let ledger: ReturnType<typeof demoLedger> | null = null;
+  try { ledger = typeof window === "undefined" ? null : demoLedger(); } catch { ledger = null; }
+  for (const t of ledger ? tokens.filter((x) => x.network === "near") : []) {
+    const key = ledgerKey(t.id), amount = key ? ledger!.wallet[key] : undefined;
+    if (amount === undefined) continue;
+    let raw: bigint; try { raw = units(String(Math.max(0, Math.round(amount * 1e6) / 1e6)), t.decimals); } catch { continue; }
+    const before = balances[t.id], unit = before && Number(before.amount) > 0 ? Number(before.usd) / Number(before.amount) : null;
+    balances[t.id] = { raw: raw.toString(), amount: decimal(raw, t.decimals), usd: unit !== null ? (unit * amount).toFixed(2) : t.price ? (Number(t.price) * amount).toFixed(2) : null, account: EXAMPLE_NEAR_ACCOUNT, largestRaw: raw.toString() };
   }
   return { balances, addresses, covered: new Set(Object.keys(addresses)), state: "ready" as const, loaded: tokens.length > 0, refresh: async () => {} };
 }
@@ -102,7 +114,8 @@ export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enab
     window.addEventListener("focus", bump);
     return () => { clearInterval(timer); window.removeEventListener("focus", bump); };
   }, [enabled]);
-  if (example) return exampleBalances(tokens);
+  useEffect(() => { if (!example) return; const bump = () => setTick(x => x + 1); window.addEventListener("fv:demo-ledger", bump); return () => window.removeEventListener("fv:demo-ledger", bump); }, [example]);
+  if (example) return exampleBalances(tokens); // re-read on every render; the ledger event below re-renders
   const nearBalances: Record<string, Holding> = {};
   for (const [id, h] of Object.entries(near.balances)) nearBalances[id] = { ...h, account: nearAccount };
   const covered = new Set<string>([...evm.covered, ...(near.state === "ready" && nearAccount ? ["near"] : [])]);

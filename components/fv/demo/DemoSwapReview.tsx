@@ -14,13 +14,13 @@ import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 
 const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", sol: "Solana", bsc: "BNB Chain", pol: "Polygon" };
 
-export function DemoSwapReview({ from, to, amount, route, close, onDone }: { from: SwapToken; to: SwapToken; amount: string; route: { venue: string; output: string; minimum: string; eta: number | null }; close: () => void; onDone?: () => void }) {
+export function DemoSwapReview({ from, to, amount, route, close, onDone }: { from: SwapToken; to: SwapToken; amount: string; route: { venue: string; output: string; minimum: string; eta: number | null }; close: () => void; onDone?: (delivered: string | null) => void }) {
   const [at, setAt] = useState<number | null>(null), [now, setNow] = useState(() => Date.now()), [id] = useState(() => "demo-swap-" + crypto.randomUUID());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 400); return () => clearInterval(t); }, []);
   const outRaw = (() => { try { return units(route.output, to.decimals).toString(); } catch { return null; } })();
   const a = simAttempt(id, at, now, { settleMs: route.venue.startsWith("Rhea") ? 3500 : 8000, deliveredRaw: simDelivered(outRaw) });
   const delivered = a?.state === "confirmed" && a.deliveredRaw ? decimal(BigInt(a.deliveredRaw), to.decimals) : null;
-  useEffect(() => { if (delivered) onDone?.(); }, [delivered]); // eslint-disable-line react-hooks/exhaustive-deps -- once, when it lands
+  useEffect(() => { if (delivered) onDone?.(delivered); }, [delivered]); // eslint-disable-line react-hooks/exhaustive-deps -- once, when it lands
   const busy = a?.state === "awaiting_wallet" || a?.state === "submitted";
   const cross = from.network !== to.network;
   return <ReviewFrame busy={busy} close={close} className={"fv-dialog fv-swap-confirm"} label={`Example swap ${from.symbol} to ${to.symbol}`}>

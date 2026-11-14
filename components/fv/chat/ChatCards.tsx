@@ -1,4 +1,7 @@
 "use client";
+import { DemoSwapReview } from "../demo/DemoSwapReview";
+import { demoLedger, saveDemoLedger } from "../demo/ledger-store";
+import { applySwap } from "@/lib/flowvault/demo-ledger";
 // Ask FlowVault cards: a typed registry (no model-generated markup). Executable cards reuse the same controllers and
 // review components as the screens (swap quoting, SwapReview, RheaSheet, TradePanel, plans), rendered inline, so
 // the operation stays in the conversation. A card's lifecycle comes from the journal attempt or plan it is linked
@@ -118,7 +121,7 @@ function Outcome({ card, env, title }: { card: Card; env: CardEnv; title: string
 function SwapChatCard({ card, env }: { card: Card<"swap">; env: CardEnv }) {
   const p = card.params;
   const { tokens, error: catalogError } = useTokenCatalog();
-  const holdings = useWalletBalances(env.owner, tokens, !env.example);
+  const holdings = useWalletBalances(env.owner, tokens, true, env.example);
   const [fromId, setFrom] = useState(p.from), [toId, setTo] = useState(p.to);
   const [amount, setAmount] = useState(p.amount ?? ""), [slippage, setSlippage] = useState(String(p.slippageBps));
   const [review, setReview] = useState(false), [settings, setSettings] = useState(false);
@@ -171,7 +174,7 @@ function SwapChatCard({ card, env }: { card: Card<"swap">; env: CardEnv }) {
     : busy && !chosen ? { label: "Comparing routes…", disabled: true, spin: true }
     : !chosen ? { label: error ? "No route for this amount" : "No route yet", disabled: true }
     : !inApp ? { label: `Continue at ${chosen.venue}`, href: chosen.url }
-    : env.example ? { label: "Example workspace: nothing can be signed", disabled: true }
+    : env.example ? (over ? { label: `Not enough ${from.symbol} in the example`, disabled: true } : { label: `Review swap via ${chosen.venue} · example`, onClick: () => setReview(true) })
     : !env.owner ? { label: "Connect wallet to continue", onClick: env.connect }
     : over ? { label: `Not enough ${from.symbol}`, disabled: true }
     : { label: `Review swap via ${chosen.venue}`, onClick: () => setReview(true) };
@@ -204,7 +207,8 @@ function SwapChatCard({ card, env }: { card: Card<"swap">; env: CardEnv }) {
       {"href" in cta && cta.href ? <a className="fv-button fv-primary fv-wide-button" href={cta.href} target="_blank" rel="noopener noreferrer">{cta.label} <ArrowUpRight size={15} /></a>
         : <button type="button" className="fv-button fv-primary fv-wide-button" disabled={"disabled" in cta && cta.disabled} onClick={"onClick" in cta ? cta.onClick : undefined}>{"spin" in cta && cta.spin && <RefreshCw size={15} className="fv-spin" />}{cta.label}{"onClick" in cta && cta.onClick && env.owner ? <Zap size={15} /> : null}</button>}
     </>}
-    {review && from && to && chosen && <SwapReview inline from={from} to={to} amount={amount} slippage={Number(slippage)} route={chosen.venue === "NEAR Intents" ? "intents" : "ref"} sender={sender} recipient={recipient}
+    {review && env.example && from && to && chosen && <DemoSwapReview from={from} to={to} amount={amount} route={chosen} close={() => setReview(false)} onDone={(got) => saveDemoLedger(applySwap(demoLedger(), { id: from.id, symbol: from.symbol, amount: Number(amount) }, { id: to.id, symbol: to.symbol, amount: Number(got ?? chosen.output) }))} />}
+    {review && !env.example && from && to && chosen && <SwapReview inline from={from} to={to} amount={amount} slippage={Number(slippage)} route={chosen.venue === "NEAR Intents" ? "intents" : "ref"} sender={sender} recipient={recipient}
       close={() => { setReview(false); void env.refresh(); }} onSettled={() => { void holdings.refresh(); env.onSettled(); }}
       onAttempt={(a) => void env.link(card, { attemptId: a.id }, { ...current, amountUsd: current.amount === p.amount ? p.amountUsd : null, priceUsed: current.amount === p.amount ? p.priceUsed : null })} />}
   </div>;
@@ -230,7 +234,7 @@ function LendChatCard({ card, env }: { card: Card<"lend">; env: CardEnv }) {
       draftKey={card.id + ":" + assistantVersion} close={() => void env.refresh()} onSettled={env.onSettled}
       onDraft={(d) => { if (d.action !== p.action || (d.amount || null) !== p.amount) void env.edit(card, { action: d.action, amount: d.amount && /^\d+(\.\d+)?$/.test(d.amount) ? d.amount : null }); }}
       onAttempt={(a) => void env.link(card, { attemptId: a.id })}
-      disabledReason={env.example ? "Example workspace: nothing can be signed. Switch to Personal to use Rhea." : !env.owner ? "Connect your NEAR wallet to review this." : null}
+      disabledReason={env.example ? null : !env.owner ? "Connect your NEAR wallet to review this." : null}
       fund={p.action === "supply" ? { owner: env.owner, example: env.example, connect: env.connect, onFlow: (id) => { const u = new URL(window.location.href); u.searchParams.set("tab", "supply"); u.searchParams.set("sflow", id); history.replaceState(null, "", u); env.navigate("earn"); } } : undefined} />
   </div>;
 }
@@ -241,7 +245,7 @@ function TradeChatCard({ card, env }: { card: Card<"trade">; env: CardEnv }) {
   const p = card.params;
   if (locked(card)) return <div className="fv-chat-card"><Head title={`Trade ${p.symbol}`} card={card} /><Outcome card={card} env={env} title="Trade" /></div>;
   return <div className="fv-chat-card"><Head title={`Trade ${p.symbol}`} card={card}><small className="fv-chat-mono">{net(p.chain)} · {p.address.slice(0, 6)}…{p.address.slice(-4)}</small></Head>
-    {env.example ? <p className="fv-notice">Example workspace: nothing can be signed.</p> : <TradePanel inline chain={p.chain} address={p.address} symbol={p.symbol} onAttempt={(a) => void env.link(card, { attemptId: a.id })} />}
+    {env.example ? <p className="fv-demo-note">Example workspace: token trades run from your own wallets. To see one, swap into {p.symbol} on the Swap page, where swaps play as a simulation.</p> : <TradePanel inline chain={p.chain} address={p.address} symbol={p.symbol} onAttempt={(a) => void env.link(card, { attemptId: a.id })} />}
   </div>;
 }
 

@@ -200,3 +200,14 @@ export function demoLendingSnapshot(l: DemoLedger, m: Markets, rows: { token: st
     reasons: [] as string[],
   };
 }
+
+/** Swap-catalog id ↔ ledger key for the example NEAR account (native NEAR is held as wrap.near). */
+export const ledgerKey = (catalogId: string) => (catalogId === "near:native" ? WNEAR_ID : catalogId.startsWith("near:") ? catalogId.slice(5) : null);
+/** A demo swap that touches the NEAR account moves the ledger too: what was paid leaves, what was delivered arrives. */
+export function applySwap(l: DemoLedger, from: { id: string; symbol: string; amount: number }, to: { id: string; symbol: string; amount: number }, now = Date.now()): DemoLedger {
+  const n = clone(l), a = ledgerKey(from.id), b = ledgerKey(to.id);
+  if (a) n.wallet[a] = round(Math.max(0, (n.wallet[a] ?? 0) - from.amount));
+  if (b) n.wallet[b] = round((n.wallet[b] ?? 0) + to.amount);
+  n.activity.unshift({ at: now, text: `Swapped ${fmt(from.amount)} ${from.symbol} for ${fmt(to.amount)} ${to.symbol}` });
+  return n;
+}
