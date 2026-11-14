@@ -73,3 +73,24 @@ export async function chatUpdate(sessionId: string, id: string, change: (c: Chat
   }
   throw new Error("This conversation is being updated elsewhere. Try again.");
 }
+
+export interface ChatSummary { id: string; title: string; updatedAt: string; messages: number }
+/** This workspace's conversations, newest first, optionally only those whose messages mention `q`. */
+export async function chatList(sessionId: string, q?: string, limit = 50): Promise<ChatSummary[]> {
+  const rows = await (await db()).prepare("SELECT payload FROM assistant_chats WHERE session_id=? ORDER BY updated_at DESC LIMIT ?").bind(sessionId, limit).all<{ payload: string }>();
+  const needle = q?.trim().toLowerCase();
+  const out: ChatSummary[] = [];
+  for (const r of rows.results ?? []) {
+    const c = JSON.parse(r.payload) as Chat;
+    if (!c.messages.length) continue;
+    if (needle && !c.messages.some((m) => m.text.toLowerCase().includes(needle))) continue;
+    const first = c.messages.find((m) => m.role === "user")?.text ?? "Conversation";
+    out.push({ id: c.id, title: first.replace(/\s+/g, " ").slice(0, 80), updatedAt: c.updatedAt, messages: c.messages.length });
+  }
+  return out;
+}
+/** Questions this workspace has asked, across all of its conversations (the no-wallet allowance). */
+export async function chatQuestionCount(sessionId: string) {
+  const rows = await (await db()).prepare("SELECT payload FROM assistant_chats WHERE session_id=? ORDER BY updated_at DESC LIMIT 50").bind(sessionId).all<{ payload: string }>();
+  return (rows.results ?? []).reduce((n, r) => n + (JSON.parse(r.payload) as Chat).messages.filter((m) => m.role === "user").length, 0);
+}

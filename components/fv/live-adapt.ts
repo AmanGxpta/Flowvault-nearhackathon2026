@@ -390,6 +390,8 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   const nLive = acctWallets.length;
   const offline = reg.filter((a) => !live.has(a.id)).length;
   out.acctWallets = acctWallets;
+  /** A wallet is connected in this browser right now (Ask FlowVault allows one question without one). */
+  out.walletLive = nLive > 0;
   out.acctConnectOnly = nLive === 0 && proof?.state !== "signing";
   const first = acctWallets[0];
   out.acctLabel = !nLive ? (proof?.state === "signing" ? "Confirm in wallet…" : "Connect wallet") : first.title + (nLive > 1 ? " +" + (nLive - 1) : "");

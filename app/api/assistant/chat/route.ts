@@ -1,13 +1,15 @@
 // Ask FlowVault conversation API. GET loads this workspace's conversation (cards reconciled with the journals).
 // POST op=send streams one assistant turn as NDJSON; op=edit applies the owner's change to a card; op=link ties a
 // card to the journal attempt or plan the owner started from it (verified to belong to this session); op=spawn
-// adds an owner-made card (e.g. Buy from a researched wallet); op=new starts a fresh conversation.
+// adds an owner-made card (e.g. Buy from a researched wallet); op=new starts a fresh conversation; op=list returns
+// this workspace's conversations (optionally searched). A send with `replaces` edits an earlier question: the turn
+// restarts from there. Without a connected wallet a workspace gets one question; the server enforces it.
 // The session decides ownership; nothing the client or the model sends is trusted for it.
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod/v4";
 import { env } from "cloudflare:workers";
 import { session, mutation, json, failure, type SessionInfo } from "@/lib/flowvault/store";
-import { chatLatest, chatGet, chatCreate, chatSave, chatUpdate, type Chat, type StoredMessage } from "@/lib/flowvault/chat-store";
+import { chatLatest, chatGet, chatCreate, chatSave, chatUpdate, chatList, chatQuestionCount, type Chat, type StoredMessage } from "@/lib/flowvault/chat-store";
 import { runChat, fallbackTurn, suggestionsFor, CHAT_DEFAULT_MODEL, type ChatEvent, type ChatClient } from "@/lib/flowvault/chat-agent";
 import { liveReads } from "@/lib/flowvault/chat-reads";
 import { editCard, newCard, PARAMS, CARD_KINDS, HANDED_OFF, type Card } from "@/lib/flowvault/chat-cards";
@@ -60,8 +62,22 @@ function ownAddresses(s: SessionInfo) {
   const evm = (s.workspace.accounts ?? []).find((a) => a.chain === "evm" && proven(a))?.address.toLowerCase();
   return { ...(s.workspace.accountId ? { near: s.workspace.accountId } : {}), ...(evm ? { eth: evm, base: evm, arb: evm } : {}) };
 }
-function view(s: SessionInfo, chat: Chat) {
-  return { addresses: ownAddresses(s), chat: { id: chat.id, messages: chat.messages, cards: chat.cards, pending: !!chat.pending && Date.now() - chat.pending.at < TURN_TIMEOUT_MS }, scope: s.slot, account: s.account, example: s.workspace.mode === "demo", ai: { available: !!setting("ANTHROPIC_API_KEY"), model: modelName() } };
+/** Questions a workspace with no connected wallet may ask before it has to connect one. */
+const GUEST_QUESTIONS = 1;
+/** A wallet is connected: the example workspace, a main NEAR account, or any proven wallet. */
+const connected = (s: SessionInfo) => s.workspace.mode === "demo" || !!s.workspace.accountId || (s.workspace.accounts ?? []).some(proven);
+/** `connected` is what the server can verify (a proven wallet); the panel also asks for a wallet that is connected
+ *  in the browser right now, so it gets the count either way. */
+async function gate(s: SessionInfo) {
+  const asked = s.workspace.mode === "demo" ? 0 : await chatQuestionCount(s.id);
+  return { connected: connected(s), asked, allowance: GUEST_QUESTIONS, questionsLeft: connected(s) ? null : Math.max(0, GUEST_QUESTIONS - asked) };
+}
+/** An earlier question can be edited only while nothing after it was handed to a journal (a wallet or a plan). */
+function editable(chat: Chat, index: number) {
+  return chat.messages.slice(index).every((m) => m.cardIds.every((id) => !chat.cards[id]?.link));
+}
+async function view(s: SessionInfo, chat: Chat) {
+  return { gate: await gate(s), addresses: ownAddresses(s), chat: { id: chat.id, messages: chat.messages, cards: chat.cards, pending: !!chat.pending && Date.now() - chat.pending.at < TURN_TIMEOUT_MS }, scope: s.slot, account: s.account, example: s.workspace.mode === "demo", ai: { available: !!setting("ANTHROPIC_API_KEY"), model: modelName() } };
 }
 
 export async function GET(r: Request) {
@@ -72,24 +88,32 @@ export async function GET(r: Request) {
       const rev = await chatSave(s.id, cur.chat, cur.revision);
       if (rev === null) cur = (await chatGet(s.id, cur.chat.id))!;
     }
-    return json(view(s, cur.chat), s.cookie);
+    return json(await view(s, cur.chat), s.cookie);
   } catch (e) {
     return failure(e);
   }
 }
 
-const sendSchema = z.object({ op: z.literal("send"), chatId: z.string().uuid().optional(), clientId: z.string().uuid(), text: z.string().trim().min(1).max(2000) }).strict();
+const sendSchema = z.object({ op: z.literal("send"), chatId: z.string().uuid().optional(), clientId: z.string().uuid(), text: z.string().trim().min(1).max(2000), /** The earlier question this one replaces (an edit). */ replaces: z.string().uuid().optional() }).strict();
 const editSchema = z.object({ op: z.literal("edit"), chatId: z.string().uuid(), cardId: z.string().uuid(), version: z.number().int().positive(), patch: z.record(z.string(), z.unknown()) }).strict();
 const linkSchema = z.object({ op: z.literal("link"), chatId: z.string().uuid(), cardId: z.string().uuid(), attemptId: z.string().uuid().optional(), planId: z.string().min(8).max(100).optional(), /** The parameters the review was prepared from; applied with the link in one write. */ params: z.record(z.string(), z.unknown()).optional() }).strict();
 const spawnSchema = z.object({ op: z.literal("spawn"), chatId: z.string().uuid(), kind: z.enum(CARD_KINDS), params: z.record(z.string(), z.unknown()), note: z.string().max(200).optional() }).strict();
 const newSchema = z.object({ op: z.literal("new") }).strict();
+const listSchema = z.object({ op: z.literal("list"), q: z.string().max(200).optional() }).strict();
 
 export async function POST(r: Request) {
   try {
     mutation(r);
     const body = await r.json() as { op?: string };
     const s = await session(r);
-    if (body.op === "new") { newSchema.parse(body); const cur = await chatCreate(s.id, s.slot, s.account); return json(view(s, cur.chat), s.cookie); }
+    if (body.op === "list") { const b = listSchema.parse(body); return json({ chats: await chatList(s.id, b.q) }, s.cookie); }
+    if (body.op === "new") {
+      newSchema.parse(body);
+      // Reuse an empty conversation rather than piling up blank ones.
+      const latest = await chatLatest(s.id);
+      const cur = latest && !latest.chat.messages.length && latest.chat.slot === s.slot && latest.chat.account === s.account ? latest : await chatCreate(s.id, s.slot, s.account);
+      return json(await view(s, cur.chat), s.cookie);
+    }
     if (body.op === "edit") {
       const b = editSchema.parse(body);
       await syncCard(s, b.chatId, b.cardId);
@@ -102,7 +126,7 @@ export async function POST(r: Request) {
         c.cards[updated.id] = updated;
         if (created) { c.cards[created.id] = created; c.messages.push({ id: crypto.randomUUID(), role: "assistant", text: "That one was already sent to your wallet, so here is a new card with your change.", cardIds: [created.id], createdAt: new Date().toISOString(), status: "complete", provider: { model: null, usedModel: false } }); }
       });
-      return json(view(s, chat), s.cookie);
+      return json(await view(s, chat), s.cookie);
     }
     if (body.op === "link") {
       const b = linkSchema.parse(body);
@@ -127,7 +151,7 @@ export async function POST(r: Request) {
         if (card.link && (card.link.attemptId !== b.attemptId || card.link.planId !== b.planId)) card.history = [...card.history, { version: card.version, params: card.params, at: card.link.at, by: card.by, link: card.link }].slice(-10);
         card.link = { ...(b.attemptId ? { attemptId: b.attemptId } : { planId: b.planId }), state, at: new Date().toISOString() };
       });
-      return json(view(s, chat), s.cookie);
+      return json(await view(s, chat), s.cookie);
     }
     if (body.op === "spawn") {
       const b = spawnSchema.parse(body);
@@ -138,12 +162,12 @@ export async function POST(r: Request) {
         c.cards[card.id] = card;
         c.messages.push({ id: crypto.randomUUID(), role: "assistant", text: "", cardIds: [card.id], createdAt: card.createdAt, status: "complete", provider: { model: null, usedModel: false } });
       });
-      return json(view(s, chat), s.cookie);
+      return json(await view(s, chat), s.cookie);
     }
     return send(r, s, sendSchema.parse(body));
   } catch (e) {
     const status = (e as { status?: number }).status;
-    if (status === 409) return json({ error: (e as Error).message }, undefined, 409);
+    if (status === 409 || status === 403) return json({ error: (e as Error).message, ...((e as { code?: string }).code ? { code: (e as { code?: string }).code } : {}) }, undefined, status);
     return failure(e);
   }
 }
@@ -160,6 +184,21 @@ async function send(r: Request, s: SessionInfo, b: z.infer<typeof sendSchema>) {
     return ndjson([{ type: "replay", chatId: chat.id, user: seen, message: reply ?? null, cards: chat.cards }]);
   }
   if (chat.pending && Date.now() - chat.pending.at < TURN_TIMEOUT_MS) throw new Error("Still answering your previous message. Wait for it or stop it first.");
+  // An edit restarts the conversation from the edited question; it never counts as another guest question.
+  if (b.replaces) {
+    const at = chat.messages.findIndex((m) => m.id === b.replaces && m.role === "user");
+    if (at < 0) throw new Error("That message is no longer in this conversation.");
+    // Without a wallet, a question can be sent again only when it got no answer (an error or a stop), never edited
+    // into a new one: that would be a second question.
+    const reply = chat.messages.find((m) => m.replyTo === b.replaces);
+    if (!connected(s) && (reply?.status === "complete" || chat.messages[at].text !== b.text)) throw Object.assign(new Error("Connect a wallet to keep chatting with FlowVault."), { status: 403, code: "wallet_required" });
+    if (!editable(chat, at)) throw Object.assign(new Error("Something after this message was already sent to your wallet or a plan, so it can't be edited. Ask a new question instead."), { status: 409 });
+    chat.messages = chat.messages.slice(0, at);
+    const keep = new Set(chat.messages.flatMap((m) => m.cardIds));
+    for (const [id, c] of Object.entries(chat.cards)) if (!keep.has(id) && !c.link) delete chat.cards[id];
+  } else if (!connected(s) && await chatQuestionCount(s.id) >= GUEST_QUESTIONS) {
+    throw Object.assign(new Error("Connect a wallet to keep chatting with FlowVault."), { status: 403, code: "wallet_required" });
+  }
   const user: StoredMessage = { id: crypto.randomUUID(), role: "user", text: b.text, cardIds: [], clientId: b.clientId, createdAt: new Date().toISOString() };
   const history = chat.messages.filter((m) => m.status !== "error" || m.role === "user").map((m) => ({ role: m.role, text: m.text, cardIds: m.cardIds }));
   chat.messages.push(user);

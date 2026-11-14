@@ -36,7 +36,7 @@ export function Shell({ v }: { v: any }) {
       <a href="#fv-main" className="fv-skip">
         Skip to content
       </a>
-      <div className="fv-workspace"
+      <div className={"fv-workspace" + (v.asstOpen ? " fv-asst-docked" : "")}
         style={{
           display: "flex",
           flexDirection: v.shellDir,
@@ -630,7 +630,7 @@ export function Shell({ v }: { v: any }) {
                 cursor: "pointer",
                 whiteSpace: "nowrap",
               }}
-              className="fvh4"
+              className="fvh4 fv-ask-trigger"
             >
               <span style={{ color: "var(--fvc-C9E86B)" }}>✦</span>Ask FlowVault
             </button>
