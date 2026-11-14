@@ -8,7 +8,8 @@ import type { HazardCheck } from "@/lib/flowvault/policy";
 import { ReviewFrame } from "./ReviewFrame";
 import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw, ArrowRight, Wallet, ChevronDown } from "lucide-react";
 import { TokenIcon } from "./AssetIdentity";
-import { api } from "./live";
+import { api, getScope } from "./live";
+import { DemoTradeReview, demoTradeOptions, demoTradeQuote } from "./demo/DemoTrade";
 import { fmtAmount, fmtUsd } from "./swap-format";
 import { DS_CHAINS, SOLANA_ID } from "@/lib/flowvault/trade-lifi";
 import { useMultiWallets, evmSessionFor, sendTradeEvm, waitEvmReceipt, type WalletSession } from "@/lib/flowvault/wallets";
@@ -54,10 +55,23 @@ function PayWith({ options, pick, onPick }: { options: Option[] | null; pick: nu
 }
 const best = (o?: Option) => o?.balances.slice().sort((a, b) => Number(b.amount) - Number(a.amount))[0];
 
-export function TradePanel({ chain, address, symbol, icon, inline, onAttempt }: { chain: string; address: string; symbol: string; icon?: string | null; inline?: boolean; onAttempt?: (a: WalletAttempt) => void }) {
+export function TradePanel({ chain, address, symbol, icon, inline, onAttempt, priceUsd }: { chain: string; address: string; symbol: string; icon?: string | null; inline?: boolean; onAttempt?: (a: WalletAttempt) => void; priceUsd?: string | number | null }) {
   const chainId = DS_CHAINS[chain];
   const { sessions } = useMultiWallets();
-  const evmWallets = sessions.filter(s => s.chain === "evm").map(s => s.address), solWallets = sessions.filter(s => s.chain === "solana").map(s => s.address);
+  // Demo Mode: the example's EVM and Solana wallets pay, quotes are estimates at the token's live price.
+  const [example] = useState(() => getScope() === "example");
+  const demoOpts = example && chainId ? demoTradeOptions(chainId === SOLANA_ID) : null;
+  // Demo Mode without a price from the page (Ask FlowVault's card): read the token's live pool price.
+  const [readPrice, setReadPrice] = useState<number | null>(null);
+  useEffect(() => {
+    if (!example || Number(priceUsd) > 0) return;
+    let live = true;
+    fetch("/api/discover?feed=watch&ids=" + encodeURIComponent(chain + ":" + address)).then((r) => r.json() as Promise<{ rows?: { priceUsd?: string | null }[] }>).then((b) => { const v = Number(b.rows?.[0]?.priceUsd); if (live && v > 0) setReadPrice(v); }).catch(() => {});
+    return () => { live = false; };
+  }, [example, priceUsd, chain, address]);
+  const tokenPrice = Number(priceUsd) > 0 ? Number(priceUsd) : readPrice;
+  const evmWallets = example ? [...new Set(demoTradeOptions(false).map(o => o.balances[0].address))] : sessions.filter(s => s.chain === "evm").map(s => s.address);
+  const solWallets = example ? [...new Set(demoTradeOptions(true).map(o => o.balances[0].address))] : sessions.filter(s => s.chain === "solana").map(s => s.address);
   const walletKey = [...evmWallets, ...solWallets].join(",");
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [options, setOptions] = useState<Option[] | null>(null), [optError, setOptError] = useState("");
@@ -68,6 +82,7 @@ export function TradePanel({ chain, address, symbol, icon, inline, onAttempt }: 
 
   useEffect(() => {
     if (!chainId) return;
+    if (example) { const t = setTimeout(() => setOptions(demoTradeOptions(chainId === SOLANA_ID)), 0); return () => clearTimeout(t); }
     const evm = walletKey ? evmWallets : [], solana = walletKey ? solWallets : [];
     const t = setTimeout(() => api("/api/trade", { op: "options", chainId, evm, solana }).then((r: { options: Option[] }) => { setOptions(r.options); setOptError(""); }).catch(e => setOptError((e as Error).message)), 0);
     return () => clearTimeout(t);
@@ -95,11 +110,23 @@ export function TradePanel({ chain, address, symbol, icon, inline, onAttempt }: 
   }, []);
   useEffect(() => {
     if (!body) { const t = setTimeout(() => { setPreview(null); setPvError(""); }, 0); return () => clearTimeout(t); }
+    if (example) {
+      const t = setTimeout(() => {
+        const o = demoOpts?.[pick], price = Number(tokenPrice);
+        if (!o || !(price > 0)) { setPreview(null); setPvError(price > 0 ? "" : "Reading the token's price…"); return; }
+        const q = demoTradeQuote({ side, amount: Number(amount), payUnit: o.unit, tokenPrice: price, slippageBps: slippage, payBalance: Number(o.balances[0].amount), heldToken: 0 });
+        const [fromS, toS] = side === "buy" ? [o.symbol, symbol] : [symbol, o.symbol];
+        const here = demoOpts?.find((x) => x.chainId === chainId)?.chain ?? chain.charAt(0).toUpperCase() + chain.slice(1);
+        setPreview({ tool: "LI.FI · example estimate", output: String(q.output), minimum: String(q.minimum), fromUsd: String(q.fromUsd), toUsd: String(q.toUsd), gasUsd: chainId === 1 ? "1.20" : "0.03", fees: [{ name: "LI.FI fee", usd: String(q.feeUsd), included: true }], durationSec: o.chainId === chainId ? 20 : 90, from: { symbol: fromS }, to: { symbol: toS }, fromChain: side === "buy" ? o.chain : here, toChain: side === "buy" ? here : o.chain, balance: side === "buy" ? o.balances[0].amount : "0", enough: q.enough } as unknown as Preview);
+        setPvError("");
+      }, 250);
+      return () => clearTimeout(t);
+    }
     const t = setTimeout(() => void run(body), 500);
     const every = setInterval(() => void run(body), 20_000);
     return () => { clearTimeout(t); clearInterval(every); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- bodyKey is the body's identity
-  }, [bodyKey, run]);
+  }, [bodyKey, run, tokenPrice]);
 
   if (!chainId) return <p className="fv-muted">In-app trading doesn’t cover this network yet.</p>;
   const needFamily = chainId === SOLANA_ID ? "Solana" : "Ethereum-compatible";
@@ -142,8 +169,10 @@ export function TradePanel({ chain, address, symbol, icon, inline, onAttempt }: 
     {pvError && <p role="alert" className="fv-notice">{/no available quotes|No available quotes|no route/i.test(pvError) ? `No route for this amount right now. Try another amount or pay token.` : pvError}</p>}
     <button type="button" className="fv-button fv-primary fv-wide-button fv-trade-cta" disabled={!body || !preview || preview.enough === false || loading} onClick={() => body && setReview({ body })}>
       {loading ? <><RefreshCw size={14} className="fv-spin" /> Quoting…</> : preview?.enough === false ? `Not enough ${paySymbol}` : !amount ? "Enter an amount" : `Review ${side} ${symbol}`}</button>
-    <p className="fv-trade-note">Routed by LI.FI from your own wallets{sender ? ` (${short(sender)}${recipient && recipient !== sender ? " → " + short(recipient) : ""})` : ""}. Your wallet signs; FlowVault never holds funds.</p>
-    {review && <TradeReview body={review.body} sessions={sessions} close={() => setReview(null)} inline={inline} onAttempt={onAttempt} />}
+    <p className="fv-trade-note">{example ? "Example: an estimate at the live price, from the example wallets. " : ""}Routed by LI.FI from your own wallets{sender ? ` (${short(sender)}${recipient && recipient !== sender ? " → " + short(recipient) : ""})` : ""}. Your wallet signs; FlowVault never holds funds.</p>
+    {review && example && preview && opt && <DemoTradeReview side={side} symbol={symbol} paySymbol={opt.symbol} chain={preview.fromChain === preview.toChain ? preview.toChain : `${preview.fromChain} → ${preview.toChain}`} amount={Number(amount)} slippageBps={slippage}
+      q={{ output: Number(preview.output), minimum: Number(preview.minimum), fromUsd: Number(preview.fromUsd), toUsd: Number(preview.toUsd), feeUsd: Number(preview.fees[0]?.usd ?? 0), enough: true }} close={() => { setReview(null); setAmount(""); }} />}
+    {review && !example && <TradeReview body={review.body} sessions={sessions} close={() => setReview(null)} inline={inline} onAttempt={onAttempt} />}
   </div>;
 }
 

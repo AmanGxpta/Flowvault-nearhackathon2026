@@ -77,7 +77,7 @@ export function TokenPage({ token, back, buy, watched, toggleWatch, share }: { t
         <section className="fv-panel fv-token-buy">
           <h2>Trade {symbol}</h2>
           {detail?.swapId ? <><p>Best route across Rhea / Ref and NEAR Intents, checked against your limits.</p><div className="fv-actions"><button type="button" className="fv-button fv-primary" onClick={() => buy(detail.swapId!)}>Buy {symbol}</button><button type="button" className="fv-button" onClick={() => buy("sell:" + detail.swapId!)}>Sell</button></div></>
-            : detail ? <TradePanel chain={token.chain} address={token.address} symbol={symbol} icon={r?.icon} /> : <p className="fv-muted">Checking availability…</p>}
+            : detail ? <TradePanel chain={token.chain} address={token.address} symbol={symbol} icon={r?.icon} priceUsd={r?.priceUsd} /> : <p className="fv-muted">Checking availability…</p>}
           {r?.url && <a className="fv-text-button" href={r.url} target="_blank" rel="noopener noreferrer">Pair on DexScreener <ArrowUpRight size={13} /></a>}
           {r?.website && <a className="fv-text-button" href={r.website} target="_blank" rel="noopener noreferrer"><Globe size={13} /> Website</a>}
         </section>

@@ -245,7 +245,7 @@ function TradeChatCard({ card, env }: { card: Card<"trade">; env: CardEnv }) {
   const p = card.params;
   if (locked(card)) return <div className="fv-chat-card"><Head title={`Trade ${p.symbol}`} card={card} /><Outcome card={card} env={env} title="Trade" /></div>;
   return <div className="fv-chat-card"><Head title={`Trade ${p.symbol}`} card={card}><small className="fv-chat-mono">{net(p.chain)} · {p.address.slice(0, 6)}…{p.address.slice(-4)}</small></Head>
-    {env.example ? <p className="fv-demo-note">Example workspace: token trades run from your own wallets. To see one, swap into {p.symbol} on the Swap page, where swaps play as a simulation.</p> : <TradePanel inline chain={p.chain} address={p.address} symbol={p.symbol} onAttempt={(a) => void env.link(card, { attemptId: a.id })} />}
+    <TradePanel inline chain={p.chain} address={p.address} symbol={p.symbol} onAttempt={env.example ? undefined : (a) => void env.link(card, { attemptId: a.id })} />
   </div>;
 }
 

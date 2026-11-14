@@ -59,7 +59,7 @@ export function SpotDesk({ token, buy, picker }: { token: { chain: string; addre
         <section className="fv-panel fv-spot-changes">{(["m5", "h1", "h6", "h24"] as const).map(f => <div key={f}><small>{f === "m5" ? "5M" : f === "h1" ? "1H" : f === "h6" ? "6H" : "24H"}</small><strong className={(r?.change[f] ?? 0) >= 0 ? "fv-up" : "fv-down"}>{fmtPct(r?.change[f] ?? null)}</strong></div>)}</section>
         <section className="fv-panel fv-token-buy">
           {detail?.swapId ? <><h2>Trade {token.symbol}</h2><p>Best route across Rhea / Ref and NEAR Intents, checked against your limits.</p><div className="fv-actions"><button type="button" className="fv-button fv-primary" onClick={() => buy(detail.swapId!)}>Buy {token.symbol}</button><button type="button" className="fv-button" onClick={() => buy("sell:" + detail.swapId!)}>Sell</button></div></>
-            : detail ? <TradePanel key={token.chain + token.address} chain={token.chain} address={token.address} symbol={token.symbol} icon={r?.icon} /> : <p className="fv-muted">Checking availability…</p>}
+            : detail ? <TradePanel key={token.chain + token.address} chain={token.chain} address={token.address} symbol={token.symbol} icon={r?.icon} priceUsd={r?.priceUsd} /> : <p className="fv-muted">Checking availability…</p>}
         </section>
         <section className="fv-panel fv-trust fv-spot-trust">
           <h2>{worst === "bad" ? <ShieldAlert size={16} /> : <ShieldCheck size={16} />} Safety checks{safety && <small className="fv-safety-head">{safety.score}/100</small>}</h2>
