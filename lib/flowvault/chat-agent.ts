@@ -91,7 +91,8 @@ export async function runChat(o: {
   client: ChatClient; model: string; history: Turn[]; userText: string; ctx: ToolContext;
   emit: (e: ChatEvent) => void; signal?: AbortSignal; now?: number;
 }): Promise<RunResult> {
-  const { ctx, emit } = o;
+  const { emit } = o;
+  const ctx: ToolContext = { ...o.ctx, ownerText: [...o.history.filter((t) => t.role === "user").map((t) => t.text), o.userText].join("\n") };
   const shared = new Set<string>(["your question and recent messages in this chat"]);
   const appContext = {
     workspace: ctx.reads.mode === "demo" ? "example (fictional figures, nothing can be signed)" : ctx.reads.accountId ? "personal, NEAR account connected" : "personal, no wallet connected (public research only)",
@@ -167,7 +168,8 @@ const SWAP = /\b(?:swap|sell|convert|trade|exchange|bridge)\s+\$?([\d.]+|half|al
 const DOLLAR_SWAP = /\b(?:swap|sell|convert|trade|exchange|bridge)\s+\$([\d.]+)\s+(?:of|worth of)\s+(?:my\s+)?([a-z][a-z0-9.]{1,11})\s+(?:to|for|into)\s+([a-z][a-z0-9.]{1,11})/i;
 const RESEARCH = /\b([a-z0-9_-]{2,64}(?:\.[a-z0-9_-]+)*\.(?:near|tg)|0x[0-9a-f]{40})\b/i;
 
-export async function fallbackTurn(userText: string, ctx: ToolContext, emit: (e: ChatEvent) => void, reason: string): Promise<RunResult> {
+export async function fallbackTurn(userText: string, baseCtx: ToolContext, emit: (e: ChatEvent) => void, reason: string): Promise<RunResult> {
+  const ctx: ToolContext = { ...baseCtx, ownerText: userText };
   const shared: string[] = [];
   const cards: string[] = [];
   const run = async (name: string, input: unknown) => {
