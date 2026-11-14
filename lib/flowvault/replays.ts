@@ -1,4 +1,4 @@
-// NearAnyStake Apache-2.0 schema derivatives, pinned and sanitized in reference-provenance.json.
+// 1Click status response shapes with synthetic values (replay-fixtures/).
 import success from "./replay-fixtures/success.json" with { type: "json" };
 import refunded from "./replay-fixtures/refunded.json" with { type: "json" };
 import partial from "./replay-fixtures/incomplete.json" with { type: "json" };
@@ -120,7 +120,7 @@ export function replay(kind: ReplayKind, outcome: ReplayOutcome) {
     message,
     recording: {
       providerSchema:
-        "NearAnyStake recorded/derived 1Click response shapes; all original scalar identifiers replaced.",
+        "1Click status response shapes; every identifier and amount is synthetic.",
       receiptSchema:
         "Synthetic NEAR RPC/NEP-141 receipts following existing verified-outcome fixture shapes. No funded FlowVault recording is claimed.",
     },

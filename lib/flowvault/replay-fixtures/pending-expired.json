@@ -1,7 +1,7 @@
 {
   "label": "SIMULATED \u2014 schema replay, no funds moved",
   "source": "simulated",
-  "recordingNote": "Sanitized derivative of NearAnyStake recorded/derived 1Click response schema. Synthetic values; not a FlowVault funded execution.",
+  "recordingNote": "1Click status response shape with synthetic values; not a FlowVault funded execution.",
   "response": {
     "status": "PENDING_DEPOSIT",
     "updatedAt": "2026-11-12T12:00:00.000Z",

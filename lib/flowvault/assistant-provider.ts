@@ -1,4 +1,4 @@
-// AllPilot MIT wiring reference: NEAR AI Cloud OpenAI-compatible chat + offline parser.
+// NEAR AI Cloud OpenAI-compatible chat + offline parser.
 // New implementation: no model tools, no execution capabilities, no account or balance context sent.
 import {
   parseIntent,

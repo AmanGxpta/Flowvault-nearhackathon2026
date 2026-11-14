@@ -16,7 +16,7 @@ The app opens on **Portfolio**. Navigation is **Portfolio · Markets · Swap · 
 - **Trade** has an always-visible order ticket (long/short, size, leverage, TP/SL, margin and estimated liquidation). Orders still go through the owner-configured Hyperliquid agent and signed mandate; the ticket shows which setup steps remain.
 - **Portfolio** headline figures never go blank: partial reads show "≥ known subtotal", failed reads keep the last good figure with its time. A status bar shows portfolio, spendable cash, the next payment and guardrails.
 - **Activity** adds the connected account's on-chain history (NearBlocks) beside FlowVault's journal.
-- **Ask FlowVault** offers "Open swap" for swap-like questions; it only prefills the swap screen.
+- **Ask FlowVault** is a chat that reads your balances, limits, quotes and markets through typed tools and drafts cards (swap, supply, stake, pay, trade) that you review and sign yourself; it never signs, changes limits or adds recipients. It currently runs on Claude through the Anthropic API (server setting `ANTHROPIC_API_KEY`; Claude Haiku 5.5 by default, `ANTHROPIC_MODEL` overrides) and will move to NEAR AI Cloud.
 - Token and network logos are bundled in `public/assets`.
 
 No deployment or owner-funded operation is implied. Perps execution needs the owner's agent key secret on the server.
@@ -99,8 +99,8 @@ These describe technical fit, not a claim of eligibility or an award.
 | **realworld** | Dated payroll/rent and NEAR Intents EXACT_OUTPUT settlement to Base/Arbitrum, BNB USDT and Ethereum USDC/USDT. | L1 funded source-to-recipient proof; All funded route evidence remains owner-required; Judge results are labelled fictional. |
 | **security** | Bigint units, policy caps/allowlists, revisions, signer binding, one-time handoff, refund and exact-outcome checks; Rust NEAR policy contract. | Contract is undeployed; an on-chain rule demonstration and external review remain owner steps. |
 | **agents** | Natural-language proposals are schema-validated and evaluated by deterministic engines; contract supports registered agent proposals/revocation. | No unattended trading, deployed agent key or live contract integration is claimed. |
-| **privacy** | Optional server-only NEAR AI Cloud extraction; sends question/date/schema, not stored balances or accounts; exact data sent is visible. | No real-key inference was run in automated checks. Attestation, response signatures and E2EE are **not verified** by this app. |
-| **open** | MIT-authored source, retained Apache/MIT notices, public read adapters, auditable local engines and reproducible pitch tests. | A public repository and hosted demo are the owner's publication actions. |
+| **privacy** | Ask FlowVault runs on Claude through the Anthropic API for now. A turn shares only what its tools read (for example balances, limits, scheduled payments or a quote), and the chat names what it shared. The intent parser can already run on NEAR AI Cloud, sending only the question, date and schema; the chat moves to NEAR AI Cloud next. | The NEAR AI Cloud move is planned, not done. Attestation, response signatures and E2EE are **not verified** by this app yet. |
+| **open** | MIT source, public read adapters, auditable local engines and reproducible pitch tests. | A public repository and hosted demo are the owner's publication actions. |
 
 ## Verification and owner operations
 
@@ -127,7 +127,6 @@ cargo build --locked --manifest-path contracts/policy/Cargo.toml --target wasm32
 
 - [Owner funded-camera runbook](docs/OWNER_RUNBOOK.md): fresh minimum checks, supply → withdrawal → exact-output Base payout, Activity evidence and recovery.
 - [Cloudflare hosting runbook](docs/CLOUDFLARE_DEPLOY.md): owner-created D1, server secrets, prepared config and owner-run deployment. Nothing is deployed by these docs.
-- [Submission audit](docs/SUBMISSION_AUDIT.md): MIT/Apache notices, ASGARD checks, Git hygiene, secret scan and diagram validation.
 - [Build status](docs/BUILD_STATUS.md): actual verification and remaining owner-only checks.
 
 The local D1/cookie model is development-session isolation, **not production identity/authentication**. No private wallet key is collected by the backend. The owner wallet signs and sends; the agent never signs, spends, deploys or publishes. Staking preparation is a non-signable quote until valuation/cap checks and a funded handoff are implemented.
@@ -351,6 +350,6 @@ flowchart LR
 
 ## Licensing and submission boundary
 
-FlowVault-authored source is **MIT**, chosen by the owner. NearAnyStake adaptations and schema derivatives retain Apache-2.0 attribution/license and the [NOTICE](NOTICE); AllPilot references retain MIT notices. ASGARD is unlicensed, ideas only: no ASGARD product code is imported. [THIRD_PARTY.md](THIRD_PARTY.md) and [provenance](docs/reference-provenance.json) identify reused material. The older Chainlink FlowVault is conceptual background; its contracts/keys/code were not copied here.
+FlowVault source is **MIT** ([LICENSE](LICENSE)). Bundled chart library and example artwork keep their own notices in [NOTICE](NOTICE); npm dependencies keep theirs in their packages.
 
 Git is initialized locally with **no remote and no commit**. Private local D1 state, environment files, credentials, reference clones and personal live captures are ignored. Publication, first commit, funded signing, deployment, X demo post and final submission remain owner actions. This README does not claim they happened.

@@ -29,6 +29,6 @@ Pending proposals reserve daily capacity. Rejecting a pending proposal releases 
 
 Resource bounds: 20 agents, 50 obligations, 30 venues, 50 recipient/method/protected-asset entries, 1000 retained proposals, 50 rows per view page. The deployment account funds bounded storage. After 1000 proposals this prototype refuses new ones; no silent audit-history deletion. It needs a storage/retention design before production scale.
 
-Reference interfaces: [NEAR SDK 5.30.1](https://docs.rs/near-sdk/5.30.1/near_sdk/), [NEP-297](https://github.com/near/NEPs/blob/master/neps/nep-0297.md), [near-cli-rs deployment guide](https://github.com/near/near-cli-rs/blob/main/docs/GUIDE.en.md). AllPilot's MIT Pilot Guard informed receiver/method allowlisting; no contract code was copied from it or ASGARD.
+Reference interfaces: [NEAR SDK 5.30.1](https://docs.rs/near-sdk/5.30.1/near_sdk/), [NEP-297](https://github.com/near/NEPs/blob/master/neps/nep-0297.md), [near-cli-rs deployment guide](https://github.com/near/near-cli-rs/blob/main/docs/GUIDE.en.md).
 
 The settlement `asset_id` is immutable after the first plan, so the daily budget cannot change units midstream (`SETTLEMENT_ASSET_IMMUTABLE`). Changing caps still requires a new version and preserves the current day's total.

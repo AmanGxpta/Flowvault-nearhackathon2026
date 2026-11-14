@@ -1,7 +1,7 @@
 // Engines E2: executable credit on Rhea Lending, one verified collateral family (NEAR liquid staking:
 // LiNEAR, rNEAR) and USDC debt. Pure: live reads are in lending-live.ts. Builds owner-inspectable
 // payloads only; nothing here signs or sends. All amounts bigint base units.
-// Call formats verified against finalized mainnet transactions (12 Nov 2026) and AllPilot (MIT):
+// Call formats verified against finalized mainnet transactions (12 Nov 2026):
 //  collateral_add     LST.ft_transfer_call(RHEA, amount, {"Execute":{"actions":[{"IncreaseCollateral":{token_id,max_amount}}]}})
 //  borrow             RHEA.execute_with_pyth({actions:[{Borrow:{token_id,amount}},{Withdraw:{token_id,max_amount}}]})
 //  repay              USDC.ft_transfer_call(RHEA, amount, {"Execute":{"actions":[{"Repay":{token_id,max_amount}}]}})

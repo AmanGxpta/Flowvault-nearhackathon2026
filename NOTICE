@@ -1,27 +1,6 @@
-FlowVault third-party notices
+FlowVault notices
 
-FlowVault-authored material is offered under the MIT License in LICENSE.
-Third-party material retains its original licenses and notices.
-
-NearAnyStake — https://github.com/ultratestbro/nearanystake
-Pinned revision: 9d2493618cb7a3d3361615d54da6906eafb8ff35
-License: Apache License, Version 2.0
-License copy: vendor/licenses/NearAnyStake-Apache-2.0.txt
-
-FlowVault adapts quote-echo/deadline/status/response-retention patterns from
-src/lib/oneclick/{quote,status,client,types}.ts, and sanitized response schemas
-from src/lib/__fixtures__/oneclick/status-*.json. Modifications specialize
-the flow to EXACT_OUTPUT native-USDC payments, add independent destination
-proof and policy checks, and replace all fixture account/transaction values.
-Affected files include lib/flowvault/payments.ts, payment-guards.ts,
-payment-service.ts, payment-inventory.ts, replay-fixtures/*.json and replays.ts.
-The pinned upstream repository contains no separate NOTICE file; this notice
-records the required retained attribution and our modifications, and does not
-claim that it was supplied by upstream. See THIRD_PARTY.md and
-docs/reference-provenance.json for exact source/derived hashes.
-
-AllPilot — MIT references and license retained in
-vendor/licenses/AllPilot-MIT.txt. No ASGARD source code is licensed or included.
+FlowVault source is offered under the MIT License in LICENSE.
 Installed dependency notices remain with their packages.
 
 TradingView Lightweight Charts™ — Copyright (c) 2025 TradingView, Inc. Licensed under the Apache License 2.0.

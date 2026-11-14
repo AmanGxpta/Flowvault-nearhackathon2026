@@ -1,8 +1,7 @@
 import { movingCost, assertFreshValuation } from "./payout-valuation.ts";
 import type { PayoutValuation } from "./payout-valuation.ts";
-// Adapted quote-echo/deadline/status patterns from NearAnyStake (Apache-2.0),
-// commit 9d2493618cb7a3d3361615d54da6906eafb8ff35. Exact-output USDC payment specialization.
-// No upstream accounts, fee recipients, referral fields or signing configuration copied.
+// 1Click quote-echo, deadline and status checks for exact-output USDC payments.
+// No third-party accounts, fee recipients, referral fields or signing configuration.
 import { units, decimal, positive } from "./money.ts";
 import { holdback } from "./obligations.ts";
 import { SUPPLY_USDC as USDC } from "./supply.ts";

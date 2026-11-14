@@ -53,9 +53,6 @@ yarn-error.log*
 /.references/
 /scratch/
 /tmp/
-/nearany*/
-/allpilot/
-/asgard/
 
 # Private captures, local databases, sessions and wallet material
 /private/

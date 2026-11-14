@@ -1,4 +1,4 @@
-// Published NearAnyStake modules (Apache-2.0), already pinned/attributed in THIRD_PARTY.md.
+// @anywalletkit staking SDK modules (npm, pinned in package.json).
 // Quote/read methods only: no SDK stake/requestWithdrawal/claimWithdrawals send method is called.
 import type { StepKind, Position } from "./contracts.ts";
 import { stakingReadProvider } from "./staking-rpc.ts";

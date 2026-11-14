@@ -1,6 +1,6 @@
 # FlowVault build conventions
 
-Read README.md, docs/pitch.md, docs/PRODUCT.md and docs/COMPETITOR_GAPS.md: these are the canonical product direction and build priorities. docs/ignore/ holds set-aside drafts (UPGRADES.md and the v2 pitch/PRD); do not treat them as active scope. This is a new local build backed by the linked research; older research-only restrictions were superseded by the user's explicit build instruction, and the user subsequently requested wallet connection and usable operations. Implementing owner-initiated wallet signing is in scope. The agent must not sign, spend funds, deploy or publish on the user’s behalf.
+Read README.md, docs/pitch.md and docs/PRODUCT.md: these are the canonical product direction and build priorities. docs/ignore/ holds set-aside drafts (UPGRADES.md and the v2 pitch/PRD); do not treat them as active scope. This is a new local build backed by the linked research; older research-only restrictions were superseded by the user's explicit build instruction, and the user subsequently requested wallet connection and usable operations. Implementing owner-initiated wallet signing is in scope. The agent must not sign, spend funds, deploy or publish on the user’s behalf.
 
 - Keep financial amounts in bigint base units; floats are for formatting only.
 - Keep example data and live evidence separate, including accounts, proposals and rates.

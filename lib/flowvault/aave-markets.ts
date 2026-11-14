@@ -1,5 +1,5 @@
 // Mainnet Aave v3 address-book metadata verified 2026-11-13. Runtime reads verify provider, pool, oracle and reserve configuration.
-// Source/license and eMode inventory: docs/AAVE_MARKETS.md and THIRD_PARTY.md. No rate/risk parameter is pinned here.
+// Source/license and eMode inventory: docs/AAVE_MARKETS.md. No rate/risk parameter is pinned here.
 import type { VenueAsset } from "./contracts.ts";
 export type AaveChain = "eth" | "base" | "arb";
 export interface AaveMarket { id: string; chain: AaveChain; pool: string; provider: string; oracle: string; collateral: VenueAsset[]; debt: VenueAsset; eModes: Record<string, number> }
