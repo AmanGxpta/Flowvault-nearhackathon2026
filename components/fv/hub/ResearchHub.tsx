@@ -16,6 +16,7 @@ import { HazardScan } from "../approvals/HazardScan";
 import { YieldsTable, type YieldRate } from "./YieldsTable";
 import { WatchlistCompact } from "./WatchlistCompact";
 import { Sparkline } from "./Sparkline";
+import { LockedResearch, PublicResearch } from "./PublicResearch";
 import { AutomationBuilder, KIND_ICON } from "./AutomationBuilder";
 import { BriefCard, EventFeed, type Go } from "./AutomationFeed";
 import { cacheGet, cacheSet, until, useCountUp, useTrend } from "./motion";
@@ -72,7 +73,7 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
     let live = true;
     Promise.all([
       fetch("/api/rates").then((r) => r.json() as Promise<{ rows?: (Rate & { canSupply?: boolean })[] }>).then((b) => (b.rows ?? []).filter((r) => r.canSupply !== false)).catch(() => null),
-      fetch("/api/staking/options").then((r) => r.json() as Promise<{ options?: { id: string; aprPercent?: string | null }[] }>).then((b) => { const a = b.options?.find((o) => o.id === "linear")?.aprPercent; return a ? Number(a) : null; }).catch(() => null),
+      fetch("/api/staking/rates").then((r) => r.json() as Promise<{ options?: { id: string; aprPercent?: string | null }[] }>).then((b) => { const a = b.options?.find((o) => o.id === "linear")?.aprPercent; return a ? Number(a) : null; }).catch(() => null),
       call("/api/portfolio", undefined, "GET").then((r: { portfolio?: { positions?: { kind: string; venue?: string; asset: string; amount: string }[] }; positions?: { kind: string; venue?: string; asset: string; amount: string }[] }) => (r.portfolio ?? r).positions ?? []).catch(() => null),
       example ? Promise.resolve(null) : Promise.all([call("/api/lend/flows", undefined, "GET").catch(() => ({})), call("/api/staking/flows", undefined, "GET").catch(() => ({}))]).then(([a, b]: { flows?: Flow[] }[]) => ({ supply: a.flows ?? [], stake: b.flows ?? [] })),
     ]).then(([rates, stakeApy, positions, flows]) => {
@@ -185,8 +186,10 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
   const hour = new Date().getHours(), greeting = hour < 5 ? "Good evening." : hour < 12 ? "Good morning." : hour < 17 ? "Good afternoon." : "Good evening.";
   const bestStable = [...c.rates].filter((r) => /^USD[CT]/i.test(r.symbol) && r.supplyApy !== null).sort((a, b) => b.supplyApy! - a.supplyApy!)[0];
 
-  return <div className="fv-hub fv-fadein">
-    <section className="fv-hub-hero">
+  // No wallet in the personal workspace: public research up top, the personal half blurred under a lock.
+  const locked = !example && !!v.notConnected;
+  const connect = () => (v.openConnect ?? v.connectFirst)?.();
+  const hero = <section className="fv-hub-hero">
       <div className="fv-hub-hello"><small>RESEARCH &amp; STRATEGIES</small><h1>{greeting}</h1><p>Discover opportunities, automate your capital, and review what&apos;s next.</p></div>
       <div className="fv-hub-ask">
         <form className="fv-hub-askbox" onSubmit={(e) => { e.preventDefault(); if (ask.trim()) { v.askQuestion?.(ask.trim()); setAsk(""); } else v.openAssistant?.(); }}>
@@ -194,12 +197,20 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
           <button type="submit" aria-label="Ask"><ArrowRight size={16} /></button>
         </form>
         <div className="fv-hub-quick">
-          <button type="button" className={briefDone !== "idle" ? "is-done" : ""} onClick={() => void scheduleBrief()}>{briefDone === "idle" ? <CalendarClock size={16} /> : <Check size={16} />}<span key={briefDone} className="fv-fadein">{briefDone === "done" ? "Brief scheduled · 8:00 AM" : briefDone === "exists" ? "Already scheduled" : "Brief me at 8 AM"}</span><ChevronRight size={15} /></button>
-          <button type="button" onClick={() => setBuilder({ editing: null })}><Zap size={16} /><span>Create automation</span><ChevronRight size={15} /></button>
-          <button type="button" onClick={() => { setTab("Strategies"); focus(researchRef.current); }}><Layers size={16} /><span>Find a strategy</span><ChevronRight size={15} /></button>
+          <button type="button" className={briefDone !== "idle" ? "is-done" : ""} onClick={() => (locked ? connect() : void scheduleBrief())}>{briefDone === "idle" ? <CalendarClock size={16} /> : <Check size={16} />}<span key={briefDone} className="fv-fadein">{briefDone === "done" ? "Brief scheduled · 8:00 AM" : briefDone === "exists" ? "Already scheduled" : "Brief me at 8 AM"}</span><ChevronRight size={15} /></button>
+          <button type="button" onClick={() => (locked ? connect() : setBuilder({ editing: null }))}><Zap size={16} /><span>Create automation</span><ChevronRight size={15} /></button>
+          <button type="button" onClick={() => (locked ? connect() : (setTab("Strategies"), focus(researchRef.current)))}><Layers size={16} /><span>Find a strategy</span><ChevronRight size={15} /></button>
         </div>
       </div>
-    </section>
+    </section>;
+  if (locked) return <div className="fv-hub fv-fadein">
+    {hero}
+    <PublicResearch rates={c.rates} stakeApy={c.stakeApy} loading={!loaded.core} />
+    <LockedResearch connect={connect} demo={() => v.toggleJudge?.()} />
+  </div>;
+
+  return <div className="fv-hub fv-fadein">
+    {hero}
     {note && <p className="fv-notice fv-hub-note fv-rise" role="status">{note}</p>}
 
     <div className="fv-hub-stats">

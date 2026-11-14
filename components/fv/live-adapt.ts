@@ -319,6 +319,9 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   const capital = (u as any)?.capital as { spendableNow?: string; holdback?: string | null; surplus?: string | null; netWorth?: string | null; blocksAutomation?: boolean; reasons?: string[] } | undefined;
   out.scope = snap.scope;
   out.portfolioLoading = !snap.portfolio && !snap.portfolioError && !snap.notConnected;
+  // Personal workspace with no NEAR account and no proven wallet: Research locks its personal half and Portfolio
+  // marks every balance as not connected. Never true in Demo Mode.
+  out.notConnected = !example && !!snap.notConnected;
   out.portfolioReadError = snap.portfolioError || null;
   out.refreshPortfolio = () => self.liveCall(() => self.props.actions.refresh(), "Balances refreshed.");
   out.planCta =

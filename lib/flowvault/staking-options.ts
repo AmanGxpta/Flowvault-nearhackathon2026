@@ -386,3 +386,22 @@ export async function stakingValidators(w: Workspace) {
     refusals: validators.length ? [] : ["NO_VERIFIED_VALIDATORS_AVAILABLE"],
   };
 }
+
+/** Public liquid-staking rates (LiNEAR, rNEAR) for anyone, signed in or not: read-only rate observations with the
+ * same verdict as stakingOptions (no rate for unknown code or a paused protocol). The rate read never uses the
+ * account; the SDK only needs one to exist, so the protocol's own contract stands in. */
+export async function publicLiquidRates() {
+  const m = await modules("linear-protocol.near");
+  const read = async (id: "linear" | "rnear") => {
+    const mod = m.liquid(id);
+    const info = await mod.getPoolInfo();
+    let apr: number | null = null;
+    try { apr = await mod.getApr(); } catch { /* no made-up rate */ }
+    return { id, venue: STAKING_VENUES[id], aprPercent: stakingRateVerdict(apr, info.codeHashKnown, info.paused).aprPercent };
+  };
+  const rows = await Promise.allSettled([read("linear"), read("rnear")]);
+  return {
+    capturedAt: new Date().toISOString(),
+    options: rows.map((r, i) => (r.status === "fulfilled" ? r.value : { id: (["linear", "rnear"] as const)[i], venue: STAKING_VENUES[(["linear", "rnear"] as const)[i]], aprPercent: null })),
+  };
+}

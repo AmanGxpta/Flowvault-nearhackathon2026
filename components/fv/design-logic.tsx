@@ -46,7 +46,7 @@ export class DesignApp extends Component<any, any> {
     const s: any = {
       ds: 'api', wallet: 0, rhea: 0, reserve: 0, reserveDraft: '', version: 1, horizon: 30, lead: 3,
       planDraft: { reserve: '', horizon: '30', lead: '3' },
-      obs: [], ops: [], screen: p.screen || 'portfolio', modal: null, op: null, pay: null,
+      obs: [], ops: [], screen: p.screen || 'hub', modal: null, op: null, pay: null,
       form: { name: '', amount: '', chain: 'Arbitrum', token: 'USDC', recurrence: 'none', recipient: '', due: iso(13), note: '', confirmed: false },
       compareTo: null, cmpAmount: null, openOp: null, toast: null, retried: false,
       credit: { dd: 50, cap: 70, hp: 15, debt: 0, prio: 'P2' },
@@ -61,7 +61,7 @@ export class DesignApp extends Component<any, any> {
   }
   componentDidMount() {
     const known = ['portfolio','hub','swap','strategies','credit','trade','research','activity','calendar','policy','pay','replays','roadmap','opps','protection'];
-    const readRoute = () => { const raw = new URL(window.location.href).searchParams.get('view') || ''; const view = VIEW_ALIASES[raw] ?? raw; this.setState({ screen: known.includes(view) ? view : 'portfolio' }); };
+    const readRoute = () => { const raw = new URL(window.location.href).searchParams.get('view') || ''; const view = VIEW_ALIASES[raw] ?? raw; this.setState({ screen: known.includes(view) ? view : 'hub' }); }; // Research is where everyone starts
     readRoute(); this.onPopState = readRoute; window.addEventListener('popstate', readRoute);
 
     if (!this.props.frozen) this.iv = setInterval(() => this.tick(), 1000);
