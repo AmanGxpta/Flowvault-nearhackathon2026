@@ -632,6 +632,54 @@ export function Shell({ v }: { v: any }) {
             >
               <span style={{ color: "var(--fvc-C9E86B)" }}>✦</span>Ask FlowVault
             </button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={v.judgeKnob === "14px"}
+              onClick={v.toggleJudge}
+              title={v.judgeKnob === "14px" ? "Showing the fictional example workspace. Switch off to return to your own." : "Show the fictional example workspace"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "9px",
+                padding: "10px 12px",
+                borderRadius: "12px",
+                border: `1px solid ${tc(v.judgeBorder, "bg")}`,
+                background: tc(v.judgeBg, "bg"),
+                color: "var(--fvc-1E2A22)",
+                fontSize: "14px",
+                fontWeight: "500",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  width: "28px",
+                  height: "16px",
+                  flexShrink: "0",
+                  borderRadius: "999px",
+                  background: tc(v.judgeTrack, "bg"),
+                  position: "relative",
+                  display: "inline-block",
+                }}
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    top: "2px",
+                    left: v.judgeKnob,
+                    width: "12px",
+                    height: "12px",
+                    borderRadius: "50%",
+                    background: "var(--fvb-FFFFFF)",
+                    transition: "left .15s",
+                  }}
+                ></span>
+              </span>
+              Demo Mode
+            </button>
             <div style={{ position: "relative" }}>
               <button
                 type="button"
@@ -691,7 +739,7 @@ export function Shell({ v }: { v: any }) {
                       padding: "6px",
                     }}
                   >
-                    {/* Network status, Demo Mode and Pay or move money live here (moved from the header row). */}
+                    {/* Network status and Pay or move money live here; Demo Mode is a switch in the header row. */}
                     <div
                       title={v.netLabel}
                       style={{
@@ -710,55 +758,6 @@ export function Shell({ v }: { v: any }) {
                       ></span>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.netLabel}</span>
                     </div>
-                    <button
-                      type="button"
-                      role="menuitemcheckbox"
-                      aria-checked={v.judgeKnob === "14px"}
-                      onClick={() => {
-                        v.closeMenu?.();
-                        v.toggleJudge();
-                      }}
-                      style={{
-                        width: "100%",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "10px",
-                        padding: "10px 12px",
-                        border: "none",
-                        borderRadius: "9px",
-                        background: "transparent",
-                        fontSize: "14px",
-                        cursor: "pointer",
-                        color: "var(--fvc-1E2A22)",
-                        textAlign: "left",
-                      }}
-                      className="fvh5"
-                    >
-                      <span
-                        style={{
-                          width: "28px",
-                          height: "16px",
-                          flexShrink: "0",
-                          borderRadius: "999px",
-                          background: tc(v.judgeTrack, "bg"),
-                          position: "relative",
-                          display: "inline-block",
-                        }}
-                      >
-                        <span
-                          style={{
-                            position: "absolute",
-                            top: "2px",
-                            left: v.judgeKnob,
-                            width: "12px",
-                            height: "12px",
-                            borderRadius: "50%",
-                            background: "var(--fvb-FFFFFF)",
-                          }}
-                        ></span>
-                      </span>
-                      Demo Mode
-                    </button>
                     <button
                       type="button"
                       role="menuitem"
