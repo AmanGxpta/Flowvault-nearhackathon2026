@@ -1,9 +1,10 @@
 "use client";
 // One swap-then-supply flow, resumable at any time: the route, how far along it is, and the one thing to do next,
-// done right here. Progress comes from the journal, so leaving, declining a wallet prompt or reloading never loses
-// the place.
-import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, CircleAlert, RefreshCw, Repeat } from "lucide-react";
+// done right here. Live flows read their progress from the journal, so leaving, declining a wallet prompt or
+// reloading never loses the place. Demo Mode flows play the same steps as a labelled simulation: nothing is signed
+// and nothing moves.
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, Check, CircleAlert, RefreshCw, Repeat, ShieldCheck } from "lucide-react";
 import { api } from "../live";
 import { TokenIcon } from "../AssetIdentity";
 import { useTokenCatalog, coreIdentity } from "../useTokenCatalog";
@@ -12,12 +13,47 @@ import { ownAddress } from "../useSwapQuote";
 import { SwapReview } from "../SwapReview";
 import { RheaSheet } from "../RheaSheet";
 import { decimal } from "@/lib/flowvault/money";
-import { SUPPLY_STATUS_LABEL, tokenText, type SupplyAttemptView, type SupplyFlow, type SupplyFlowStatus, type SupplyStep } from "@/lib/flowvault/supply-flow";
+import { deriveSupplyFlow, SUPPLY_STATUS_LABEL, tokenText, type SupplyAttemptView, type SupplyFlow, type SupplyFlowStatus, type SupplyStep } from "@/lib/flowvault/supply-flow";
+import { simAttempt, simDelivered } from "@/lib/flowvault/demo-sim";
+import { demoGet, demoPut, isDemoId } from "../demo/demo-store";
+import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 
 export interface SupplyFlowRead { flow: SupplyFlow; attempts: { pay: SupplyAttemptView | null; supply: SupplyAttemptView | null }; steps: SupplyStep[]; status: SupplyFlowStatus; current: SupplyStep["id"] | null; done: number; total: number; supplyRaw: string | null }
+export type DemoSupplyRow = { id: string; kind: "supply"; updatedAt: number; flow: SupplyFlow; payAt: number | null; supplyAt: number | null };
 const MOVING = ["awaiting_wallet", "submitted", "unknown", "partial"];
+type Props = { id: string; owner: string; back: () => void; connect: () => void };
 
-export function SupplyFlowView({ id, owner, back, connect }: { id: string; owner: string; back: () => void; connect: () => void }) {
+export function SupplyFlowView(p: Props) { return isDemoId(p.id) ? <DemoSupplyFlow {...p} /> : <LiveSupplyFlow {...p} />; }
+
+/** A Demo Mode flow's current state: the scripted attempts for each approved step, through the same derivation. */
+export function demoSupplyRead(row: DemoSupplyRow, now = Date.now()): SupplyFlowRead {
+  const f = row.flow;
+  const pay = simAttempt(f.id + ":pay", row.payAt, now, { deliveredRaw: simDelivered(f.source.expectedRaw), working: `Example: NEAR Intents is delivering ${f.symbol}.`, done: `Example: ${f.symbol} delivered.` });
+  const delivered = pay?.state === "confirmed" ? pay.deliveredRaw ?? null : null;
+  const supply = delivered ? simAttempt(f.id + ":supply", row.supplyAt, now, { settleMs: 5000, suppliedRaw: delivered, working: "Example: waiting for final receipts.", done: `Example: ${f.symbol} supplied.` }) : null;
+  const attempts = { pay, supply };
+  return { flow: f, attempts, ...deriveSupplyFlow(f, attempts) };
+}
+
+function DemoSupplyFlow({ id, back }: Props) {
+  const [row, setRow] = useState<DemoSupplyRow | null>(() => demoGet<DemoSupplyRow>(id)), [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, []);
+  const { tokens } = useTokenCatalog();
+  if (!row) return <section className="fv-panel fv-stake-flow"><p className="fv-notice">This example flow ended with the tab that started it.</p><button type="button" className="fv-button" onClick={back}><ArrowLeft size={14} /> Back to Earn</button></section>;
+  const data = demoSupplyRead(row, now);
+  const save = (patch: Partial<DemoSupplyRow>) => setRow(demoPut({ ...row, ...patch }));
+  const f = data.flow;
+  const supplyAmount = data.supplyRaw ? tokenText(data.supplyRaw, f.decimals) : "";
+  return <SupplyFlowPanel data={data} tokens={tokens} back={back} demo busy={false} error=""
+    pay={<div className="fv-stake-action"><div className="fv-confirm-table"><div><span>You pay</span><strong>{f.source.amount} {f.source.fromSymbol}{f.source.fromNetwork === "NEAR" ? "" : " on " + f.source.fromNetwork}</strong></div><div><span>You receive</span><strong>≈ {tokenText(f.source.expectedRaw, f.decimals)} {f.symbol}</strong></div><div><span>Route</span><strong>NEAR Intents · example</strong></div></div>
+      <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => save({ payAt: Date.now() })}>Approve in wallet · example</button></div>}
+    supply={<div className="fv-stake-action"><div className="fv-confirm-table"><div><span>Supply</span><strong>{supplyAmount} {f.symbol}</strong></div><div><span>Supply APY</span><strong>{f.apy !== null ? f.apy.toFixed(2) + "% · variable" : "variable"}</strong></div><div><span>Network fees</span><strong>up to 0.003 NEAR · example</strong></div></div>
+      <p className="fv-stake-policy"><ShieldCheck size={14} /> Example: checked against the example workspace&apos;s limits</p>
+      <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => save({ supplyAt: Date.now() })}>Sign once to supply · example</button></div>}
+    onCancel={() => save({ flow: { ...f, cancelledAt: new Date().toISOString() } })} onResume={() => save({ flow: { ...f, cancelledAt: null } })} />;
+}
+
+function LiveSupplyFlow({ id, owner, back, connect }: Props) {
   const [data, setData] = useState<SupplyFlowRead | null>(null), [error, setError] = useState(""), [paying, setPaying] = useState(true), [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     try { setData(await api("/api/lend/flows?id=" + encodeURIComponent(id), undefined, "GET") as SupplyFlowRead); setError(""); }
@@ -45,16 +81,29 @@ export function SupplyFlowView({ id, owner, back, connect }: { id: string; owner
   if (!data) return <section className="fv-panel fv-stake-flow"><p className="fv-muted"><RefreshCw size={14} className="fv-spin" /> Opening your supply flow…</p></section>;
   const f = data.flow, src = f.source;
   const from = tokens.find((t) => t.id === src.from), to = tokens.find((t) => t.network === "near" && t.contract === f.tokenId);
+  const sender = from ? (from.network === "near" ? owner : holdings.balances[from.id]?.account ?? ownAddress(holdings, from.network)) : "";
+  return <SupplyFlowPanel data={data} tokens={tokens} back={back} busy={busy} error={error} onCheck={(stepId) => void check(stepId === "swap" ? data.attempts.pay?.id : data.attempts.supply?.id)}
+    pay={from && to ? (!paying || !sender ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => sender ? setPaying(true) : connect()}>{sender ? `Pay ${src.amount} ${src.fromSymbol} from your wallet` : `Connect your ${src.fromNetwork} wallet`} <ArrowRight size={15} /></button>
+      : <SwapReview inline resumeId={data.attempts.pay?.state === "prepared" ? data.attempts.pay.id : undefined} from={from} to={to} amount={src.amount} slippage={100} route="intents" sender={sender} recipient={f.accountId}
+        close={() => { setPaying(false); void load(); }} onSettled={() => { setPaying(false); void load(); }} onAttempt={(a) => link("pay", a.id)} />) : null}
+    supply={data.supplyRaw ? <RheaSheet inline lockAction key={data.supplyRaw} tokenId={f.tokenId} symbol={f.symbol} icon={to?.icon} mode="earn" initial="supply" initialAmount={decimal(BigInt(data.supplyRaw), f.decimals)}
+      rates={{ supply: f.apy, borrow: null }} close={() => void load()} onSettled={() => void load()} onAttempt={(a) => void link("supply", a.id).catch((e) => setError((e as Error).message))} /> : null}
+    onCancel={() => void act("cancel")} onResume={() => void act("resume")} />;
+}
+
+function SupplyFlowPanel({ data, tokens, back, busy, error, pay, supply, onCheck, onCancel, onResume, demo }: { data: SupplyFlowRead; tokens: SwapToken[]; back: () => void; busy: boolean; error: string; pay: ReactNode; supply: ReactNode; onCheck?: (stepId: string) => void; onCancel: () => void; onResume: () => void; demo?: boolean }) {
+  const f = data.flow, src = f.source;
+  const from = tokens.find((t) => t.id === src.from), to = tokens.find((t) => t.network === "near" && t.contract === f.tokenId);
   const expected = data.supplyRaw ?? src.expectedRaw;
   const badge = { your_turn: "is-turn", working: "is-busy", done: "is-ok", attention: "is-bad", cancelled: "is-muted" }[data.status];
-  const sender = from ? (from.network === "near" ? owner : holdings.balances[from.id]?.account ?? ownAddress(holdings, from.network)) : "";
   const supplyStep = data.steps.find((s) => s.id === "supply");
-
+  const hashFor = (id: string) => { const a = id === "swap" || id === "pay" ? data.attempts.pay : id === "supply" ? data.attempts.supply : null; return (a as { hash?: string | null } | null)?.hash ?? null; };
   return <section className="fv-panel fv-stake-flow">
     <div className="fv-stake-flow-top">
       <button type="button" className="fv-text-button" onClick={back}><ArrowLeft size={14} /> Earn</button>
-      <span className={"fv-flow-badge " + badge}>{data.status === "working" && <RefreshCw size={11} className="fv-spin" />}{SUPPLY_STATUS_LABEL[data.status]}</span>
+      <span className={"fv-flow-badge " + badge}>{data.status === "working" && <RefreshCw size={11} className="fv-spin" />}{demo ? "Example · " : ""}{SUPPLY_STATUS_LABEL[data.status]}</span>
     </div>
+    {demo && <p className="fv-demo-note">Example workspace: this flow is a simulation with fictional balances. Nothing is signed and nothing moves.</p>}
     <h2>{data.status === "done" ? `Your ${f.symbol} is earning on Rhea` : `Supplying ${f.symbol} from ${src.amount} ${src.fromSymbol}`}</h2>
     <div className="fv-stake-current" role="status"><small>{data.status === "done" ? "Completed" : data.status === "working" ? "Happening now" : data.status === "cancelled" ? "Flow closed" : "Next step"}</small><strong>{data.steps.find((s) => s.id === data.current)?.title ?? (data.status === "done" ? `${f.symbol} supplied` : "No more steps")}</strong>{data.status === "working" && <p>You can leave this page and reopen this status from Activity.</p>}</div>
     <p className="fv-muted">≈ {tokenText(expected, f.decimals)} {f.symbol} into Rhea{f.apy !== null ? ` · ${f.apy.toFixed(2)}% APY when started, variable` : ""} · for {f.accountId}</p>
@@ -73,24 +122,18 @@ export function SupplyFlowView({ id, owner, back, connect }: { id: string; owner
       <span className="fv-flow-mark">{s.state === "done" ? <Check size={13} /> : s.state === "failed" ? <CircleAlert size={13} /> : s.state === "working" ? <RefreshCw size={12} className="fv-spin" /> : index + 1}</span>
       <div className="fv-flow-step">
         <strong>{s.title}</strong><small>{s.detail}</small>
-        {data.status !== "cancelled" && s.id === "pay" && s.state === "current" && from && to && <div className="fv-flow-act">
-          {!paying || !sender ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => sender ? setPaying(true) : connect()}>{sender ? `Pay ${src.amount} ${src.fromSymbol} from your wallet` : `Connect your ${src.fromNetwork} wallet`} <ArrowRight size={15} /></button>
-            : <SwapReview inline resumeId={data.attempts.pay?.state === "prepared" ? data.attempts.pay.id : undefined} from={from} to={to} amount={src.amount} slippage={100} route="intents" sender={sender} recipient={f.accountId}
-              close={() => { setPaying(false); void load(); }} onSettled={() => { setPaying(false); void load(); }} onAttempt={(a) => link("pay", a.id)} />}
-        </div>}
-        {(s.id === "swap" && s.state === "working" || s.id === "supply" && s.state === "working") && <div className="fv-flow-act"><button type="button" className="fv-button" disabled={busy} onClick={() => void check(s.id === "swap" ? data.attempts.pay?.id : data.attempts.supply?.id)}>{busy ? "Checking…" : "Check status"}</button></div>}
-        {data.status !== "cancelled" && s.id === "supply" && s.state === "current" && data.supplyRaw && <div className="fv-flow-act">
-          <RheaSheet inline lockAction key={data.supplyRaw} tokenId={f.tokenId} symbol={f.symbol} icon={to?.icon} mode="earn" initial="supply" initialAmount={decimal(BigInt(data.supplyRaw), f.decimals)}
-            rates={{ supply: f.apy, borrow: null }} close={() => void load()} onSettled={() => void load()} onAttempt={(a) => void link("supply", a.id).catch((e) => setError((e as Error).message))} />
-        </div>}
+        {demo && hashFor(s.id) && (s.id === "pay" || s.id === "supply") && s.state !== "waiting" && <small className="fv-demo-hash">Transaction {hashFor(s.id)} (example, not on chain)</small>}
+        {data.status !== "cancelled" && s.id === "pay" && s.state === "current" && pay && <div className="fv-flow-act">{pay}</div>}
+        {!demo && onCheck && (s.id === "swap" || s.id === "supply") && s.state === "working" && <div className="fv-flow-act"><button type="button" className="fv-button" disabled={busy} onClick={() => onCheck(s.id)}>{busy ? "Checking…" : "Check status"}</button></div>}
+        {data.status !== "cancelled" && s.id === "supply" && s.state === "current" && supply && <div className="fv-flow-act">{supply}</div>}
       </div>
     </li>)}</ol>
 
     {error && <p className="fv-notice" role="alert">{error}</p>}
     <div className="fv-flow-foot">
       {data.status === "done" ? <button type="button" className="fv-button fv-primary" onClick={back}>Back to Earn</button>
-        : data.status === "cancelled" ? <div><p className="fv-muted">Flow closed. Your progress is saved. Anything that already arrived stays in your account.</p><button type="button" className="fv-button fv-primary" disabled={busy} onClick={() => void act("resume")}>Resume this supply <ArrowRight size={14} /></button></div>
-        : <><small>You can leave this page. Find this flow in Activity to continue.{supplyStep?.state === "current" ? ` ${f.symbol} that arrived stays in your wallet until you supply it.` : ""}</small>{data.status !== "working" && <button type="button" className="fv-text-button" disabled={busy} onClick={() => void act("cancel")}>Close this flow</button>}</>}
+        : data.status === "cancelled" ? <div><p className="fv-muted">Flow closed. Your progress is saved. Anything that already arrived stays in your account.</p><button type="button" className="fv-button fv-primary" disabled={busy} onClick={onResume}>Resume this supply <ArrowRight size={14} /></button></div>
+        : <><small>You can leave this page. Find this flow in Activity to continue.{supplyStep?.state === "current" ? ` ${f.symbol} that arrived stays in your wallet until you supply it.` : ""}</small>{data.status !== "working" && <button type="button" className="fv-text-button" disabled={busy} onClick={onCancel}>Close this flow</button>}</>}
     </div>
   </section>;
 }

@@ -129,3 +129,15 @@ export function exampleNfts(): NftHolding[] {
     accountId: EXAMPLE_WALLETS[w].address,
   }));
 }
+
+/** The fictional NEAR account the example workspace pays from and receives into. */
+export const EXAMPLE_NEAR_ACCOUNT = "example-account.near";
+const CATALOG_NETWORK: Record<string, string> = { Ethereum: "eth", Base: "base", Arbitrum: "arb", "BNB Chain": "bsc", Polygon: "pol", Solana: "sol", Optimism: "op", Avalanche: "avax", Gnosis: "gnosis" };
+/** Spendable wallet balances of the example workspace, for Demo Mode flows: every fictional wallet token on a
+ * network the swap catalog knows, plus the example NEAR account's NEAR and USDC. Amounts and values are made up. */
+export function exampleWalletHoldings(): { network: string; symbol: string; amount: string; usd: string; account: string }[] {
+  const out = ROWS.filter(([, , , , usd, kind]) => (kind ?? "wallet") === "wallet" && usd !== null)
+    .filter(([, network]) => CATALOG_NETWORK[network])
+    .map(([w, network, symbol, amount, usd]) => ({ network: CATALOG_NETWORK[network], symbol, amount, usd: usd!, account: EXAMPLE_WALLETS[w].address }));
+  return [...out, { network: "near", symbol: "NEAR", amount: "42", usd: "134.72", account: EXAMPLE_NEAR_ACCOUNT }, { network: "near", symbol: "USDC", amount: "1240", usd: "1240.00", account: EXAMPLE_NEAR_ACCOUNT }];
+}

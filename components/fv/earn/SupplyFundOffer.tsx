@@ -13,18 +13,23 @@ import { useSwapQuote, ownAddress } from "../useSwapQuote";
 import { fmtAmount, fmtUsd } from "../swap-format";
 import { decimal, units } from "@/lib/flowvault/money";
 import { defaultSource } from "@/lib/flowvault/supply-flow";
+import { EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
+import { demoId, demoPut } from "../demo/demo-store";
+import type { DemoSupplyRow } from "./SupplyFlowView";
 
 const PAY_NETWORKS = ["near", "eth", "base", "arb"];
 const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum" };
 
-export function SupplyFundOffer({ tokenId, symbol, apy, owner, example, held, onFlow, connect }: {
+export function SupplyFundOffer({ tokenId, symbol, apy, owner: liveOwner, example, held, onFlow, connect }: {
   tokenId: string; symbol: string; apy: number | null; owner: string; example: boolean;
   /** What you already hold of this token on NEAR (display units), or null when unread. */
   held: string | null;
   onFlow: (id: string) => void; connect?: () => void;
 }) {
   const { tokens } = useTokenCatalog();
-  const holdings = useWalletBalances(owner, tokens, !example && !!owner);
+  // Demo Mode: the example workspace's fictional wallets stand in for yours.
+  const owner = example ? EXAMPLE_NEAR_ACCOUNT : liveOwner;
+  const holdings = useWalletBalances(owner, tokens, !!owner, example);
   const target = tokens.find((t) => t.network === "near" && t.contract === tokenId && !!t.assetId);
   // Pay with anything you hold that NEAR Intents can take, except the token itself.
   const payable = useMemo(() => tokens.filter((t) => !!t.assetId && PAY_NETWORKS.includes(t.network) && t.id !== target?.id && BigInt(holdings.balances[t.id]?.raw ?? "0") > 0n), [tokens, holdings.balances, target?.id]);
@@ -40,7 +45,10 @@ export function SupplyFundOffer({ tokenId, symbol, apy, owner, example, held, on
   const walletAmount = from && bal ? decimal(BigInt(walletRaw), from.decimals) : null;
   const sender = from ? (from.network === "near" ? owner : bal?.account ?? ownAddress(holdings, from.network)) : "";
   const q = useSwapQuote({ tokens, holdings, owner, example, fromId, toId: target?.id ?? "", amount, slippage: "100", sender, recipient: owner, paused: !target || !from });
-  const intents = q.routes.find((r) => r.venue === "NEAR Intents");
+  const live = q.routes.find((r) => r.venue === "NEAR Intents");
+  // Demo Mode can't always get a live quote for fictional wallets: estimate from catalog prices, labelled as such.
+  const estimate = example && !live && from && target?.price && from.price && Number(amount) > 0 ? (Number(amount) * Number(from.price) / Number(target.price) * 0.997).toFixed(Math.min(6, target.decimals)) : null;
+  const intents = live ?? (estimate ? { venue: "NEAR Intents", output: estimate } : undefined);
   const expectedRaw = (() => { try { return intents && target ? units(intents.output, target.decimals) : null; } catch { return null; } })();
   const yearly = intents && target?.price && apy !== null ? Number(intents.output) * Number(target.price) * apy / 100 : null;
   const over = (() => { try { return !!from && !!bal && units(amount, from.decimals) > BigInt(walletRaw); } catch { return false; } })();
@@ -49,6 +57,11 @@ export function SupplyFundOffer({ tokenId, symbol, apy, owner, example, held, on
   async function start() {
     if (!from || !target) return;
     setBusy(true); setError("");
+    if (example) {
+      const at = new Date().toISOString(), id = demoId();
+      const row: DemoSupplyRow = { id, kind: "supply", updatedAt: 0, payAt: null, supplyAt: null, flow: { id, accountId: owner, tokenId, symbol, decimals: target.decimals, apy, source: { from: from.id, fromSymbol: from.symbol, fromNetwork: NET[from.network] ?? from.network, amount, expectedRaw: expectedRaw?.toString() ?? null }, createdAt: at, updatedAt: at, cancelledAt: null, links: {} } };
+      demoPut(row); setBusy(false); onFlow(id); return;
+    }
     try {
       const r = await api("/api/lend/flows", { op: "create", key: crypto.randomUUID(), tokenId, symbol, apy, from: from.id, amount, expectedRaw: expectedRaw?.toString() ?? null }) as { flow: { id: string } };
       onFlow(r.flow.id);
@@ -57,13 +70,12 @@ export function SupplyFundOffer({ tokenId, symbol, apy, owner, example, held, on
 
   const none = held === null || Number(held) === 0;
   const head = none ? `You don't hold any ${symbol} on NEAR yet` : `You have ${fmtAmount(held)} ${symbol} on NEAR`;
-  if (example) return <div className="fv-fund-offer"><strong>{head}</strong><p>In your own workspace, FlowVault offers to swap something you hold into {symbol} and supply it in one flow. The example workspace can&apos;t sign anything.</p></div>;
   if (!owner) return <div className="fv-fund-offer"><strong>{head}</strong><p>Connect your wallet and FlowVault can swap something you hold into {symbol}, then supply it.</p>{connect && <button type="button" className="fv-button fv-primary" onClick={connect}>Connect wallet</button>}</div>;
   if (tokens.length && !target) return <div className="fv-fund-offer"><strong>{head}</strong><p>NEAR Intents can&apos;t deliver {symbol}, so FlowVault can&apos;t swap into it here. Swap into it on the Swap page, then supply.</p></div>;
   if (holdings.state !== "ready" && !payable.length) return <div className="fv-fund-offer"><strong>{head}</strong><p className="fv-muted"><RefreshCw size={13} className="fv-spin" /> Looking at what you hold…</p></div>;
   if (!payable.length) return <div className="fv-fund-offer"><strong>{head}</strong><p>Nothing in your connected wallets on NEAR, Ethereum, Base or Arbitrum can pay for a swap into {symbol} right now.</p></div>;
 
-  const cta = !from ? "Choose what to pay with" : over ? `That wallet holds ${fmtAmount(walletAmount)} ${from.symbol}` : !sender ? `Connect your ${NET[from.network]} wallet` : q.busy && !intents ? "Getting a quote…" : !intents ? (q.error || "No route for this amount") : `Yes, swap and supply ${symbol}`;
+  const cta = example && from && intents ? `Yes, swap and supply ${symbol} · example` : !from ? "Choose what to pay with" : over ? `That wallet holds ${fmtAmount(walletAmount)} ${from.symbol}` : !sender ? `Connect your ${NET[from.network]} wallet` : q.busy && !intents ? "Getting a quote…" : !intents ? (q.error || "No route for this amount") : `Yes, swap and supply ${symbol}`;
   return <div className="fv-fund-offer is-open">
     <strong>{head}</strong>
     <p className="fv-fund-ask">{from && intents
@@ -77,6 +89,6 @@ export function SupplyFundOffer({ tokenId, symbol, apy, owner, example, held, on
     <ol className="fv-fund-steps"><li><Repeat size={13} /> NEAR Intents delivers {symbol} to {owner.length > 22 ? owner.slice(0, 19) + "…" : owner}</li><li><ArrowRight size={13} /> You sign once to supply exactly what arrived</li></ol>
     {error && <p className="fv-notice" role="alert">{error}</p>}
     <button type="button" className="fv-button fv-primary fv-wide-button" disabled={busy || !from || over || (!!sender && !intents)} onClick={() => (!sender ? connect?.() : void start())}>{busy ? <><RefreshCw size={15} className="fv-spin" /> Starting…</> : cta}</button>
-    <small className="fv-muted">Two approvals in your wallet: the payment, then the supply. Nothing moves until you approve.</small>
+    <small className="fv-muted">{example ? "Example workspace: fictional balances and an estimated rate. The flow is a simulation; nothing is signed." : "Two approvals in your wallet: the payment, then the supply. Nothing moves until you approve."}</small>
   </div>;
 }

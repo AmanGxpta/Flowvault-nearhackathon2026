@@ -81,7 +81,7 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
   const hasMax = !!max && Number(max) > 0;
   // Supplying a token you don't hold: offer the swap instead of an amount you can't fund.
   const offerFund = !!fund && !inline && mode === "earn" && action === "supply" && tokenId !== WRAP;
-  const emptyWallet = !!pos && (() => { try { return units(pos.wallet || "0", pos.decimals) === 0n; } catch { return !(Number(pos.wallet) > 0); } })();
+  const emptyWallet = (fund?.example && !pos) || !!pos && (() => { try { return units(pos.wallet || "0", pos.decimals) === 0n; } catch { return !(Number(pos.wallet) > 0); } })();
   const valid = (() => { try { return !!pos && units(amount, pos.decimals) > 0n; } catch { return false; } })();
 
   async function prepare() {
@@ -146,7 +146,7 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
 
       {phase === "form" && <>
         {!lockAction && <div className={"fv-rhea-tabs" + (actions.length > 2 ? " is-grid" : "")} role="tablist">{actions.map(a => <button type="button" role="tab" key={a} aria-selected={action === a} disabled={disabledAction(a)} onClick={() => { setAction(a); setAmount(""); }}>{TAB[a]}</button>)}</div>}
-        {posError && <p role="alert" className="fv-notice">{posError}</p>}
+        {posError && !fund?.example && <p role="alert" className="fv-notice">{posError}</p>}
         {offerFund && emptyWallet && <SupplyFundOffer tokenId={tokenId} symbol={symbol} apy={rates?.supply ?? null} owner={fund!.owner} example={fund!.example} held={pos?.wallet ?? null} onFlow={fund!.onFlow} connect={fund!.connect} />}
         {!(offerFund && emptyWallet) && <div className="fv-swap-amount fv-rhea-amount">
           <div className="fv-swap-box-head"><label htmlFor="rhea-amount">{SOURCE[action]}</label>

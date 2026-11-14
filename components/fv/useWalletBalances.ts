@@ -5,6 +5,22 @@ import type { Holding } from "./TokenPicker";
 import { useNearHoldings } from "./useNearHoldings";
 import { api } from "./live";
 import { units, decimal } from "@/lib/flowvault/money";
+import { exampleWalletHoldings, EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
+
+const NATIVE: Record<string, string> = { eth: "ETH", base: "ETH", arb: "ETH", op: "ETH", bsc: "BNB", pol: "POL", avax: "AVAX", sol: "SOL", near: "NEAR", gnosis: "XDAI" };
+/** Demo Mode: the example workspace's fictional wallets as balances, matched to catalog tokens. Nothing is read. */
+function exampleBalances(tokens: SwapToken[]) {
+  const balances: Record<string, Holding> = {}, addresses: Record<string, string> = { near: EXAMPLE_NEAR_ACCOUNT };
+  for (const h of exampleWalletHoldings()) {
+    const native = NATIVE[h.network]?.toUpperCase() === h.symbol.toUpperCase();
+    const t = tokens.find(x => x.network === h.network && x.symbol.toUpperCase() === h.symbol.toUpperCase() && (native ? x.contract === "native" : x.contract !== "native"));
+    if (!t) continue;
+    let raw: bigint; try { raw = units(h.amount, t.decimals); } catch { continue; }
+    balances[t.id] = { raw: raw.toString(), amount: decimal(raw, t.decimals), usd: h.usd, account: h.account, largestRaw: raw.toString() };
+    addresses[h.network] ??= h.account;
+  }
+  return { balances, addresses, covered: new Set(Object.keys(addresses)), state: "ready" as const, refresh: async () => {} };
+}
 
 const CHAIN_TO_NETWORK: Record<string, string> = { eth: "eth", base: "base", arb: "arb", solana: "sol" };
 
@@ -12,12 +28,12 @@ const CHAIN_TO_NETWORK: Record<string, string> = { eth: "eth", base: "base", arb
  * research read) plus the ETH/SOL and USDC that the portfolio reads for proven Ethereum, Base, Arbitrum and Solana
  * wallets. Each holding remembers which address holds it, so a swap can send from that wallet. `covered` lists
  * the networks that were actually read; elsewhere a missing balance means "not read", never zero. */
-export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enabled = true) {
-  const near = useNearHoldings(enabled ? nearAccount : "");
+export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enabled = true, example = false) {
+  const near = useNearHoldings(enabled && !example ? nearAccount : "");
   const [evm, setEvm] = useState<{ balances: Record<string, Holding>; addresses: Record<string, string>; covered: string[] }>({ balances: {}, addresses: {}, covered: [] });
   const [tick, setTick] = useState(0);
   const read = useCallback(async () => {
-    if (!enabled || !tokens.length) return;
+    if (!enabled || example || !tokens.length) return;
     try {
       const r = await api("/api/portfolio", undefined, "GET");
       const p = r.portfolio ?? r;
@@ -71,7 +87,7 @@ export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enab
       }
       setEvm({ balances, addresses, covered: [...covered] });
     } catch { /* portfolio unavailable: EVM/Solana balances stay "not read" */ }
-  }, [enabled, tokens]);
+  }, [enabled, example, tokens]);
   useEffect(() => { const t = setTimeout(() => void read(), 0); return () => clearTimeout(t); }, [read, tick]);
   // Keep the form current after a swap: re-read when the tab regains focus and every 30 seconds while open.
   useEffect(() => {
@@ -81,6 +97,7 @@ export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enab
     window.addEventListener("focus", bump);
     return () => { clearInterval(timer); window.removeEventListener("focus", bump); };
   }, [enabled]);
+  if (example) return exampleBalances(tokens);
   const nearBalances: Record<string, Holding> = {};
   for (const [id, h] of Object.entries(near.balances)) nearBalances[id] = { ...h, account: nearAccount };
   const covered = new Set<string>([...evm.covered, ...(near.state === "ready" && nearAccount ? ["near"] : [])]);
