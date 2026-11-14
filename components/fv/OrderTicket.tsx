@@ -66,7 +66,7 @@ export function OrderTicket({ coin, scope, onDraft, example, connect }: { coin: 
       {tp && entry && <div><span>TP profit (est.)</span><strong className="fv-up">{fmtUsd((Number(tp) - entry) * size * (side === "buy" ? 1 : -1))}</strong></div>}
       {sl && entry && <div><span>SL loss (est.)</span><strong className="fv-down">{fmtUsd((Number(sl) - entry) * size * (side === "buy" ? 1 : -1))}</strong></div>}
     </div>
-    {example ? <button type="button" className={"fv-button fv-wide-button fv-ticket-go " + (side === "buy" ? "is-long" : "is-short")} disabled>Example mode can’t trade</button>
+    {example ? <button type="button" className={"fv-button fv-primary fv-wide-button fv-ticket-go " + (side === "buy" ? "is-long" : "is-short")} disabled={!valid} onClick={submit}>Review {side === "buy" ? "long" : "short"} {coin} · example</button>
       : connect ? <button type="button" className="fv-button fv-primary fv-wide-button fv-ticket-go" onClick={connect}><Wallet size={15} /> Connect wallet</button>
       : allReady ? <button type="button" className={"fv-button fv-primary fv-wide-button fv-ticket-go " + (side === "buy" ? "is-long" : "is-short")} disabled={!valid} onClick={submit}>Review {side === "buy" ? "long" : "short"} {coin}</button>
       : <button type="button" className="fv-button fv-wide-button" onClick={() => document.getElementById("fv-perps-review")?.scrollIntoView({ behavior: "smooth" })} disabled={!ready}>{ready ? `Finish setup to trade · ${steps.filter(x => !x.done).length} of ${steps.length} left` : "Checking setup…"}</button>}

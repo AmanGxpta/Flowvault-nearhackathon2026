@@ -14,6 +14,7 @@ import { LockedPreview, PreviewRows } from "./Locked";
 import { Allocation, NftGrid, ProtocolList, SearchBox, TokenList, WalletBar, WalletCards, WalletHeader, money, toHolding, type Nft } from "./portfolio/Holdings";
 import { summarizeWallets, totals, walletNameMap, type HoldingRow } from "@/lib/flowvault/portfolio-view";
 import { PerpsCard } from "./Perps";
+import { DemoPerps } from "./demo/DemoPerps";
 import { VaultsCard } from "./Vaults";
 import { LendingVenues } from "./LendingVenues";
 import { PolicyView } from "./screens/PolicyView";
@@ -183,7 +184,7 @@ export function TradeDesk({ v }: { v: any }) {
   const [shared,setShared] = useState<{title:string;subtitle:string;lines:string[];amount?:string} | null>(null);
   const [draft,setDraft] = useState<OrderDraft | null>(null);
   if (pair.kind === "spot") return <><PageHeading title="Trade" description="Spot tokens on any supported chain and Hyperliquid perps, checked against your limits." action={<Button onClick={v.goPolicy}><SlidersHorizontal size={16} /> Trading permissions</Button>} /><SpotDesk token={pair} picker={picker} buy={id => { const url = new URL(window.location.href); url.searchParams.set("buy", id); history.replaceState(null, "", url); v.navigate("swap"); }} /></>;
-  return <><PageHeading title="Trade" description="Manage your Hyperliquid positions and orders." action={<Button onClick={v.goPolicy}><SlidersHorizontal size={16} /> Trading permissions</Button>} />{v.judge && <p className="fv-notice">The chart shows public mainnet market data. Example mode cannot place orders.</p>}<div className="fv-trade-layout"><MarketPanel initialCoin={market} onCoin={setMarket} picker={picker}/><OrderTicket coin={market} scope={v.lendingScope} example={!!v.judge} onDraft={setDraft} connect={connectTrade}/></div><div id="fv-perps-review"><PerpsCard key={v.lendingScope} scope={v.lendingScope} connect={v.judge ? undefined : openConnect} onNavigate={v.navigate} onShare={setShared} selectedMarket={market} onMarket={setMarket} draft={draft} /></div>{shared && <ShareCard {...shared} example={v.judge} close={() => setShared(null)} />}</>;
+  return <><PageHeading title="Trade" description="Manage your Hyperliquid positions and orders." action={<Button onClick={v.goPolicy}><SlidersHorizontal size={16} /> Trading permissions</Button>} />{v.judge && <p className="fv-demo-note">Example workspace: live Hyperliquid prices with a fictional account. Orders are reviewed against an example mandate and filled by a simulated agent; nothing is real.</p>}<div className="fv-trade-layout"><MarketPanel initialCoin={market} onCoin={setMarket} picker={picker}/><OrderTicket coin={market} scope={v.lendingScope} example={!!v.judge} onDraft={setDraft} connect={connectTrade}/></div><div id="fv-perps-review">{v.judge ? <DemoPerps coin={market} draft={draft} onMarket={setMarket} /> : <PerpsCard key={v.lendingScope} scope={v.lendingScope} connect={v.judge ? undefined : openConnect} onNavigate={v.navigate} onShare={setShared} selectedMarket={market} onMarket={setMarket} draft={draft} />}</div>{shared && <ShareCard {...shared} example={v.judge} close={() => setShared(null)} />}</>;
 }
 export function SwapDesk({ v }: { v: any }) {
   const [tab, setTab] = useState("Swap tokens");
