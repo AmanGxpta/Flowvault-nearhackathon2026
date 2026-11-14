@@ -1031,3 +1031,16 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-invite{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--fvc-5B6458)}.fv-invite span{display:flex;gap:6px}.fv-invite input{flex:1;min-width:0;border:1px solid var(--fvb-DDE1D4);border-radius:9px;padding:7px 9px;font-size:12.5px;background:var(--fvb-F7F8F3);color:var(--fvc-1E2A22)}
 .fv-community-row{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px}
 @media (max-width:860px){.fv-community{grid-template-columns:1fr}}
+/* Notification bell (header) */
+.fv-bell{position:relative}
+.fv-bell-button{position:relative;width:44px;height:44px;display:grid;place-items:center;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF);border-radius:12px;color:var(--fvc-1E2A22);cursor:pointer}
+.fv-bell-dot{position:absolute;top:9px;right:10px;width:8px;height:8px;border-radius:50%;background:var(--fvb-C08A45);box-shadow:0 0 0 2px var(--fvb-FFFFFF)}
+.fv-bell-panel{position:absolute;right:0;top:calc(100% + 6px);z-index:46;width:380px;max-width:calc(100vw - 24px);display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--fvb-F7F8F3);border:1px solid var(--fvb-E3E6DB);border-radius:16px;box-shadow:0 16px 40px rgba(30,42,34,.16)}
+.fv-bell-head{display:flex;align-items:baseline;justify-content:space-between;padding:4px 6px 0}.fv-bell-head strong{font-size:14px}.fv-bell-head small{font-size:12px;color:var(--fvc-8A9285)}
+.fv-bell-list{display:flex;flex-direction:column;max-height:min(420px,calc(100vh - 180px));overflow-y:auto;background:var(--fvb-FFFFFF);border:1px solid var(--fvb-E6E8DF);border-radius:12px}
+.fv-bell-row{display:flex;align-items:flex-start;gap:8px;padding:11px 8px 11px 12px;border-top:1px solid var(--fvb-E6E8DF)}.fv-bell-row:first-child{border-top:none}
+.fv-bell-row .fv-status-dot{margin-top:6px;flex:0 0 auto}.fv-bell-row.is-info .fv-status-dot{background:var(--fvb-A0A79A)}
+.fv-bell-text{flex:1;min-width:0}.fv-bell-text strong{display:block;font-size:13px;line-height:1.35;color:var(--fvc-1E2A22)}.fv-bell-text small{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px;font-size:12px;line-height:1.4;color:var(--fvc-6F786B)}
+.fv-bell-row .fv-icon-button{width:28px;height:28px;flex:0 0 auto;border-radius:8px}
+.fv-bell-empty{margin:0;padding:18px 12px;font-size:13px;color:var(--fvc-6F786B);text-align:center}
+.fv-bell-clear{align-self:flex-end;font-size:12.5px;padding:2px 6px}

@@ -6,6 +6,7 @@ import { MoreHorizontal } from "lucide-react";
 import { tc } from "./theme";
 import { ThemeToggle } from "./ThemeToggle";
 import { ConnectWalletModal, ConnectedWalletRow } from "./WalletConnect";
+import { NotificationBell, notesFrom } from "./NotificationBell";
 import { ConvertNearDialog } from "./ConvertNear";
 import { OverviewView } from "./screens/OverviewView";
 import { CalendarView } from "./screens/CalendarView";
@@ -900,6 +901,7 @@ export function Shell({ v }: { v: any }) {
                 </>
               ) : null}
             </div>
+            <NotificationBell notes={notesFrom(v)} />
           </header>
           <div className="fv-canvas"
             style={{

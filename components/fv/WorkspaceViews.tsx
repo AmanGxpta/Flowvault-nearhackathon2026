@@ -6,7 +6,7 @@ import { OpenSupplyFlows } from "./earn/OpenSupplyFlows";
 import { PairPicker, type Pair } from "./PairPicker";
 import { SpotDesk } from "./SpotDesk";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
-import { ArrowDownUp, ArrowUpRight, BarChart3, Wallet, Search, SlidersHorizontal, Plus, X, ChevronDown, ChevronRight, Send, Sprout, Activity, Share2, Download, Landmark, TrendingUp } from "lucide-react";
+import { ArrowDownUp, ArrowUpRight, BarChart3, Wallet, Search, SlidersHorizontal, Plus, X, ChevronRight, Send, Sprout, Activity, Share2, Download, Landmark, TrendingUp } from "lucide-react";
 import { MarketPanel } from "./MarketPanel";
 import { TokenIcon, tokenLogo } from "./AssetIdentity";
 import { Skel } from "./Skel";
@@ -84,10 +84,9 @@ export function PortfolioHome({ v }: { v: any }) {
   const [query, setQuery] = useState("");
   const [network, setNetwork] = useState("");
   const [wallet, setWallet] = useState("");
-  const [accounts, setAccounts] = useState(false), [snapshot, setSnapshot] = useState(false), [gapsOpen, setGapsOpen] = useState(false);
+  const [accounts, setAccounts] = useState(false), [snapshot, setSnapshot] = useState(false);
   const raw = (v.pfRows ?? []).filter((r: any) => r.ownership !== "watched");
   const all = raw.filter((r: any) => !r.status);
-  const gaps = raw.filter((r: any) => r.status);
   // Empty balances (0, or dust worth $0.00 with no quantity) are noise once many wallets are connected.
   const holdings: HoldingRow[] = all.map(toHolding).filter((h: HoldingRow) => !(h.usd === 0 && Math.abs(h.quantity ?? 0) < 1e-9));
   const walletNames = walletNameMap(holdings);
@@ -115,9 +114,6 @@ export function PortfolioHome({ v }: { v: any }) {
       {i === 0 && (t.tokens > 0 || t.defi > 0) ? <div className="fv-summary-split"><span>Tokens <b>{money(t.tokens)}</b></span>{t.defi > 0 && <span>DeFi <b>{money(t.defi)}</b></span>}{t.debt > 0 && <span>Debt <b>−{money(t.debt)}</b></span>}{nftFloor > 0 && <span title="Floor estimate, not counted">NFTs <b>≈{money(nftFloor)}</b></span>}</div> : <small>{b.sub}</small>}</section>)}</div>
     <div className="fv-quick-actions"><Button primary onClick={() => v.navigate("swap")}><ArrowDownUp size={17} /> Swap</Button><Button onClick={v.goPay}><Send size={17} /> Send</Button><Button onClick={v.goStrategies}><Sprout size={17} /> Earn</Button><Button onClick={() => v.navigate("research")}><BarChart3 size={17} /> Markets</Button><Button disabled={!all.length} onClick={() => setSnapshot(true)}><Share2 size={16} /> Share snapshot</Button><Button onClick={v.goCalendar}>Scheduled payments <ChevronRight size={15} /></Button></div>
     {snapshot && <ShareCard title="My treasury, with a plan" subtitle={(v.upcoming?.length ? v.upcoming.length + " scheduled payment" + (v.upcoming.length === 1 ? "" : "s") + " planned" : "Every move checked against my limits") + " · FlowVault"} lines={allocation(all)} amount={summary[0]?.value} example={v.judge} close={() => setSnapshot(false)} />}
-    {v.rec && !["READING", "IDLE", "LIQUID"].includes(v.rec.tag) && <details className="fv-attention"><summary><span><span className="fv-status-dot" />{v.rec.title}</span><span>Review <ChevronRight size={15} /></span></summary><p>{v.rec.body}</p><Button onClick={v.rec.onClick}>{v.rec.cta}</Button></details>}
-    {gaps.length > 0 && <section className="fv-coverage" role="status"><button type="button" aria-expanded={gapsOpen} onClick={() => setGapsOpen(!gapsOpen)}><span className="fv-status-dot" /><span>{gaps.length === 1 ? gaps[0].name : gaps.length + " parts of your portfolio aren’t fully read"}</span><small>{gaps.every((g: any) => g.tag === "PARTIAL") ? "The total shows what’s read so far" : "Not counted until they read"}</small>{gapsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
-      {gapsOpen && <ul>{gaps.map((g: any, i: number) => <li key={i}><strong>{g.name}</strong><small>{g.sub}</small></li>)}</ul>}</section>}
     {!openWallet && <TodayCards key={String(!!v.judge)} owner={v.acc ?? ""} example={!!v.judge} navigate={v.navigate} />}
     {!openWallet && <Community key={"c" + String(!!v.judge)} example={!!v.judge} signedIn={!!v.acc && !v.judge} navigate={v.navigate} />}
     {openWallet && <WalletBar wallets={wallets} value={wallet} set={pickWallet} />}
