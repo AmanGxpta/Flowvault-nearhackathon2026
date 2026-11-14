@@ -1,28 +1,22 @@
 "use client";
 // Light/dark switch. The light palette is the design's own (fv.css :root tokens); dark is the mapped set.
-// No saved choice → follow the system. A saved choice is applied before first paint by the script in
-// app/layout.tsx (THEME_BOOT), so there is no flash of the other theme.
+// Everyone starts in light; dark only after choosing it here (saved in this browser). The theme is applied before
+// first paint by the script in app/layout.tsx (THEME_BOOT), so there is no flash of the other theme.
 import { useSyncExternalStore } from "react";
 
 export const THEME_KEY = "fv-theme";
 type Theme = "light" | "dark";
 
 const listeners = new Set<() => void>();
-const DARK = "(prefers-color-scheme: dark)";
 
-/** The theme on screen: an explicit data-theme wins, otherwise the system preference. */
+/** The theme on screen: dark only when it was chosen, otherwise light (the system preference is not followed). */
 function current(): Theme {
-  const set = document.documentElement.getAttribute("data-theme");
-  if (set === "light" || set === "dark") return set;
-  return window.matchMedia?.(DARK).matches ? "dark" : "light";
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
 function subscribe(onChange: () => void) {
   listeners.add(onChange);
-  const mq = window.matchMedia?.(DARK);
-  mq?.addEventListener?.("change", onChange); // follows the system until the owner chooses
   return () => {
     listeners.delete(onChange);
-    mq?.removeEventListener?.("change", onChange);
   };
 }
 
