@@ -3,7 +3,7 @@
 // get, and FlowVault proposes which holdings to draw from (cheap chains first). Every holding is a checkbox you can
 // untick, re-order or resize; a running total turns green once the target is met, and the gas each chain costs is
 // right there so you can trade a little convenience for less gas. Review opens the live run (see CollectRun).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, CircleAlert, Send, Sparkles } from "lucide-react";
 import { TokenIcon } from "../AssetIdentity";
 import { coreIdentity, useTokenCatalog } from "../useTokenCatalog";
@@ -34,7 +34,7 @@ export function validRecipient(network: string, a: string) {
 const NATIVE: Record<string, string> = { eth: "ETH", base: "ETH", arb: "ETH", op: "ETH", bsc: "BNB", pol: "POL", avax: "AVAX", sol: "SOL", near: "NEAR" };
 const short = (a: string) => (a.length > 16 ? a.slice(0, 6) + "…" + a.slice(-4) : a);
 
-export function CollectSend({ owner: liveOwner, example, connect }: { owner: string; example: boolean; connect?: () => void }) {
+export function CollectSend({ owner: liveOwner, example, connect, needsNear }: { owner: string; example: boolean; connect?: () => void; /** Another wallet is connected but not NEAR: why sending still needs it. */ needsNear?: ReactNode }) {
   const owner = example ? EXAMPLE_NEAR_ACCOUNT : liveOwner;
   const { tokens } = useTokenCatalog();
   const holdings = useWalletBalances(owner, tokens, !!owner, example);
@@ -68,10 +68,11 @@ export function CollectSend({ owner: liveOwner, example, connect }: { owner: str
   const recipientOk = destToken ? validRecipient(destToken.network, recipient.trim()) : false;
   const destName = DESTINATIONS[dest].symbol + " on " + NET_NAME[DESTINATIONS[dest].network];
   const deliverAmt = destToken?.price ? sum.deliveredUsd / Number(destToken.price) : null;
-  const cta = !owner ? { label: "Connect your wallets", onClick: connect } : !targetUsd ? { label: "Enter an amount" } : !recipientOk ? { label: `Enter a ${NET_NAME[DESTINATIONS[dest].network]} address to send to` } : !sum.complete ? { label: `Short by ${fmtUsd(sum.shortUsd)}: add a source` } : { label: `Review ${sum.legs.length} transfer${sum.legs.length === 1 ? "" : "s"} and send${example ? " · example" : ""}`, onClick: () => setRun(sum.legs.map((l) => ({ ...l, source: sources.find((s) => s.key === l.key)! }))) };
+  const cta = !owner ? (needsNear ? { label: "Connect your NEAR wallet to send" } : { label: "Connect your wallets", onClick: connect }) : !targetUsd ? { label: "Enter an amount" } : !recipientOk ? { label: `Enter a ${NET_NAME[DESTINATIONS[dest].network]} address to send to` } : !sum.complete ? { label: `Short by ${fmtUsd(sum.shortUsd)}: add a source` } : { label: `Review ${sum.legs.length} transfer${sum.legs.length === 1 ? "" : "s"} and send${example ? " · example" : ""}`, onClick: () => setRun(sum.legs.map((l) => ({ ...l, source: sources.find((s) => s.key === l.key)! }))) };
 
   if (run && destToken) return <CollectRun legs={run} dest={destToken} recipient={recipient.trim()} target={amount} owner={owner} example={example} back={() => setRun(null)} />;
   return <div className="fv-collect">
+    {!owner && needsNear}
     <section className="fv-panel fv-collect-target">
       <div className="fv-section-head"><h2>Collect from many chains, send once</h2>{example && <span className="fv-flow-badge is-turn">Example</span>}</div>
       <p className="fv-muted">Pick what the recipient should get. FlowVault draws it from the holdings you choose across your wallets; each one goes straight to the recipient through NEAR Intents.</p>

@@ -1400,3 +1400,11 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-pos-lev{font-style:normal;font-weight:600;font-size:12px;padding:3px 9px;border-radius:7px;background:var(--fvb-EEF0E8);align-self:flex-start}
 .fv-pos-liq{color:var(--fvc-8A5F25)}
 .fv-pos-actions{flex-direction:row!important;gap:6px}.fv-pos-actions .fv-button{padding:5px 9px;font-size:12px;white-space:nowrap}
+/* Send without a NEAR sign-in: why sending still needs it, instead of a bare wallet selector. */
+.fv-send-near{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px 14px;align-items:center;margin-top:16px;padding:16px 18px;border-radius:14px;border:1px solid var(--fvb-DCE4D0);background:var(--fvb-F4F7EE)}
+.fv-send-near>svg{color:var(--fvc-3F6B3C);align-self:start;margin-top:2px}
+.fv-send-near strong{display:block;font-size:14.5px}
+.fv-send-near p{margin:4px 0 0;font-size:13px;line-height:1.55;color:var(--fvc-5B6458);max-width:72ch}
+.fv-send-near>span{display:flex;align-items:center;gap:6px}
+.fv-collect>.fv-send-near{margin-top:0}
+@media(max-width:760px){.fv-send-near{grid-template-columns:auto minmax(0,1fr)}.fv-send-near>span{grid-column:1/-1}}

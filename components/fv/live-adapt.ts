@@ -529,6 +529,13 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   }
   // First-run "Connect wallet": a connected NEAR wallet whose proof was declined is asked to sign again.
   out.connectFirst = () => (snap.walletAccount && snap.nearProof?.state === "declined" ? self.liveCall(() => acts0.proveNear()) : openConnect());
+  // Sending (New payment, Collect & send) is saved with and checked against the NEAR account, so another wallet
+  // alone can't send. With one connected, Send explains that and offers the NEAR wallet instead of jumping to it.
+  out.sendNeedsNear = !example && !snap.signedIn && nLive > 0;
+  out.sendWalletName = sessions[0]?.walletName ?? (nearLive ? "NEAR" : "");
+  out.connectNear = () => (snap.walletAccount ? self.liveCall(() => acts0.proveNear()) : self.liveCall(() => acts0.connect()));
+  // No wallet at all: FlowVault's own connect dialog, never the bare NEAR selector.
+  out.openSendNow = () => (example || snap.signedIn ? v.openSendNow() : nLive > 0 ? undefined : openConnect());
   out.walletApprove = () => self.toastMsg(readOnly ? "Connect the wallet that owns " + (acct || "this account") + " first. Nothing was signed." : "Use the dialog’s approve button. Nothing was signed.");
   }
 
