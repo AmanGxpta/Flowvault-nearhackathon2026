@@ -1291,3 +1291,4 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-locked-row>i{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:700;font-size:12px;background:var(--fvb-E2EAD6);color:var(--fvc-2F552D);flex:0 0 auto}
 .fv-locked-row>span{flex:1;display:flex;flex-direction:column}.fv-locked-row small{color:var(--fvc-6F786B);font-size:12px}.fv-locked-row b{font-variant-numeric:tabular-nums}
 .fv-tab-lock{margin-right:5px;vertical-align:-1px;opacity:.7}
+.fv-demo-note{margin:10px 0 0;padding:9px 12px;border-radius:10px;background:var(--fvb-FBF6EE);border:1px solid var(--fvb-EBD9BF);color:var(--fvc-7A521E);font-size:12.5px;line-height:1.45}

@@ -60,6 +60,7 @@ export class DesignApp extends Component<any, any> {
     return s;
   }
   componentDidMount() {
+    try { if (sessionStorage.getItem('fv-demo-mode') === '1' && this.state.ws !== 'demo') setTimeout(() => this.setWorkspace('demo'), 0); } catch (e) {}
     const known = ['portfolio','hub','swap','strategies','credit','trade','research','activity','calendar','policy','pay','replays','roadmap','opps','protection'];
     const readRoute = () => { const raw = new URL(window.location.href).searchParams.get('view') || ''; const view = VIEW_ALIASES[raw] ?? raw; this.setState({ screen: known.includes(view) ? view : 'hub' }); }; // Research is where everyone starts
     readRoute(); this.onPopState = readRoute; window.addEventListener('popstate', readRoute);
@@ -98,6 +99,8 @@ export class DesignApp extends Component<any, any> {
   setWorkspace(ws: any) {
     const s = this.state; if (s.ws === ws) return this.setState({ menu: null });
     ACC = ws === 'demo' ? DEMO_ACC : LIVE_ACC;
+    // Demo Mode survives a reload in this tab, so a judge who refreshes stays in the example workspace.
+    try { if (ws === 'demo') sessionStorage.setItem('fv-demo-mode', '1'); else sessionStorage.removeItem('fv-demo-mode'); } catch (e) {}
     this.setState({ ...this.wsData(ws), ws, judge: ws === 'demo', modal: null, replay: null, menu: null, pay: null, op: null, polTest: null, creditRes: null, cmpRes: null, stakeQuote: null, asst: { ...s.asst, msgs: [] } });
     if (this.props.actions) this.liveCall(() => this.props.actions.setMode(ws));
     this.toastMsg(ws === 'demo' ? 'Demo Mode: the fictional example workspace. Your personal workspace is untouched.' : 'Back in your personal workspace.');

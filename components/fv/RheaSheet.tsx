@@ -8,7 +8,10 @@ import type { HazardCheck } from "@/lib/flowvault/policy";
 import { ReviewFrame } from "./ReviewFrame";
 import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw, Wallet } from "lucide-react";
 import { TokenIcon } from "./AssetIdentity";
-import { api } from "./live";
+import { api, getScope } from "./live";
+import { demoLedger, saveDemoLedger, simulateApproval, useDemoLedger, useDemoMarkets } from "./demo/ledger-store";
+import { applyRhea, borrowCapacity, rheaHealth, STRESS, GAS_RESERVE_NEAR, type DemoLedger, type Markets } from "@/lib/flowvault/demo-ledger";
+import { exampleChecks } from "@/lib/flowvault/demo-sim";
 import { fmtAmount, fmtUsd } from "./swap-format";
 import { signRhea } from "@/lib/flowvault/wallet";
 import type { WalletAttempt } from "@/lib/flowvault/execution";
@@ -34,6 +37,23 @@ const TAB: Record<Action, string> = { supply: "Supply", withdraw: "Withdraw", co
 const SOURCE: Record<Action, string> = { supply: "From your wallet", collateral_add: "From your wallet", repay: "From your wallet", withdraw: "From your Rhea supply", collateral_release: "From your Rhea collateral", borrow: "Paid to your wallet" };
 
 export type RheaAction = Action;
+const healthText = (h: number | null) => h === null ? "no debt" : h >= 100 ? "100+" : h.toFixed(2);
+/** Demo Mode: the position the real read would return, from the example ledger and today's Rhea markets. */
+function demoPosition(l: DemoLedger, m: Markets, rows: { token: string; canSupply?: boolean; canBorrow?: boolean; ltv: number | null }[], token: string): Position | null {
+  const k = m[token]; if (!k) return null;
+  const row = rows.find((r) => r.token === token), p = l.rhea[token] ?? { supplied: 0, collateral: 0, borrowed: 0 }, w = l.wallet[token] ?? 0;
+  const s = (n: number) => String(Math.max(0, Math.round(n * 1e6) / 1e6));
+  return { symbol: k.symbol, decimals: k.decimals, priced: k.price !== null, wallet: token === WRAP ? "0" : s(w), nativeNear: token === WRAP ? s(w - GAS_RESERVE_NEAR) : "0", supplied: s(p.supplied), collateral: s(p.collateral), borrowed: s(p.borrowed), available: s(k.liquidity),
+    canDeposit: row?.canSupply !== false, canWithdraw: true, canCollateral: !!row?.ltv, canBorrow: row?.canBorrow !== false, health: healthText(rheaHealth(l, m)), otherPositions: [] };
+}
+const DEMO_STEPS: Record<Action, (token: string, native: boolean) => { receiver: string; methods: string[] }[]> = {
+  supply: (t, n) => n ? [{ receiver: WRAP, methods: ["near_deposit", "ft_transfer_call"] }] : [{ receiver: t, methods: ["ft_transfer_call"] }],
+  collateral_add: (t, n) => n ? [{ receiver: WRAP, methods: ["near_deposit", "ft_transfer_call"] }] : [{ receiver: t, methods: ["ft_transfer_call"] }],
+  repay: (t, n) => n ? [{ receiver: WRAP, methods: ["near_deposit", "ft_transfer_call"] }] : [{ receiver: t, methods: ["ft_transfer_call"] }],
+  withdraw: (_t, n) => [{ receiver: "contract.main.burrow.near", methods: ["execute_with_pyth"] }, ...(n ? [{ receiver: WRAP, methods: ["near_withdraw"] }] : [])],
+  collateral_release: (_t, n) => [{ receiver: "contract.main.burrow.near", methods: ["execute_with_pyth"] }, ...(n ? [{ receiver: WRAP, methods: ["near_withdraw"] }] : [])],
+  borrow: (_t, n) => [{ receiver: "contract.main.burrow.near", methods: ["execute_with_pyth"] }, ...(n ? [{ receiver: WRAP, methods: ["near_withdraw"] }] : [])],
+};
 export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, onSettled, inline, initialAmount, draftKey, onDraft, onAttempt, disabledReason, lockAction, fund }: { tokenId: string; symbol: string; icon?: string | null; mode: "earn" | "borrow"; initial?: Action; rates?: { supply: number | null; borrow: number | null }; close: () => void; onSettled?: () => void;
   /** Show only the initial action (a flow step), without the action tabs. */
   lockAction?: boolean;
@@ -42,6 +62,9 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
   /** Ask FlowVault: render inside a chat card, start from the card's draft, report the owner's edits and the prepared attempt. */
   inline?: boolean; initialAmount?: string | null; draftKey?: string; onDraft?: (d: { action: Action; amount: string }) => void; onAttempt?: (a: WalletAttempt) => void; disabledReason?: string | null }) {
   const actions: Action[] = mode === "earn" ? ["supply", "withdraw"] : ["borrow", "repay", "collateral_add", "collateral_release"];
+  // Demo Mode plays every action against the example ledger: same form, review and hazard scan, a simulated wallet.
+  const [example] = useState(() => fund?.example ?? getScope() === "example");
+  const ledger = useDemoLedger(example), markets = useDemoMarkets(example);
   const [action, setAction] = useState<Action>(initial ?? actions[0]);
   const [pos, setPos] = useState<Position | null>(null), [posError, setPosError] = useState("");
   const [amount, setAmount] = useState(initialAmount ?? ""), [native, setNative] = useState(tokenId === WRAP), [debtOk, setDebtOk] = useState(false);
@@ -66,7 +89,10 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
     return () => clearTimeout(t);
   }, [action, amount]);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
-  const load = useCallback(() => api("/api/lend?token=" + encodeURIComponent(tokenId), undefined, "GET").then(p => { if (alive.current) { setPos(p as Position); setPosError(""); } }).catch(e => { if (alive.current) setPosError((e as Error).message); }), [tokenId]);
+  const load = useCallback(() => example ? Promise.resolve() : api("/api/lend?token=" + encodeURIComponent(tokenId), undefined, "GET").then(p => { if (alive.current) { setPos(p as Position); setPosError(""); } }).catch(e => { if (alive.current) setPosError((e as Error).message); }), [tokenId, example]);
+  useEffect(() => { if (!example || !ledger || !markets) return; const t = setTimeout(() => setPos(demoPosition(ledger, markets.m, markets.rows, tokenId)), 0); return () => clearTimeout(t); }, [example, ledger, markets, tokenId]);
+  const demoCap = example && ledger && markets ? borrowCapacity(ledger, markets.m, tokenId) : null;
+  const shownRates = rates ?? (example && markets?.m[tokenId] ? { supply: markets.m[tokenId].supplyApr, borrow: markets.m[tokenId].borrowApr } : undefined);
   useEffect(() => { const t = setTimeout(() => void load(), 0); return () => clearTimeout(t); }, [load]);
   useEffect(() => {
     if (inline) return;
@@ -88,11 +114,53 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
 
   async function prepare() {
     setPhase("preparing"); setError("");
+    if (example) return demoPrepare();
     try {
       const r = await api("/api/lend", { op: "prepare", action, tokenId, amount, native: tokenId === WRAP && native, ...(action === "borrow" ? { approveNewDebt: debtOk } : {}) }) as Prepared;
       if (!alive.current) return;
       setPrep(r); setAttempt(r.attempt); setPhase("review"); onAttempt?.(r.attempt);
     } catch (e) { if (alive.current) { setError((e as Error).message); setPhase("error"); } }
+  }
+  /** Demo Mode review: the change applied to the example ledger, with health before and after and the hazard scan. */
+  async function demoPrepare() {
+    await new Promise((r) => setTimeout(r, 600));
+    try {
+      if (!markets) throw new Error("Reading today's Rhea markets…");
+      const l = demoLedger(), m = markets.m, k = m[tokenId], n = Number(amount);
+      const next = applyRhea(l, m, action, tokenId, n);
+      const before = rheaHealth(l, m), after = rheaHealth(next, m), stressed = rheaHealth(next, m, STRESS);
+      const usd = n * (k?.price ?? 0), id = "demo-rhea-" + crypto.randomUUID();
+      const extra = [
+        ...(action === "borrow" || action === "collateral_release" ? [{ id: "health", label: `Health stays above 1.2 after a 30% price drop (${healthText(stressed)})`, ok: true }] : action === "repay" ? [{ id: "health", label: "Repaying only raises your health", ok: true }] : [{ id: "health", label: before === null ? "No debt: nothing can be liquidated" : `Health ${healthText(before)} → ${healthText(after)}`, ok: true }]),
+        { id: "oracle", label: "Priced by Rhea's own oracle", ok: true },
+        ...(action === "borrow" ? [{ id: "debt", label: "New debt confirmed by you", ok: true }] : []),
+      ];
+      const r: Prepared = {
+        attempt: { id, state: "prepared", message: "", hashes: [] } as unknown as WalletAttempt,
+        review: { action, symbol, amount, usdValue: usd.toFixed(2), healthBefore: healthText(before), healthAfter: healthText(after), stressedAfter: stressed === null ? null : healthText(stressed), gasNearBound: DEMO_STEPS[action](tokenId, tokenId === WRAP && native).length > 1 ? "0.06" : "0.03", steps: DEMO_STEPS[action](tokenId, tokenId === WRAP && native), expiresAt: new Date(Date.now() + 120_000).toISOString(), newDebt: action === "borrow" && !(l.rhea[tokenId]?.borrowed) },
+        policy: { allowed: true, violations: [], missingEntries: [], revision: 0, version: 3, checks: exampleChecks(usd, extra) },
+      };
+      if (!alive.current) return;
+      setPrep(r); setAttempt(r.attempt); setPhase("review");
+    } catch (e) { if (alive.current) { setError((e as Error).message); setPhase("error"); } }
+  }
+  /** Demo Mode approval: the example wallet "signs", the transactions settle, then the ledger changes. */
+  function demoApprove() {
+    if (!prep) return;
+    const x = `${fmtAmount(amount)} ${shown}`, id = prep.attempt.id;
+    const did = { supply: `Supplied ${x} to Rhea`, withdraw: `Withdrew ${x} from Rhea`, collateral_add: `Added ${x} as collateral on Rhea`, collateral_release: `Released ${x} of collateral on Rhea`, borrow: `Borrowed ${x} on Rhea`, repay: `Repaid ${x} on Rhea` }[action];
+    setError("");
+    simulateApproval(id, {
+      wallet: () => setPhase("wallet"),
+      submitted: (h) => { if (!alive.current) return; setAttempt({ ...prep.attempt, state: "submitted", hashes: [h], message: "Example: settling on NEAR…" } as WalletAttempt); setPhase("settling"); },
+      landed: (h) => {
+        try { saveDemoLedger(applyRhea(demoLedger(), markets!.m, action, tokenId, Number(amount))); }
+        catch (e) { if (alive.current) { setError((e as Error).message); setPhase("error"); } return; }
+        if (!alive.current) return;
+        setAttempt({ ...prep.attempt, state: "confirmed", hashes: [h], message: `Example: ${did}. Nothing was signed; the example balances changed.` } as WalletAttempt);
+        setPhase("done"); onSettled?.();
+      },
+    });
   }
   async function allow() {
     if (!prep) return;
@@ -110,6 +178,7 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
   }
   async function approve() {
     if (!prep) return;
+    if (example) return demoApprove();
     const id = prep.attempt.id, url = new URL(window.location.href);
     setError(""); setPhase("wallet");
     let authorized = false, opened = false;
@@ -143,8 +212,8 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
   return <ReviewFrame inline={inline} busy={busy} close={close} className={"fv-dialog fv-swap-confirm fv-rhea-sheet is-" + phase} label={LABEL[action] + " " + symbol}>
       {!busy && !inline && <button type="button" className="fv-icon-button fv-confirm-close" aria-label="Close" onClick={close}><X size={18} /></button>}
       <div className="fv-confirm-pair"><TokenIcon symbol={symbol} image={icon ?? undefined} network="near" core={["USDC", "USDT", "USDt", "NEAR", "wNEAR"].includes(symbol)} size={52} /></div>
-      <h2>{phase === "form" ? `${tokenId === WRAP ? "NEAR" : symbol} on Rhea` : phase === "preparing" ? "Checking" : phase === "allowing" ? "Updating your policy" : phase === "wallet" ? "Confirm in your wallet" : phase === "settling" ? "Settling on NEAR" : phase === "done" ? "Done" : phase === "failed" ? "Didn’t complete" : phase === "error" ? "Not sent" : `${LABEL[action]} ${fmtAmount(amount)} ${shown}`}</h2>
-      <p className="fv-confirm-sub">{phase === "form" ? `Supply APY ${pct(rates?.supply)} · Borrow APY ${pct(rates?.borrow)} · variable` : phase === "preparing" ? "Fresh balances, prices, health, liquidity and your limits." : phase === "wallet" ? "Approve the transactions in your wallet. This card stays until NEAR finalizes them." : phase === "settling" ? "Waiting for final receipts." : phase === "done" || phase === "failed" ? attempt?.message : phase === "error" ? error : "Exact transactions, checked against your limits before your wallet opens."}</p>
+      <h2>{phase === "form" ? `${tokenId === WRAP ? "NEAR" : symbol} on Rhea` : phase === "preparing" ? "Checking" : phase === "allowing" ? "Updating your policy" : phase === "wallet" ? (example ? "Example wallet approving…" : "Confirm in your wallet") : phase === "settling" ? "Settling on NEAR" : phase === "done" ? "Done" : phase === "failed" ? "Didn’t complete" : phase === "error" ? "Not sent" : `${LABEL[action]} ${fmtAmount(amount)} ${shown}`}</h2>
+      <p className="fv-confirm-sub">{phase === "form" ? `Supply APY ${pct(shownRates?.supply)} · Borrow APY ${pct(shownRates?.borrow)} · variable` : phase === "preparing" ? "Fresh balances, prices, health, liquidity and your limits." : phase === "wallet" ? "Approve the transactions in your wallet. This card stays until NEAR finalizes them." : phase === "settling" ? "Waiting for final receipts." : phase === "done" || phase === "failed" ? attempt?.message : phase === "error" ? error : "Exact transactions, checked against your limits before your wallet opens."}</p>
 
       {phase === "form" && <>
         {!lockAction && <div className={"fv-rhea-tabs" + (actions.length > 2 ? " is-grid" : "")} role="tablist">{actions.map(a => <button type="button" role="tab" key={a} aria-selected={action === a} disabled={disabledAction(a)} onClick={() => { setAction(a); setAmount(""); }}>{TAB[a]}</button>)}</div>}
@@ -165,7 +234,9 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
             <div><span>Health now</span><strong>{pos?.health ?? "…"}</strong></div>
           </>}
           <div><span>Rhea liquidity</span><strong>{pos ? `${fmtAmount(pos.available)} ${unit}` : "…"}</strong></div>
+          {example && mode === "borrow" && demoCap !== null && <div><span>You can borrow</span><strong>{fmtAmount(String(Math.floor(demoCap * 1e4) / 1e4))} {unit} <small>· health ≥ 1.2 after a 30% drop</small></strong></div>}
         </div>
+        {example && <p className="fv-demo-note">Example workspace: fictional balances at today’s Rhea rates. Approving plays the wallet step as a simulation; nothing is signed.</p>}
         {pos && !pos.priced && <p className="fv-notice">Rhea’s oracle has no verified price for {symbol} right now, so FlowVault can’t check your limits. Try again shortly.</p>}
         {tokenId === WRAP && <label className="fv-rhea-check"><input type="checkbox" checked={native} onChange={e => setNative(e.target.checked)} /><span>{action === "repay" ? "Repay from native NEAR" : "Use native NEAR"}<small>{action === "supply" || action === "collateral_add" || action === "repay" ? "Wraps it to wNEAR in the same transaction." : "Unwraps the wNEAR Rhea pays out."}</small></span></label>}
         {action === "borrow" && <label className="fv-rhea-check is-warn"><input type="checkbox" checked={debtOk} onChange={e => setDebtOk(e.target.checked)} /><span>I’m taking on new debt<small>It accrues variable interest, and your collateral can be liquidated if prices fall.</small></span></label>}
@@ -187,14 +258,15 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
         : <div className="fv-policy-check is-blocked"><ShieldAlert size={17} /><div><strong>{fixable ? `Rhea ${symbol} isn’t in your policy yet` : "Your policy blocks this"}</strong>
           {!prep.policy.checks?.length && <ul>{prep.policy.violations.slice(0, 4).map(v => <li key={v.code + v.message}>{v.message}</li>)}</ul>}
           {fixable && <small>Allowing adds exactly: {prep.policy.missingEntries.map(e => e.label).join("; ") || `${symbol} for this use`}. Nothing else changes.</small>}</div></div>)}
-      {phase === "settling" && <div className="fv-confirm-hashes">{attempt?.hashes.map(h => <a key={h} href={"https://nearblocks.io/txns/" + h} target="_blank" rel="noopener noreferrer">{h.slice(0, 8)}…{h.slice(-6)} <ExternalLink size={12} /></a>)}</div>}
-      {phase === "done" && <div className="fv-confirm-success"><Check size={18} /> {attempt?.message}<div className="fv-confirm-hashes">{attempt?.hashes.slice(-1).map(h => <a key={h} href={"https://nearblocks.io/txns/" + h} target="_blank" rel="noopener noreferrer">View transaction <ExternalLink size={12} /></a>)}</div></div>}
+      {phase === "settling" && example && <div className="fv-confirm-hashes">{attempt?.hashes.map(h => <span key={h} className="fv-demo-hash">{h} (example, not on chain)</span>)}</div>}
+      {phase === "settling" && !example && <div className="fv-confirm-hashes">{attempt?.hashes.map(h => <a key={h} href={"https://nearblocks.io/txns/" + h} target="_blank" rel="noopener noreferrer">{h.slice(0, 8)}…{h.slice(-6)} <ExternalLink size={12} /></a>)}</div>}
+      {phase === "done" && <div className="fv-confirm-success"><Check size={18} /> {attempt?.message}<div className="fv-confirm-hashes">{example ? attempt?.hashes.slice(-1).map(h => <span key={h} className="fv-demo-hash">{h} (example)</span>) : attempt?.hashes.slice(-1).map(h => <a key={h} href={"https://nearblocks.io/txns/" + h} target="_blank" rel="noopener noreferrer">View transaction <ExternalLink size={12} /></a>)}</div></div>}
       {error && phase === "review" && <p role="alert" className="fv-notice">{error}</p>}
 
       {phase !== "form" && <div className="fv-confirm-actions">
         {phase === "review" && (left === 0 ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void prepare()}><RefreshCw size={15} /> Expired · check again</button>
           : blocked ? (fixable ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void allow()}><ShieldCheck size={15} /> Allow and continue</button> : <button type="button" className="fv-button fv-wide-button" onClick={() => setPhase("form")}>Back</button>)
-          : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void approve()}>Approve in wallet · {left}s</button>)}
+          : <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void approve()}>Approve in wallet{example ? " · example" : ""} · {left}s</button>)}
         {(phase === "preparing" || phase === "allowing") && <button type="button" className="fv-button fv-primary fv-wide-button" disabled><RefreshCw size={15} className="fv-spin" /> {phase === "allowing" ? "Saving a new policy revision…" : "Checking…"}</button>}
         {(phase === "done" || phase === "failed") && <button type="button" className="fv-button fv-primary fv-wide-button" onClick={close}>Done</button>}
         {phase === "error" && <div className="fv-actions"><button type="button" className="fv-button" onClick={() => setPhase("form")}>Back</button><button type="button" className="fv-button fv-primary" onClick={() => void prepare()}>Try again</button></div>}

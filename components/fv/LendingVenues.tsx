@@ -13,6 +13,9 @@ import { openPlan } from "./PlanDock";
 import { TokenIcon } from "./AssetIdentity";
 import { RheaSheet, type RheaAction } from "./RheaSheet";
 import { ago, fmtAmount } from "./swap-format";
+import { demoLedger, demoMarkets } from "./demo/ledger-store";
+import { demoLendingSnapshot } from "@/lib/flowvault/demo-ledger";
+import { EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
 
 const MARKETS = [{id:"rhea",name:"Rhea",network:"NEAR",symbol:"RHEA"},{id:"eth",name:"Aave v3",network:"Ethereum",symbol:"ETH"},{id:"base",name:"Aave v3",network:"Base",symbol:"ETH"},{id:"arb",name:"Aave v3",network:"Arbitrum",symbol:"ETH"}];
 const short = (s:string) => s.length > 22 ? s.slice(0,10)+"…"+s.slice(-6) : s;
@@ -39,6 +42,13 @@ export function LendingVenues({ scope, accounts = [], expanded = false, hideSale
     if(venue!=="rhea" && !account){setBusy(false);setSnapshot(null);setMessage("");return;}
     setBusy(true);setMessage("");setNoticeKind("read");
     try {
+      // Demo Mode: the example ledger's Rhea account at today's markets, in the live snapshot's shape.
+      if(scope==="example"){
+        if(venue!=="rhea"){setSnapshot(null);setMessage("The example workspace borrows on Rhea. Aave v3 works with your own verified Ethereum, Base or Arbitrum wallet.");return;}
+        const {m,rows}=await demoMarkets();
+        if(version!==request.current)return;
+        setSnapshot(demoLendingSnapshot(demoLedger(),m,rows,EXAMPLE_NEAR_ACCOUNT) as LendingVenueSnapshot);setNow(Date.now());return;
+      }
       const path=venue==="rhea" ? "/api/lending" : `/api/lending/venues?chain=${venue}&account=${encodeURIComponent(account)}`;
       const r=await api(path,undefined,"GET",scope);
       if(version!==request.current)return;
@@ -56,7 +66,7 @@ export function LendingVenues({ scope, accounts = [], expanded = false, hideSale
   const issues=[...new Set((snapshot?.reasons??[]).map(explainVenueReason))];
   const hasCollateral=!!snapshot?.positions.some(p=>positive(p.collateralRaw));
   const debt=positive(snapshot?.debtUsdcRaw), capacity=positive(snapshot?.stressedCapacityUsdcRaw);
-  const unavailable=!snapshot || busy || stale || scope!=="personal";
+  const unavailable=!snapshot || busy || stale;
   const debtToken=snapshot?.debtAssets[0];
   const needsRead=stale || snapshot?.stressedCapacityUsdcRaw===null;
   const needsLimits=hasCollateral && !capacity && !needsRead;
@@ -82,7 +92,7 @@ export function LendingVenues({ scope, accounts = [], expanded = false, hideSale
       {venue!=="rhea" && <label className="fv-borrow-wallet"><span>Wallet</span><select value={account} aria-label="Lending wallet" onChange={e=>{request.current++;setAccount(e.target.value);setSnapshot(null);setMessage("");setForm(false);}}><option value="">Choose a verified wallet</option>{evm.map(a=><option key={a.id} value={a.address}>{a.label} · {short(a.address)}</option>)}</select></label>}
       <div className="fv-borrow-read"><span role="status">{busy ? "Updating account…" : snapshot ? <><i className={stale?"is-stale":""}/>{scope==="example" ? "Example data" : stale ? "Refresh needed" : `Updated ${ago(snapshot.capturedAt)}`}</> : ""}</span><button type="button" className="fv-button" aria-label="Refresh borrowing account" title="Refresh borrowing account" disabled={busy || venue!=="rhea"&&!account} onClick={()=>void load()}><RefreshCw size={15} className={busy?"fv-spin":""}/><span>Refresh</span></button></div>
     </div>
-    {scope==="example" && <p className="fv-notice">Example workspace · borrowing and collateral actions are unavailable.</p>}
+    {scope==="example" && <p className="fv-demo-note">Example workspace: fictional balances at today’s Rhea prices and rates. Every action plays its review and a simulated wallet; nothing is signed.</p>}
     {message && <div className="fv-borrow-alert" role="alert"><CircleAlert size={18}/><div><strong>{noticeKind === "plan" ? "This operation needs attention" : "We couldn’t load this account"}</strong><p>{message}</p></div>{connect && /connect|account|wallet|prove|sign in/i.test(message) && <button type="button" className="fv-button" onClick={connect}>Connect wallet</button>}</div>}
     {!snapshot && !message && !busy && <div className="fv-borrow-empty"><Wallet size={28}/><h3>{venue!=="rhea"&&!account?"Choose the wallet you borrow with":"Your borrowing account will appear here"}</h3><p>{venue!=="rhea"&&!account?"Balances and health are separate for every wallet and network.":"Refresh to read collateral, borrowing capacity and existing loans."}</p>{venue!=="rhea"&&!evm.length && connect && <button type="button" className="fv-button" onClick={connect}>Connect an EVM wallet</button>}</div>}
     {(snapshot || busy) && <>
