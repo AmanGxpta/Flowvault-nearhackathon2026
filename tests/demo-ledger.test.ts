@@ -74,3 +74,22 @@ test("perps: margin is notional over leverage, PnL lands in margin on close", ()
   assert.equal(l.perps.positions.length, 0);
   assert.match(l.activity[0].text, /\+\$50/);
 });
+
+test("portfolio in Demo Mode: seed rows move by this session's changes, new positions appear, debt counts against", async () => {
+  const { demoPortfolio } = await import("../lib/flowvault/demo-ledger.ts");
+  const rows = [
+    { id: "near-wallet", kind: "wallet", symbol: "NEAR", qty: 42, usd: 134.4 },
+    { id: "cash", kind: "wallet", symbol: "USDC", qty: 14240, usd: 14240 },
+    { id: "rhea", kind: "supplied", symbol: "USDC", qty: 7500, usd: 7500 },
+  ];
+  let l = applyRhea(seedLedger(), M, "collateral_add", WNEAR_ID, 30);
+  l = applyRhea(l, M, "borrow", USDC_ID, 35);
+  const r = demoPortfolio(rows, l, M);
+  assert.equal(r.rows.find((x) => x.id === "near-wallet")!.qty, 12);
+  assert.equal(r.rows.find((x) => x.id === "cash")!.qty, 14275);
+  assert.equal(r.rows.find((x) => x.id === "demo:collateral:" + WNEAR_ID)!.usd, 96);
+  assert.equal(r.rows.find((x) => x.id === "demo:debt:" + USDC_ID)!.usd, 35);
+  // −30 NEAR wallet, +30 NEAR collateral, +35 USDC wallet, −35 USDC debt: net worth unchanged
+  assert.ok(Math.abs(r.deltaUsd) < 1e-9);
+  assert.equal(r.spendableDelta, 35);
+});

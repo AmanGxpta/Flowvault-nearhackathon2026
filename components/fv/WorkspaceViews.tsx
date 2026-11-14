@@ -16,6 +16,8 @@ import { summarizeWallets, totals, walletNameMap, type HoldingRow } from "@/lib/
 import { PerpsCard } from "./Perps";
 import { DemoPerps } from "./demo/DemoPerps";
 import { DemoSessionActivity } from "./demo/DemoStake";
+import { useDemoLedger, useDemoMarkets } from "./demo/ledger-store";
+import { demoPortfolio } from "@/lib/flowvault/demo-ledger";
 import { VaultsCard } from "./Vaults";
 import { LendingVenues } from "./LendingVenues";
 import { PolicyView } from "./screens/PolicyView";
@@ -86,7 +88,10 @@ export function PortfolioHome({ v }: { v: any }) {
   const [network, setNetwork] = useState("");
   const [wallet, setWallet] = useState("");
   const [accounts, setAccounts] = useState(false), [snapshot, setSnapshot] = useState(false);
-  const raw = (v.pfRows ?? []).filter((r: any) => r.ownership !== "watched");
+  // Demo Mode: the example seed with this session's demo actions applied (see demoPortfolio).
+  const ledger = useDemoLedger(!!v.judge), demoMk = useDemoMarkets(!!v.judge);
+  const demo = v.judge && ledger && demoMk ? demoPortfolio(v.pfRows ?? [], ledger, demoMk.m) : null;
+  const raw = (demo ? demo.rows : v.pfRows ?? []).filter((r: any) => r.ownership !== "watched");
   const all = raw.filter((r: any) => !r.status);
   // Empty balances (0, or dust worth $0.00 with no quantity) are noise once many wallets are connected.
   const holdings: HoldingRow[] = all.map(toHolding).filter((h: HoldingRow) => !(h.usd === 0 && Math.abs(h.quantity ?? 0) < 1e-9));
@@ -104,7 +109,8 @@ export function PortfolioHome({ v }: { v: any }) {
   const tokenCount = new Set(visible.filter((h) => h.kind === "wallet").map((h) => h.symbol.toUpperCase())).size;
   const defiCount = new Set(visible.filter((h) => h.kind !== "wallet").map((h) => h.venue ?? "")).size;
   const act = (h: HoldingRow) => h.kind === "wallet" ? v.navigate(h.symbol === "USDC" ? "pay" : "swap") : h.kind === "debt" || h.kind === "collateral" ? v.navigate("credit") : v.goStrategies();
-  const summary = [v.pfBalances?.[0], v.pfBalances?.[1], v.pfBalances?.[4]].filter(Boolean);
+  const shift = (b: any, d: number) => { if (!b || !d) return b; const n = Number(String(b.value).replace(/[^0-9.-]/g, "")); return Number.isFinite(n) && /\d/.test(String(b.value)) ? { ...b, value: money(n + d), sub: (b.sub ? b.sub + " · " : "") + "includes this demo session" } : b; };
+  const summary = [shift(v.pfBalances?.[0], demo?.deltaUsd ?? 0), shift(v.pfBalances?.[1], demo?.spendableDelta ?? 0), v.pfBalances?.[4]].filter(Boolean);
   const networks = [...new Set(scoped.map((h) => h.network))].sort();
   const tabs = ["Tokens" + (tokenCount ? " " + tokenCount : ""), "DeFi" + (defiCount ? " " + defiCount : ""), "NFTs" + (nfts.length ? " " + nfts.length : "")];
   const current = tabs.find((x) => x.startsWith(tab)) ?? tabs[0];

@@ -241,3 +241,42 @@ export function applySwapSupply(l: DemoLedger, from: { id: string; symbol: strin
   n.activity.unshift({ at: now, text: `Swapped ${fmt(from.amount)} ${from.symbol} into ${fmt(supplied)} ${symbol} and supplied it on Rhea` });
   return n;
 }
+
+/** Portfolio in Demo Mode: the example seed's rows with this session's changes applied (wallet NEAR and USDC, Rhea
+ * supply, collateral and debt, liquid staking), valued at today's prices. Perps margin stays out, as on the real
+ * portfolio: margin isn't money you have. Returns the rows and how much the total and spendable USDC moved. */
+type PortfolioRow = { id: string; kind: string; symbol?: string; name?: string; qty?: number | null; usd?: number | null; value?: string; chain?: string; account?: string; venue?: string | null; [k: string]: unknown };
+export function demoPortfolio<R extends PortfolioRow>(rows: R[], l: DemoLedger, m: Markets): { rows: R[]; deltaUsd: number; spendableDelta: number } {
+  const seed = seedLedger(), out = rows.map((r) => ({ ...r })) as R[];
+  const price = (t: string) => m[t]?.price ?? null;
+  const sym = (t: string) => (t === WNEAR_ID ? "NEAR" : m[t]?.symbol ?? t);
+  let deltaUsd = 0, spendableDelta = 0;
+  const money = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const move = (id: string | null, kind: string, token: string, delta: number, venue: string | null, sign = 1) => {
+    if (Math.abs(delta) < 1e-9) return;
+    const p = price(token), usd = p !== null ? delta * p : null;
+    if (usd !== null) deltaUsd += usd * sign;
+    const row = id ? out.find((r) => r.id === id) : out.find((r) => r.id === `demo:${kind}:${token}`);
+    if (row) { row.qty = Math.max(0, (row.qty ?? 0) + delta); if (usd !== null && typeof row.usd === "number") { row.usd = Math.max(0, row.usd + usd); row.value = money(row.usd); } return; }
+    if (delta <= 0) return;
+    out.push({ id: `demo:${kind}:${token}`, kind, symbol: sym(token), name: `${sym(token)}${venue ? " · " + venue : ""}`, qty: delta, usd, value: usd !== null ? money(usd) : "Unvalued", chain: "NEAR", network: "near", account: "example-account.near", walletLabel: "example-account.near", venue, ownership: "owner", tag: "FICTIONAL" } as unknown as R);
+  };
+  const wallets = new Set([...Object.keys(seed.wallet), ...Object.keys(l.wallet)]);
+  for (const t of wallets) {
+    const d = (l.wallet[t] ?? 0) - (seed.wallet[t] ?? 0);
+    move(t === WNEAR_ID ? "near-wallet" : t === USDC_ID ? "cash" : null, "wallet", t, d, null);
+    if (t === USDC_ID) spendableDelta += d;
+  }
+  const rhea = new Set([...Object.keys(seed.rhea), ...Object.keys(l.rhea)]);
+  for (const t of rhea) {
+    const a = l.rhea[t] ?? { supplied: 0, collateral: 0, borrowed: 0 }, b = seed.rhea[t] ?? { supplied: 0, collateral: 0, borrowed: 0 };
+    move(t === USDC_ID ? "rhea" : null, "supplied", t, a.supplied - b.supplied, "Rhea");
+    move(null, "collateral", t, a.collateral - b.collateral, "Rhea");
+    move(null, "debt", t, a.borrowed - b.borrowed, "Rhea", -1);
+  }
+  move("linear-shares", "staking", "linear-protocol.near", l.staking.linear - seed.staking.linear, "LiNEAR");
+  move("rnear-shares", "staking", "lst.rhealab.near", l.staking.rnear - seed.staking.rnear, "rNEAR");
+  const unstaking = l.staking.unstaking.reduce((s, u) => s + u.near, 0);
+  move(null, "staking", WNEAR_ID, unstaking, "Unstaking");
+  return { rows: out, deltaUsd, spendableDelta };
+}
