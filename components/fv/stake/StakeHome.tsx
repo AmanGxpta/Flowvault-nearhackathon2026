@@ -16,8 +16,8 @@ import { units, decimal } from "@/lib/flowvault/money";
 import { nearText, flowStage } from "@/lib/flowvault/stake-flow";
 import { StakeFlowView, type FlowRead } from "./StakeFlowView";
 import { availableToStake, estimatedLinearShares, estimatedYearlyNear } from "@/lib/flowvault/staking-ui";
-import { useDemoLedger, useDemoMarkets } from "../demo/ledger-store";
-import { DemoStakePositions, DemoStakeReview } from "../demo/DemoStake";
+import { useDemoMarkets } from "../demo/ledger-store";
+import { DEMO_VALIDATORS, DemoNativePositions, DemoStakePositions, DemoStakeReview, type DemoSource } from "../demo/DemoStake";
 import { WNEAR_ID } from "@/lib/flowvault/demo-ledger";
 
 const NEAR_ID = "near:native";
@@ -41,7 +41,9 @@ export function StakeHome({ v }: { v: any }) { // eslint-disable-line @typescrip
   const markets = useDemoMarkets(example);
   const demoPerShare = (venue: "linear" | "rnear") => { const m = markets?.m, near = m?.[WNEAR_ID]?.price, sh = m?.[venue === "linear" ? "linear-protocol.near" : "lst.rhealab.near"]?.price; return near && sh ? sh / near : null; };
   const demoRaw = (x: number | null) => (x ? (BigInt(Math.round(x * 1e6)) * 10n ** 18n).toString() : null);
-  const [demoReview, setDemoReview] = useState<{ venue: "linear" | "rnear"; near: number } | null>(null);
+  const [demoReview, setDemoReview] = useState<{ venue: "linear" | "rnear" | "native"; near: number; pool?: string; source?: DemoSource | null } | null>(null);
+  const [demoTab, setDemoTab] = useState<"linear" | "rnear" | "native">("linear");
+  useEffect(() => { if (!example) return; const t = setTimeout(() => setValidators(DEMO_VALIDATORS), 0); return () => clearTimeout(t); }, [example]);
   useEffect(() => {
     if (example || !owner) return;
     api("/api/staking/options", undefined, "GET").then((r: { options?: Option[] }) => setOptions(r.options ?? [])).catch(() => {});
@@ -61,26 +63,24 @@ export function StakeHome({ v }: { v: any }) { // eslint-disable-line @typescrip
 
   if (flowId) return <StakeFlowView id={flowId} owner={owner} linearApy={apr("linear")} rnearApy={apr("rnear")} connect={() => (v.openConnect ?? v.connectFirst)?.()} back={() => { open(null); setTick((n) => n + 1); }} />;
   return <div className="fv-stake-home">
-    <StakeCard owner={owner} example={example} connect={() => (v.openConnect ?? v.connectFirst)?.()} rates={{ linear: apr("linear"), rnear: apr("rnear"), validator: bestValidator?.aprPercent ?? null }} validators={validators} exchangeRates={example ? { linear: demoRaw(demoPerShare("linear")), rnear: demoRaw(demoPerShare("rnear")) } : {linear:life?.exchangeRateRaw ?? null,rnear:rLife?.exchangeRateRaw ?? null}} demoReview={example ? (venue, near) => setDemoReview({ venue, near }) : undefined} rnearRegistered={rLife?.registered} onFlow={(id) => open(id)} />
+    <StakeCard owner={owner} example={example} connect={() => (v.openConnect ?? v.connectFirst)?.()} rates={{ linear: apr("linear"), rnear: apr("rnear"), validator: bestValidator?.aprPercent ?? null }} validators={validators} exchangeRates={example ? { linear: demoRaw(demoPerShare("linear")), rnear: demoRaw(demoPerShare("rnear")) } : {linear:life?.exchangeRateRaw ?? null,rnear:rLife?.exchangeRateRaw ?? null}} demoReview={example ? (venue, near, extra) => setDemoReview({ venue, near, ...extra }) : undefined} rnearRegistered={rLife?.registered} onFlow={(id) => open(id)} />
     <ol className="fv-stake-strip">
       <li><span><Coins size={16} /></span><div><strong>1. Pay with what you hold</strong><small>NEAR, or USDC and ETH on Ethereum, Base and Arbitrum</small></div></li>
       <li><span><Download size={16} /></span><div><strong>2. Funds arrive as NEAR</strong><small>For cross-chain payments, NEAR Intents delivers to your account</small></div></li>
       <li><span><PenLine size={16} /></span><div><strong>3. Review and stake</strong><small>Your wallet approves the stake after fresh checks</small></div></li>
     </ol>
-    {example && <div className="fv-stake-position-tabs" role="group" aria-label="Staking positions">{(["linear","rnear"] as const).map(id=><button type="button" className="fv-button" aria-pressed={portfolioVenue===id} key={id} onClick={()=>setPortfolioVenue(id)}>{id === "linear" ? "LiNEAR" : "rNEAR"} positions</button>)}</div>}
-    {example && <DemoStakePositions venue={portfolioVenue} nearPerShare={demoPerShare(portfolioVenue)} apr={apr(portfolioVenue)} />}
-    {demoReview && demoPerShare(demoReview.venue) && <DemoStakeReview venue={demoReview.venue} near={demoReview.near} nearPerShare={demoPerShare(demoReview.venue)!} apr={apr(demoReview.venue)} nearUsd={markets?.m[WNEAR_ID]?.price ?? null} close={() => setDemoReview(null)} />}
+    {example && <div className="fv-stake-position-tabs" role="group" aria-label="Staking positions">{(["linear","rnear","native"] as const).map(id=><button type="button" className="fv-button" aria-pressed={demoTab===id} key={id} onClick={()=>setDemoTab(id)}>{id === "linear" ? "LiNEAR" : id === "rnear" ? "rNEAR" : "Validator"} positions</button>)}</div>}
+    {example && (demoTab === "native" ? <DemoNativePositions /> : <DemoStakePositions venue={demoTab} nearPerShare={demoPerShare(demoTab)} apr={apr(demoTab)} />)}
+    {demoReview && (demoReview.venue === "native" || demoPerShare(demoReview.venue)) && <DemoStakeReview venue={demoReview.venue} pool={demoReview.pool} source={demoReview.source} near={demoReview.near} nearPerShare={demoReview.venue === "native" ? 1 : demoPerShare(demoReview.venue)!} apr={demoReview.venue === "native" ? DEMO_VALIDATORS.find((x) => x.id === demoReview.pool)?.aprPercent ?? null : apr(demoReview.venue)} nearUsd={markets?.m[WNEAR_ID]?.price ?? null} close={() => setDemoReview(null)} />}
     {!example && owner && <div className="fv-stake-position-tabs" role="group" aria-label="Staking positions">{(["linear","rnear"] as const).map(id=><button type="button" className="fv-button" aria-pressed={portfolioVenue===id} key={id} onClick={()=>setPortfolioVenue(id)}>{id === "linear" ? "LiNEAR" : "rNEAR"} positions</button>)}</div>}
     {!example && owner && <StakePortfolio venue={portfolioVenue} life={portfolioVenue === "rnear" ? rLife : life} readError={portfolioVenue === "rnear" ? rReadError : readError} retry={()=>setTick(n=>n+1)} nativeStats={v.pfStake ?? []} nativeNote={v.pfStakeHead ?? ""} swap={() => {const url = new URL(window.location.href); url.searchParams.set("swap","near:native|base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"); url.searchParams.delete("flow"); history.replaceState(null,"",url); v.navigate("swap");}} owner={owner} flows={flows} openFlow={open} rates={{ linear: apr("linear"), rnear: apr("rnear"), validator: bestValidator }} />}
   </div>;
 }
 
-function StakeCard({ owner, example, connect, rates, validators, exchangeRates, rnearRegistered, onFlow, demoReview }: { owner: string; example: boolean; connect: () => void; rates: { linear: string | null; rnear: string | null; validator: string | null }; validators: Validator[]; exchangeRates:{linear:string|null;rnear:string|null}; rnearRegistered?:boolean; onFlow: (id: string) => void; demoReview?: (venue: "linear" | "rnear", near: number) => void }) {
+function StakeCard({ owner, example, connect, rates, validators, exchangeRates, rnearRegistered, onFlow, demoReview }: { owner: string; example: boolean; connect: () => void; rates: { linear: string | null; rnear: string | null; validator: string | null }; validators: Validator[]; exchangeRates:{linear:string|null;rnear:string|null}; rnearRegistered?:boolean; onFlow: (id: string) => void; demoReview?: (venue: "linear" | "rnear" | "native", near: number, extra: { pool?: string; source?: DemoSource | null }) => void }) {
   const { tokens } = useTokenCatalog();
-  const live = useWalletBalances(owner, tokens, !example);
-  // Demo Mode stakes the example account's NEAR from the shared ledger (so Borrow and Stake agree).
-  const ledger = useDemoLedger(example);
-  const holdings = example && ledger ? { ...live, balances: { [NEAR_ID]: { amount: String(ledger.wallet[WNEAR_ID] ?? 0), raw: (BigInt(Math.round((ledger.wallet[WNEAR_ID] ?? 0) * 1e6)) * 10n ** 18n).toString(), usd: null } } as unknown as typeof live.balances } : live;
+  // Demo Mode: the example wallets, with the NEAR account's balances from the shared ledger (so Borrow and Stake agree).
+  const holdings = useWalletBalances(owner, tokens, true, example);
   // Pay with: native NEAR, or anything NEAR Intents takes from Ethereum, Base or Arbitrum.
   const payable = useMemo(() => tokens.filter((t) => t.id === NEAR_ID || (!!t.assetId && ["eth", "base", "arb"].includes(t.network) && (t.contract === "native" && t.symbol === "ETH" || t.id.toLowerCase() === "eth:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" || t.id.toLowerCase() === "base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" || t.id.toLowerCase() === "arb:0xaf88d065e77c8cc2239327c5edb3a432268e5831"))), [tokens]);
   const [fromId, setFrom] = useState(NEAR_ID), [amount, setAmount] = useState(""), [venue, setVenue] = useState<Venue>("linear"), [pool, setPool] = useState("");
@@ -93,7 +93,9 @@ function StakeCard({ owner, example, connect, rates, validators, exchangeRates, 
   // Expected NEAR: the amount itself, or a live NEAR Intents quote delivering to your account.
   const q = useSwapQuote({ tokens, holdings, owner, example, fromId: isNear ? "" : fromId, toId: NEAR_ID, amount: isNear ? "" : amount, slippage: "100", sender, recipient: owner, paused: isNear });
   const intents = q.routes.find((r) => r.venue === "NEAR Intents");
-  const expectedRaw = (() => { try { return isNear ? (valid ? units(amount, 24) : null) : intents ? units(intents.output, 24) : null; } catch { return null; } })();
+  const nearToken = tokens.find((t) => t.id === NEAR_ID);
+  const demoNear = example && !isNear && valid && from?.price && nearToken?.price ? Number(amount) * Number(from.price) / Number(nearToken.price) * 0.995 : null;
+  const expectedRaw = (() => { try { return isNear ? (valid ? units(amount, 24) : null) : intents ? units(intents.output, 24) : demoNear ? units(demoNear.toFixed(6), 24) : null; } catch { return null; } })();
   // NEAR you can stake from the wallet: balance minus the 0.5 NEAR gas reserve and the transaction fee.
   const stakeable = availableToStake(holdings.balances[NEAR_ID]?.raw);
   const over = isNear && valid && stakeable !== null && expectedRaw !== null && expectedRaw > stakeable;
@@ -131,11 +133,15 @@ function StakeCard({ owner, example, connect, rates, validators, exchangeRates, 
       onFlow(r.flow.id);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  const cta = example ? (venue === "validator" ? { label: "Validator staking needs your own account", disabled: true }
-      : !isNear ? { label: "In the example, stake from NEAR", disabled: true }
+  const heldFrom = Number(bal?.amount ?? 0);
+  const cta = example ? (venue === "validator" && !isNear ? { label: "Validators take NEAR: pay with NEAR", disabled: true }
       : !valid ? { label: "Enter an amount", disabled: true }
       : over ? { label: `You can stake up to ${nearText(stakeable?.toString())} NEAR`, disabled: true }
-      : { label: `Review ${amount} NEAR stake · example`, onClick: () => demoReview?.(venue as "linear" | "rnear", Number(amount)) })
+      : !isNear && Number(amount) > heldFrom ? { label: `The example holds ${fmtAmount(String(heldFrom))} ${from?.symbol}`, disabled: true }
+      : !isNear && !demoNear ? { label: "Reading prices…", disabled: true }
+      : venue === "validator" && !pool ? { label: "Choose a validator", disabled: true }
+      : { label: venue === "validator" ? `Review stake with ${validators.find((x) => x.id === pool)?.label ?? "validator"} · example` : isNear ? `Review ${amount} NEAR stake · example` : `Review ${amount} ${from?.symbol} and stake · example`,
+          onClick: () => demoReview?.(venue === "validator" ? "native" : venue, isNear ? Number(amount) : demoNear!, { pool: venue === "validator" ? pool : undefined, source: isNear ? null : { id: fromId, symbol: from!.symbol, network: from!.network, amount: Number(amount) } }) })
     : !owner ? { label: "Connect your NEAR wallet", onClick: connect }
     : venue === "validator" && !isNear ? { label: "Validators take NEAR: pay with NEAR", disabled: true }
     : !valid ? { label: "Enter an amount", disabled: true }

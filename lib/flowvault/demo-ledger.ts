@@ -20,7 +20,8 @@ export interface DemoLedger {
   /** NEAR wallet by Rhea token id; wrap.near holds the account's native NEAR. */
   wallet: Record<string, number>;
   rhea: Record<string, RheaPos>;
-  staking: { linear: number; rnear: number; unstaking: { venue: "linear" | "rnear"; near: number; readyAt: number }[] };
+  /** Liquid staking shares, NEAR staked natively per validator pool, and unstakes waiting to be withdrawn. */
+  staking: { linear: number; rnear: number; native?: Record<string, number>; unstaking: { venue: "linear" | "rnear" | "native"; near: number; readyAt: number; pool?: string }[] };
   perps: { margin: number; positions: DemoPerp[]; realized: number };
   activity: { at: number; text: string }[];
 }
@@ -33,7 +34,7 @@ export function seedLedger(): DemoLedger {
     v: 1,
     wallet: { [WNEAR_ID]: 42, [USDC_ID]: 4 },
     rhea: { [USDC_ID]: { supplied: 7500, collateral: 0, borrowed: 0 } },
-    staking: { linear: 60, rnear: 25, unstaking: [] },
+    staking: { linear: 60, rnear: 25, native: { "example-validator.poolv1.near": 120 }, unstaking: [] },
     perps: { margin: 2000, positions: [], realized: 0 },
     activity: [],
   };
@@ -135,6 +136,29 @@ export function applyUnstake(l: DemoLedger, venue: "linear" | "rnear", shares: n
   n.staking.unstaking.push({ venue, near, readyAt: now + UNSTAKE_DEMO_MS });
   n.activity.unshift({ at: now, text: `Requested unstake of ${fmt(shares)} ${venue === "linear" ? "LiNEAR" : "rNEAR"} (≈ ${fmt(near)} NEAR)` });
   return n;
+}
+/** Native staking with a validator: NEAR leaves the wallet and is staked with the pool (no shares). */
+export function applyNativeStake(l: DemoLedger, pool: string, near: number, now = Date.now()): DemoLedger {
+  const n = clone(l), wallet = n.wallet[WNEAR_ID] ?? 0, spendable = Math.max(0, wallet - GAS_RESERVE_NEAR);
+  if (!(near > 0)) throw new Error("Enter an amount above zero.");
+  if (near > spendable + 1e-9) throw new Error(`You have ${fmt(spendable)} NEAR to stake (0.5 NEAR stays for fees).`);
+  const native = { ...(n.staking.native ?? {}) };
+  native[pool] = round((native[pool] ?? 0) + near);
+  n.staking.native = native; n.wallet[WNEAR_ID] = round(wallet - near);
+  n.activity.unshift({ at: now, text: `Staked ${fmt(near)} NEAR with ${pool}` });
+  return n;
+}
+export function applyNativeUnstake(l: DemoLedger, pool: string, near: number, now = Date.now()): DemoLedger {
+  const n = clone(l), native = { ...(n.staking.native ?? {}) }, have = native[pool] ?? 0;
+  if (!(near > 0) || near > have + 1e-9) throw new Error(`You have ${fmt(have)} NEAR staked with ${pool}.`);
+  native[pool] = round(have - near); n.staking.native = native;
+  n.staking.unstaking.push({ venue: "native", near: round(near), readyAt: now + UNSTAKE_DEMO_MS, pool });
+  n.activity.unshift({ at: now, text: `Requested unstake of ${fmt(near)} NEAR from ${pool}` });
+  return n;
+}
+/** Paying for a stake from another token: what was paid leaves the wallet (on the NEAR account), the NEAR arrives. */
+export function applyFundNear(l: DemoLedger, from: { id: string; symbol: string; amount: number }, near: number, now = Date.now()): DemoLedger {
+  return applySwap(l, from, { id: "near:native", symbol: "NEAR", amount: near }, now);
 }
 export function applyClaim(l: DemoLedger, now = Date.now()): DemoLedger {
   const n = clone(l), ready = n.staking.unstaking.filter((u) => u.readyAt <= now);
@@ -278,6 +302,8 @@ export function demoPortfolio<R extends PortfolioRow>(rows: R[], l: DemoLedger, 
   }
   move("linear-shares", "staking", "linear-protocol.near", l.staking.linear - seed.staking.linear, "LiNEAR");
   move("rnear-shares", "staking", "lst.rhealab.near", l.staking.rnear - seed.staking.rnear, "rNEAR");
+  const nativeSum = (x: DemoLedger) => Object.values(x.staking.native ?? {}).reduce((a, b) => a + b, 0);
+  move("native-staked", "staking", WNEAR_ID, nativeSum(l) - nativeSum(seed), "Validator");
   const unstaking = l.staking.unstaking.reduce((s, u) => s + u.near, 0);
   move(null, "staking", WNEAR_ID, unstaking, "Unstaking");
   return { rows: out, deltaUsd, spendableDelta };

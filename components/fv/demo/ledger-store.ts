@@ -11,7 +11,11 @@ const KEY = "fv-demo-ledger-v1", EVENT = "fv:demo-ledger";
 let memory: DemoLedger | null = null;
 
 export function demoLedger(): DemoLedger {
-  try { const raw = sessionStorage.getItem(KEY); if (raw) return JSON.parse(raw) as DemoLedger; } catch { /* storage blocked */ }
+  try {
+    const raw = sessionStorage.getItem(KEY);
+    // Ledgers saved before validator staking existed start with the seed's validator stake.
+    if (raw) { const l = JSON.parse(raw) as DemoLedger; if (!l.staking.native) l.staking.native = { ...seedLedger().staking.native }; return l; }
+  } catch { /* storage blocked */ }
   return memory ?? (memory = seedLedger());
 }
 export function saveDemoLedger(l: DemoLedger) {

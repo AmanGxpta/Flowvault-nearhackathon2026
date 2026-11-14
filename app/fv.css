@@ -1418,3 +1418,4 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-collect-to strong{display:flex;align-items:center;min-height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--fvb-DDE1D4);background:var(--fvb-F7F8F3);font-size:14.5px;font-weight:500;color:var(--fvc-1E2A22)}
 .fv-collect-to small{font-size:11.5px;color:var(--fvc-8A9285)}
 .fv-collect>.fv-panel>.fv-section-head{padding:0}
+.fv-demo-pool{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--fvb-EEF0E8)}.fv-demo-pool>div:first-child{display:flex;flex-direction:column}.fv-demo-pool small{color:var(--fvc-6F786B);font-size:12px}.fv-demo-pool .fv-demo-unstake{margin-top:0}
