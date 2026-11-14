@@ -79,3 +79,14 @@ export function DemoStakePositions({ venue, nearPerShare, apr }: { venue: Venue;
     {msg && <p className="fv-demo-note" role="status">{msg}</p>}
   </section>;
 }
+
+/** What this tab has done in Demo Mode (newest first): every example supply, borrow, stake, swap and trade. */
+export function DemoSessionActivity({ portfolio = false }: { portfolio?: boolean }) {
+  const l = useDemoLedger();
+  if (!l || !l.activity.length) return null;
+  const when = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return <section className="fv-panel fv-demo-session" aria-label="This session in Demo Mode">
+    <div className="fv-section-head"><div><h2>This session in Demo Mode</h2><p className="fv-muted">{portfolio ? "Earn, Borrow, Stake, Swap and Trade show these changes. The totals above are the example workspace’s seed." : "Every example action you ran, simulated in this tab. Reset example starts over."}</p></div><span className="fv-chip">{l.activity.length} action{l.activity.length === 1 ? "" : "s"}</span></div>
+    <ol>{l.activity.slice(0, portfolio ? 4 : 30).map((a, i) => <li key={a.at + ":" + i}><span>{when(a.at)}</span>{a.text}<em>example</em></li>)}</ol>
+  </section>;
+}

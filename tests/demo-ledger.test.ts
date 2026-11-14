@@ -11,7 +11,7 @@ test("supply and withdraw move between the wallet and Rhea; native NEAR keeps 0.
   let l = applyRhea(seedLedger(), M, "supply", WNEAR_ID, 10);
   assert.equal(l.wallet[WNEAR_ID], 32);
   assert.equal(l.rhea[WNEAR_ID].supplied, 10);
-  assert.throws(() => applyRhea(l, M, "supply", WNEAR_ID, 32), /31\.5 wNEAR to use \(0\.5 NEAR stays for fees\)/);
+  assert.throws(() => applyRhea(l, M, "supply", WNEAR_ID, 32), /31\.5 NEAR to use \(0\.5 NEAR stays for fees\)/);
   l = applyRhea(l, M, "withdraw", USDC_ID, 500);
   assert.equal(l.rhea[USDC_ID].supplied, 7000);
   assert.equal(l.wallet[USDC_ID], 504);

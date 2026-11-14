@@ -72,34 +72,35 @@ const fmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: n 
 export function applyRhea(l: DemoLedger, m: Markets, action: RheaAction, token: string, amount: number, now = Date.now()): DemoLedger {
   if (!(amount > 0) || !Number.isFinite(amount)) throw new Error("Enter an amount above zero.");
   const k = m[token]; if (!k) throw new Error("This market isn't available right now.");
+  const sym = token === WNEAR_ID ? "NEAR" : k.symbol;
   const n = clone(l), p = { ...pos(n, token) }, wallet = n.wallet[token] ?? 0;
   const spendable = token === WNEAR_ID ? Math.max(0, wallet - GAS_RESERVE_NEAR) : wallet;
   const need = (ok: boolean, msg: string) => { if (!ok) throw new Error(msg); };
   switch (action) {
     case "supply": case "collateral_add":
-      need(amount <= spendable + 1e-9, `You have ${fmt(spendable)} ${k.symbol} to use${token === WNEAR_ID ? " (0.5 NEAR stays for fees)" : ""}.`);
+      need(amount <= spendable + 1e-9, `You have ${fmt(spendable)} ${sym} to use${token === WNEAR_ID ? " (0.5 NEAR stays for fees)" : ""}.`);
       n.wallet[token] = round(wallet - amount);
       if (action === "supply") p.supplied = round(p.supplied + amount); else p.collateral = round(p.collateral + amount);
       break;
     case "withdraw":
-      need(amount <= p.supplied + 1e-9, `You have ${fmt(p.supplied)} ${k.symbol} supplied.`);
+      need(amount <= p.supplied + 1e-9, `You have ${fmt(p.supplied)} ${sym} supplied.`);
       need(amount <= k.liquidity, "Rhea doesn't have that much free liquidity right now.");
       p.supplied = round(p.supplied - amount); n.wallet[token] = round(wallet + amount);
       break;
     case "collateral_release":
-      need(amount <= p.collateral + 1e-9, `You have ${fmt(p.collateral)} ${k.symbol} as collateral.`);
+      need(amount <= p.collateral + 1e-9, `You have ${fmt(p.collateral)} ${sym} as collateral.`);
       p.collateral = round(p.collateral - amount); n.wallet[token] = round(wallet + amount);
       break;
     case "borrow": {
       const cap = borrowCapacity(l, m, token);
-      need(amount <= cap + 1e-9, cap > 0 ? `You can borrow up to ${fmt(cap)} ${k.symbol} and stay above health ${MIN_HEALTH} after a ${STRESS * 100}% price drop.` : "Add collateral first: it's what you borrow against.");
+      need(amount <= cap + 1e-9, cap > 0 ? `You can borrow up to ${fmt(cap)} ${sym} and stay above health ${MIN_HEALTH} after a ${STRESS * 100}% price drop.` : "Add collateral first: it's what you borrow against.");
       p.borrowed = round(p.borrowed + amount); n.wallet[token] = round(wallet + amount);
       break;
     }
     case "repay": {
-      need(p.borrowed > 0, `You don't owe any ${k.symbol}.`);
+      need(p.borrowed > 0, `You don't owe any ${sym}.`);
       const pay = Math.min(amount, p.borrowed);
-      need(pay <= wallet + 1e-9, `You have ${fmt(wallet)} ${k.symbol} in your wallet to repay with.`);
+      need(pay <= wallet + 1e-9, `You have ${fmt(wallet)} ${sym} in your wallet to repay with.`);
       p.borrowed = round(p.borrowed - pay); n.wallet[token] = round(wallet - pay);
       break;
     }
@@ -109,7 +110,7 @@ export function applyRhea(l: DemoLedger, m: Markets, action: RheaAction, token: 
     const h = rheaHealth(n, m, STRESS);
     if (h !== null && h < MIN_HEALTH) throw new Error(`That would take health below ${MIN_HEALTH} after a ${STRESS * 100}% price drop. Repay first or release less.`);
   }
-  n.activity.unshift({ at: now, text: `${{ supply: "Supplied", withdraw: "Withdrew", collateral_add: "Added collateral", collateral_release: "Released collateral", borrow: "Borrowed", repay: "Repaid" }[action]} ${fmt(action === "repay" ? Math.min(amount, pos(l, token).borrowed) : amount)} ${k.symbol} on Rhea` });
+  n.activity.unshift({ at: now, text: `${{ supply: "Supplied", withdraw: "Withdrew", collateral_add: "Added collateral", collateral_release: "Released collateral", borrow: "Borrowed", repay: "Repaid" }[action]} ${fmt(action === "repay" ? Math.min(amount, pos(l, token).borrowed) : amount)} ${sym} on Rhea` });
   n.activity = n.activity.slice(0, 50);
   return n;
 }
