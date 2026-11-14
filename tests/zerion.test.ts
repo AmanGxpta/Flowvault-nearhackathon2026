@@ -41,7 +41,10 @@ const NFTS = [
 test("Zerion rows map to valued positions; spam, unpriced and FlowVault's own reads are left out", () => {
   const out = ROWS.map((r) => mapZerionPosition(r, ADDR, AT, FRESH, { hyperliquid: true }));
   const kept = out.filter((x): x is Position => !("skip" in x));
-  assert.deepEqual(kept.map((p) => p.asset).sort(), ["DAO", "USDC", "USDT", "WEFI", "ZRO"]);
+  assert.deepEqual(kept.map((p) => p.displayAsset).sort(), ["DAO", "USDC", "USDT", "WEFI", "ZRO"]);
+  // Engine assets on whole-wallet rows are network-qualified, so planning code never treats them as its own USDC.
+  assert.deepEqual(kept.filter((p) => p.displayAsset === "USDC" || p.displayAsset === "USDT").map((p) => p.asset).sort(), ["USDC (Polygon)", "USDT (Polygon)"]);
+  assert.equal(kept.find((p) => p.displayAsset === "ZRO")!.asset, "ZRO");
   const skips = out.filter((x): x is { skip: string } => "skip" in x).map((x) => x.skip).sort();
   assert.deepEqual(skips, ["own read", "own read", "own read", "spam", "unpriced"]);
   const zro = kept.find((p) => p.asset === "ZRO")!;
@@ -53,7 +56,7 @@ test("Zerion rows map to valued positions; spam, unpriced and FlowVault's own re
   const wefi = kept.find((p) => p.asset === "WEFI")!;
   assert.equal(wefi.chain, undefined);
   assert.equal(wefi.network, "Polygon");
-  assert.equal(kept.find((p) => p.asset === "USDT")!.kind, "debt");
+  assert.equal(kept.find((p) => p.displayAsset === "USDT")!.kind, "debt");
   assert.match(kept.find((p) => p.asset === "DAO")!.label, /DAO Maker · Staked DAO/);
   assert.equal(networkName("binance-smart-chain"), "BNB Chain");
   assert.equal(networkName("some-new-chain"), "Some New Chain");
@@ -136,5 +139,25 @@ test("Zerion values count once in net worth, loans are subtracted, and USDC on a
   // ZRO 235.96 + WEFI 207.08 + USDC(Polygon) 5 + DAO 93.95 − loan 10
   assert.equal(c.netWorthUsdcRaw, "531990000");
   assert.equal(c.spendableNowUsdcRaw, "0");
-  assert.ok(c.excluded.some((e) => /Read-only address/.test(e.reason)));
+  assert.ok(!c.valuations.some((v) => v.asset === "USDC"), "Polygon USDC is never the plan's USDC");
+});
+
+test("scam airdrop NFTs that Zerion doesn't flag are dropped; a rate limit is waited out", async () => {
+  const { looksLikeAirdropScam } = await import("../lib/flowvault/zerion.ts");
+  assert.ok(looksLikeAirdropScam("ug evmentry.com"));
+  assert.ok(looksLikeAirdropScam("oh 𝙚𝙫𝙢𝙚𝙣𝙩𝙧𝙮 𝙘𝙤𝙢"));
+  assert.ok(looksLikeAirdropScam("Uniswap voucher", null));
+  assert.ok(looksLikeAirdropScam("$340,000 reward"));
+  assert.ok(!looksLikeAirdropScam("Lunaria Imaginator", "pARticle pack"));
+  assert.ok(!looksLikeAirdropScam("Introducing World App 49085"));
+  clearZerionCache();
+  let hits = 0;
+  const r = await readZerionWallet(ADDR, { key: "k", hyperliquid: false, budgetMs: 6000, fetcher: async (u) => {
+    if (u.includes("/positions/") && hits++ === 0) return new Response("", { status: 429, headers: { "retry-after": "0" } });
+    return Response.json({ data: u.includes("nft") ? NFTS : ROWS });
+  } });
+  // No Hyperliquid reader here, so Zerion's Hyperliquid row is kept: 5 + 1.
+  assert.equal(r.positions.length, 6);
+  assert.equal(hits, 2, "the 429 was retried once");
+  assert.equal(networkName("xdai"), "Gnosis");
 });

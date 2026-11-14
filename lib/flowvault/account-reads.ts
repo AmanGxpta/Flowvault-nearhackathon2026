@@ -197,10 +197,11 @@ export async function readProvenAccounts(w: Workspace, readers: Readers = DEFAUL
   const out: AccountReads = { positions: [], sections: [], nfts: [] };
   const now = () => new Date().toISOString();
   const jobs: Promise<void>[] = [];
-  const run = (id: string, label: string, work: () => Promise<Position[]>) =>
+  const run = (id: string, label: string, work: () => Promise<Position[]>, accountLabel?: string) =>
     jobs.push(
       work().then(
         (rows) => {
+          if (accountLabel) rows = rows.map((r) => ({ ...r, accountLabel: r.accountLabel ?? accountLabel }));
           out.positions.push(...rows);
           out.sections.push({ id, status: "observed", capturedAt: now(), reasons: [], positionIds: rows.map((r) => r.id), affects: NET });
         },
@@ -214,7 +215,7 @@ export async function readProvenAccounts(w: Workspace, readers: Readers = DEFAUL
       for (const [net, chain, name] of EVM_NETS) {
         if (!a.networks.includes(net)) continue;
         const legacyUsdc = (chain === "base" && w.evmAddresses?.base === a.address) || (chain === "arb" && w.evmAddresses?.arb === a.address);
-        run(`acct:${a.id}:${chain}`, `${shortAddress(a.label)} on ${name}`, () => readers.evm(chain, a.address, legacyUsdc));
+        run(`acct:${a.id}:${chain}`, `${shortAddress(a.label)} on ${name}`, () => readers.evm(chain, a.address, legacyUsdc), a.label);
       }
     if (a.chain === "evm") {
       const id = `acct:${a.id}:all`, label = `${shortAddress(a.label)} on every chain`;
@@ -229,7 +230,7 @@ export async function readProvenAccounts(w: Workspace, readers: Readers = DEFAUL
                 out.sections.push({ id, status: "partial", capturedAt: now(), reasons: [EVM_COVERAGE_GAP], positionIds: [], affects: NET });
                 return;
               }
-              out.positions.push(...r.positions);
+              out.positions.push(...r.positions.map((p) => ({ ...p, accountLabel: a.label })));
               out.nfts.push(...r.nfts);
               out.sections.push({ id, status: "observed", capturedAt: now(), reasons: r.notes, positionIds: r.positions.map((p) => p.id), affects: NET });
             },
@@ -242,9 +243,9 @@ export async function readProvenAccounts(w: Workspace, readers: Readers = DEFAUL
     }
     if (a.chain === "evm" && readers.hyperliquid) {
       const hl = readers.hyperliquid;
-      run(`acct:${a.id}:hyperliquid`, `${shortAddress(a.label)} on Hyperliquid`, () => hl(a.address, a.id));
+      run(`acct:${a.id}:hyperliquid`, `${shortAddress(a.label)} on Hyperliquid`, () => hl(a.address, a.id), a.label);
     }
-    else if (a.chain === "solana") run(`acct:${a.id}`, `${shortAddress(a.label)} on Solana`, () => readers.solana(a.address));
+    else if (a.chain === "solana") run(`acct:${a.id}`, `${shortAddress(a.label)} on Solana`, () => readers.solana(a.address), a.label);
     else if (a.chain === "near" && !a.primary)
       run(`acct:${a.id}`, a.label, async () => {
         const p = await readers.near(a.address);

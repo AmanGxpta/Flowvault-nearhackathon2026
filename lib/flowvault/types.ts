@@ -68,6 +68,10 @@ export interface Position {
   /** Display network for whole-wallet reads (Zerion): any chain, including ones without a FlowVault `chain`. */
   network?: string;
   networkId?: string;
+  /** Symbol to show when `asset` is qualified (whole-wallet rows: "USDC (Polygon)" shows as "USDC"). */
+  displayAsset?: string;
+  /** The wallet's name as its owner knows it (registry label), shown beside its rows. */
+  accountLabel?: string;
   icon?: string;
   /** Legs of one liquidity pool share this id. */
   groupId?: string;
