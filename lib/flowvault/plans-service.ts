@@ -80,7 +80,7 @@ async function gather(s: SessionLike) {
   return { portfolio: portfolio as Portfolio, market: market as MarketSnapshot, ledger: workspaceLedger(s.workspace, ledger) as PolicyLedgerEntry[] };
 }
 
-function policyAction(w: Workspace, kind: string, amount: string, extra: Partial<PolicyAction> = {}): PolicyAction {
+export function policyAction(w: Workspace, kind: string, amount: string, extra: Partial<PolicyAction> = {}): PolicyAction {
   const account = w.accountId ?? "fictional-example";
   return {
     kind,

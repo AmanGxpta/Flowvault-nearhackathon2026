@@ -259,6 +259,15 @@ export const TOOLS = [
     },
   }),
   def({
+    name: "draft_automation", label: "Drafting an automation",
+    description: "Draft an automation the owner turns on from the card: brief (daily summary at a time), sweep (weekly proposal to supply USDC surplus above the reserve and dated payments to Rhea, for approval), idle_alert (stablecoins in wallets above an amount), allocation_alert (an asset above a share of the portfolio), price_alert (an asset moving a percentage in a day). Times are the owner's local 24h time (HH:MM); day is 0=Sunday..6=Saturday. Automations never sign or move funds.",
+    input: z.object({ kind: z.enum(["brief", "sweep", "idle_alert", "allocation_alert", "price_alert"]), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(), day: z.number().int().min(0).max(6).optional(), thresholdUsd: z.number().min(1).optional(), asset: ticker.optional(), pct: z.number().min(1).max(99).optional() }).strict(),
+    async run(ctx, i) {
+      const card = newCard("automation", { kind: i.kind, at: i.at ?? null, day: i.day ?? null, thresholdUsd: i.thresholdUsd ?? null, asset: i.asset ? i.asset.toUpperCase().replace(/^\$/, "") : null, pct: i.pct ?? null }, "assistant", ["Nothing runs until you turn it on. It never signs or moves funds."], ctx.now);
+      return { result: { ...cardBrief(card), note: "The owner turns it on from the card; manage it on the Research page." }, cards: [card] };
+    },
+  }),
+  def({
     name: "get_opportunities", label: "Looking at today's opportunities",
     description: "What the owner could do today: the highest Rhea supply rates right now, the LiNEAR staking rate, tokens trending on DexScreener (liquid ones only, display data, not recommendations), and suggestions built from the owner's holdings (idle stablecoins, NEAR to stake). Use for 'highest yield', 'what are people farming', 'what's trending', 'what should I do today'.",
     input: z.object({}).strict(),

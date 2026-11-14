@@ -7,7 +7,7 @@ import { z } from "zod/v4";
 import { units, decimal } from "./money.ts";
 import type { SwapToken } from "./swap-explorer.ts";
 
-export const CARD_KINDS = ["swap", "lend", "trade", "stake", "pay", "portfolio", "research", "perps", "notice", "choice"] as const;
+export const CARD_KINDS = ["swap", "lend", "trade", "stake", "pay", "portfolio", "research", "perps", "notice", "choice", "automation"] as const;
 export type CardKind = (typeof CARD_KINDS)[number];
 
 const amountText = z.string().trim().max(40).regex(/^\d+(\.\d+)?$/, "Amounts are plain decimals.");
@@ -62,7 +62,17 @@ export const choiceParams = z.object({
   options: z.array(z.object({ label: z.string().max(60), prompt: z.string().max(240), detail: z.string().max(120).nullable().default(null) })).min(2).max(5),
 }).strict();
 
-export const PARAMS = { swap: swapParams, lend: lendParams, trade: tradeParams, stake: stakeParams, pay: payParams, portfolio: portfolioParams, research: researchParams, perps: perpsParams, notice: noticeParams, choice: choiceParams } as const;
+export const automationParams = z.object({
+  kind: z.enum(["brief", "sweep", "idle_alert", "allocation_alert", "price_alert"]),
+  at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().default(null),
+  day: z.number().int().min(0).max(6).nullable().default(null),
+  thresholdUsd: z.number().min(1).max(1e9).nullable().default(null),
+  asset: z.string().max(12).nullable().default(null),
+  pct: z.number().min(1).max(99).nullable().default(null),
+  /** Set once the owner turns it on: the automation's id. */
+  createdId: z.string().max(64).nullable().default(null),
+}).strict();
+export const PARAMS = { swap: swapParams, lend: lendParams, trade: tradeParams, stake: stakeParams, pay: payParams, portfolio: portfolioParams, research: researchParams, perps: perpsParams, notice: noticeParams, choice: choiceParams, automation: automationParams } as const;
 export type CardParams<K extends CardKind> = z.infer<(typeof PARAMS)[K]>;
 
 /** Link from a card to the journal that carries the operation. Validated against the session server-side. */

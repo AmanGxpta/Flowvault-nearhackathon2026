@@ -30,6 +30,8 @@ const worker = {
     ctx.waitUntil(import("../lib/flowvault/monitor-cron").then((m) => m.runScheduledMonitor()));
     // Stream C: due autonomous mandates (claimed by compare-and-set; prepares owner-signed plans only).
     ctx.waitUntil(import("../lib/flowvault/mandate-cron").then((m) => m.runDueMandates()));
+    // Automations: briefs, alerts and sweep proposals that wait for the owner's approval. Never signs.
+    ctx.waitUntil(import("../lib/flowvault/automation-runner").then((m) => m.runDueAutomations()));
   },
 };
 

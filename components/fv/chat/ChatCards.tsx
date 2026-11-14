@@ -4,6 +4,7 @@
 // the operation stays in the conversation. A card's lifecycle comes from the journal attempt or plan it is linked
 // to; a model message or a wallet response is never taken as proof of completion.
 import { useEffect, useRef, useState } from "react";
+import { checkAutomation, describe, template } from "@/lib/flowvault/automations";
 import { ArrowDownUp, ArrowUpRight, Check, CircleAlert, ExternalLink, RefreshCw, Settings2, ShieldAlert, Wallet, Zap } from "lucide-react";
 import type { Card, CardKind } from "@/lib/flowvault/chat-cards";
 import type { WalletAttempt } from "@/lib/flowvault/execution";
@@ -381,6 +382,32 @@ function ChoiceChatCard({ card, env }: { card: Card<"choice">; env: CardEnv }) {
   </div>;
 }
 
+function AutomationChatCard({ card, env }: { card: Card<"automation">; env: CardEnv }) {
+  const p = card.params;
+  const t = template(p.kind, -new Date().getTimezoneOffset());
+  const draft = { kind: p.kind, schedule: { ...t.schedule, ...(p.at ? { at: p.at } : {}), ...(p.day !== null ? { day: p.day } : {}) }, params: { ...t.params, ...(p.thresholdUsd !== null ? { thresholdUsd: p.thresholdUsd } : {}), ...(p.asset ? { asset: p.asset } : {}), ...(p.pct !== null ? { pct: p.pct } : {}) } };
+  const d = describe(draft), problem = checkAutomation(draft);
+  const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  async function turnOn() {
+    setBusy(true); setError("");
+    try {
+      if (env.example) { await env.edit(card, { createdId: "example" }); return; }
+      const r = await api("/api/automations", { op: "create", kind: p.kind, tzOffsetMin: draft.schedule.tzOffsetMin, schedule: draft.schedule, params: draft.params, by: "assistant" }) as { automation: { id: string } };
+      await env.edit(card, { createdId: r.automation.id });
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  return <div className="fv-chat-card fv-chat-automation">
+    <div className="fv-chat-card-head"><Zap size={16} /><strong>{d.title}</strong></div>
+    <p className="fv-muted fv-chat-small">{d.sub}</p>
+    <div className="fv-chat-automation-chip">{d.chip}</div>
+    {card.notes.map((n, i) => <p className="fv-muted fv-chat-small" key={i}>{n}</p>)}
+    {problem && <p className="fv-notice">{problem}</p>}
+    {error && <p className="fv-notice" role="alert">{error}</p>}
+    {p.createdId ? <div className="fv-chat-actions"><span className="fv-chat-on"><Check size={14} /> On{env.example ? " (example)" : ""}</span><button type="button" className="fv-chat-chip" onClick={() => env.navigate("hub")}>Manage automations</button></div>
+      : <div className="fv-chat-actions"><button type="button" className="fv-button fv-primary" disabled={busy || !!problem || (!env.owner && !env.example)} onClick={() => void turnOn()}>{busy ? "Turning on…" : env.example ? "Turn on · example" : !env.owner ? "Sign in to turn on" : "Turn on"}</button></div>}
+  </div>;
+}
+
 export function ChatCard({ card, env }: { card: Card; env: CardEnv }) {
   switch (card.kind) {
     case "swap": return <SwapChatCard card={card as Card<"swap">} env={env} />;
@@ -393,6 +420,7 @@ export function ChatCard({ card, env }: { card: Card; env: CardEnv }) {
     case "perps": return <PerpsChatCard card={card as Card<"perps">} env={env} />;
     case "notice": return <NoticeChatCard card={card as Card<"notice">} env={env} />;
     case "choice": return <ChoiceChatCard card={card as Card<"choice">} env={env} />;
+    case "automation": return <AutomationChatCard card={card as Card<"automation">} env={env} />;
   }
   return null;
 }
