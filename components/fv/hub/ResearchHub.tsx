@@ -13,18 +13,19 @@ import { useWalletBalances } from "../useWalletBalances";
 import { TodayCards } from "../today/TodayCards";
 import { Community } from "../growth/Community";
 import { HazardScan } from "../approvals/HazardScan";
-import { VaultsCard } from "../Vaults";
-import { ResearchDesk } from "../WorkspaceViews";
+import { YieldsTable, type YieldRate } from "./YieldsTable";
+import { WatchlistCompact } from "./WatchlistCompact";
+import { Sparkline } from "./Sparkline";
 import { AutomationBuilder, KIND_ICON } from "./AutomationBuilder";
 import { BriefCard, EventFeed, type Go } from "./AutomationFeed";
-import { cacheGet, cacheSet, until, useCountUp } from "./motion";
+import { cacheGet, cacheSet, until, useCountUp, useTrend } from "./motion";
 import { DEMO_EVENT, demoAutomations, demoBriefNow, demoCreate, demoDelete, demoEvents, demoEventStatus, demoRun, demoUpdate } from "./demo-automations";
 import { describe, template, type Automation, type AutomationEvent } from "@/lib/flowvault/automations";
 import { isStableAsset } from "@/lib/flowvault/brief";
 import { EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
 
 type Auto = Automation & { title: string; sub: string; chip: string };
-type Rate = { token: string; symbol: string; supplyApy: number | null };
+type Rate = YieldRate;
 type Flow = { flow: { id: string; symbol?: string; venue?: string; source?: { amount: string; fromSymbol: string } }; status: string; done: number; total: number };
 interface Cached { rates: Rate[]; stakeApy: number | null; earning: number | null; idle: number | null; near: number | null; autos: Auto[]; events: AutomationEvent[]; flows: { supply: Flow[]; stake: Flow[] } }
 interface Approval { id: string; source: string; title: string; sub: string; rows: [string, string][]; checks?: AutomationEvent["checks"]; open: () => void; decline?: () => void }
@@ -166,10 +167,20 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
   const runningCount = c.autos.filter((a) => a.enabled).length;
   const autosKnown = loaded.autos || c.autos.length > 0;
   const nEarning = useCountUp(c.earning), nApprovals = useCountUp(autosKnown ? approvals.length : null), nRunning = useCountUp(autosKnown ? runningCount : null), nIdle = useCountUp(c.idle);
+  const trend = useTrend(key, { earning: c.earning, approvals: approvals.length, running: runningCount, idle: c.idle === null ? null : Math.round(c.idle) }, loaded.core && loaded.autos && holdings.loaded && c.idle !== null && c.earning !== null, example);
+  const held = useMemo(() => {
+    const bySymbol = new Map<string, { amount: number; usd: number }>(), nearIds = new Set<string>();
+    for (const [id, b] of Object.entries(holdings.balances)) {
+      const t = tokens.find((x) => x.id === id), amount = Number(b.amount); if (!t || !(amount > 0)) continue;
+      const sym = t.symbol.toUpperCase(), was = bySymbol.get(sym) ?? { amount: 0, usd: 0 };
+      bySymbol.set(sym, { amount: was.amount + amount, usd: was.usd + Number(b.usd ?? 0) }); if (id.startsWith("near:")) nearIds.add(id);
+    }
+    return { bySymbol, nearIds };
+  }, [holdings.balances, tokens]);
   const lastFor = useMemo(() => { const m = new Map<string, AutomationEvent>(); for (const e of c.events) if (!m.has(e.automationId)) m.set(e.automationId, e); return m; }, [c.events]);
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30_000); return () => clearInterval(t); }, []);
-  const [tab, setTab] = useState<"Research" | "Strategies" | "Vaults" | "Watchlist">("Research");
+  const [tab, setTab] = useState<"Research" | "Strategies" | "Yields" | "Watchlist">("Research");
   const [ask, setAsk] = useState("");
   const hour = new Date().getHours(), greeting = hour < 5 ? "Good evening." : hour < 12 ? "Good morning." : hour < 17 ? "Good afternoon." : "Good evening.";
   const bestStable = [...c.rates].filter((r) => /^USD[CT]/i.test(r.symbol) && r.supplyApy !== null).sort((a, b) => b.supplyApy! - a.supplyApy!)[0];
@@ -192,19 +203,19 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
     {note && <p className="fv-notice fv-hub-note fv-rise" role="status">{note}</p>}
 
     <div className="fv-hub-stats">
-      <Stat i={0} icon={<Layers size={16} />} label="Active strategies" value={nEarning === null ? null : String(Math.round(nEarning))} sub={c.earning ? "earning now" : "nothing earning yet"} onClick={() => v.navigate("portfolio")} />
-      <Stat i={1} icon={<Check size={16} />} label="Pending approvals" value={nApprovals === null ? null : String(Math.round(nApprovals))} sub={approvals.length ? "need your review" : "all clear"} onClick={() => focus(approvalsRef.current)} />
-      <Stat i={2} icon={<Zap size={16} />} label="Automations running" value={nRunning === null ? null : String(Math.round(nRunning))} sub={runningCount ? "on schedule" : "none yet"} live={runningCount > 0} onClick={() => focus(autosRef.current)} />
-      <Stat i={3} icon={<Wallet size={16} />} label="Deployable capital" value={nIdle === null ? null : money(nIdle)} sub="idle stablecoins" badge={(c.idle ?? 0) >= 1 ? "Ready to deploy" : undefined} onClick={() => { setTab("Strategies"); focus(researchRef.current); }} />
+      <Stat i={0} icon={<Layers size={16} />} trend={trend("earning")} label="Active strategies" value={nEarning === null ? null : String(Math.round(nEarning))} sub={c.earning ? "earning now" : "nothing earning yet"} onClick={() => v.navigate("portfolio")} />
+      <Stat i={1} icon={<Check size={16} />} trend={trend("approvals")} label="Pending approvals" value={nApprovals === null ? null : String(Math.round(nApprovals))} sub={approvals.length ? "need your review" : "all clear"} onClick={() => focus(approvalsRef.current)} />
+      <Stat i={2} icon={<Zap size={16} />} trend={trend("running")} label="Automations running" value={nRunning === null ? null : String(Math.round(nRunning))} sub={runningCount ? "on schedule" : "none yet"} live={runningCount > 0} onClick={() => focus(autosRef.current)} />
+      <Stat i={3} icon={<Wallet size={16} />} trend={trend("idle")} label="Deployable capital" value={nIdle === null ? null : money(nIdle)} sub="idle stablecoins" badge={(c.idle ?? 0) >= 1 ? "Ready to deploy" : undefined} onClick={() => { setTab("Strategies"); focus(researchRef.current); }} />
     </div>
 
     <div ref={briefRef} className="fv-brief-wrap"><BriefCard event={brief} go={goAction} refresh={() => void briefNow()} busy={briefBusy} example={example} /></div>
 
     <section className="fv-hub-research" ref={researchRef}>
       <div className="fv-hub-section-head"><div><h2>Research &amp; Opportunities</h2><p>Ideas built from your holdings, today&apos;s rates and market moves. Rates are variable; nothing runs without your review.</p></div><button type="button" className="fv-text-button" onClick={() => v.navigate("research")}>Markets <ArrowUpRight size={13} /></button></div>
-      <div className="fv-hub-tabs" role="tablist">{(["Research", "Strategies", "Vaults", "Watchlist"] as const).map((t) => <button type="button" role="tab" key={t} aria-selected={tab === t} onClick={() => setTab(t)}>{t}</button>)}</div>
+      <div className="fv-hub-tabs" role="tablist">{(["Research", "Strategies", "Yields", "Watchlist"] as const).map((t) => <button type="button" role="tab" key={t} aria-selected={tab === t} onClick={() => setTab(t)}>{t}</button>)}</div>
       <div className="fv-tabpanel fv-hub-tabpanel" key={tab}>
-        {tab === "Research" && <><TodayCards key={String(example)} owner={v.acc ?? ""} example={example} navigate={v.navigate} /><Community key={"c" + String(example)} example={example} signedIn={signedIn} navigate={v.navigate} /></>}
+        {tab === "Research" && <><TodayCards key={String(example)} owner={v.acc ?? ""} example={example} navigate={v.navigate} /><Community key={"c" + String(example)} example={example} signedIn={signedIn} navigate={v.navigate} compact /></>}
         {tab === "Strategies" && <div className="fv-strategy-grid">
           <Strategy i={0} art="coins" title="Stablecoin income" body="Earn a steady, variable yield on stablecoins by lending them on Rhea, with no price exposure." yieldText={bestStable ? `≈ ${bestStable.supplyApy!.toFixed(1)}% APY` : "Reading rates…"} risk="Low"
             why={(c.idle ?? 0) >= 1 ? `You hold ${money(c.idle!)} in stablecoins earning nothing.` : "Useful whenever you hold USDC or USDT you won't spend soon."} cta="Review opportunity" onClick={() => bestStable && go("earn", { tab: "supply", supply: bestStable.token })} />
@@ -213,8 +224,8 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
           <Strategy i={2} art="arc" title="Liquid staking" body="Stake NEAR as LiNEAR: it earns staking rewards and stays liquid, swappable when liquidity allows." yieldText={c.stakeApy ? `≈ ${c.stakeApy.toFixed(1)}% APY` : "Reading rate…"} risk="Low–Medium"
             why={(c.near ?? 0) >= 1 ? `You hold ${c.near!.toLocaleString("en-US", { maximumFractionDigits: 2 })} NEAR.` : "For NEAR you plan to hold; unstaking takes about 2–3 days."} cta="Review strategy" onClick={() => go("earn", { tab: "stake" })} />
         </div>}
-        {tab === "Vaults" && <VaultsCard scope={v.lendingScope} />}
-        {tab === "Watchlist" && <ResearchDesk v={v} />}
+        {tab === "Yields" && <YieldsTable rates={c.rates} stakeApy={c.stakeApy} holdings={held} loading={!loaded.core} supply={(token) => go("earn", { tab: "supply", supply: token })} stake={() => go("earn", { tab: "stake" })} />}
+        {tab === "Watchlist" && <WatchlistCompact owner={v.acc ?? ""} example={example} buy={(id) => go("swap", { buy: id })} open={(token) => go("research", token ? { token } : {})} />}
       </div>
     </section>
 
@@ -258,8 +269,8 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
   </div>;
 }
 
-function Stat({ i, icon, label, value, sub, badge, live, onClick }: { i: number; icon: React.ReactNode; label: string; value: string | null; sub: string; badge?: string; live?: boolean; onClick: () => void }) {
-  return <button type="button" className="fv-hub-stat fv-rise" style={{ ["--i" as string]: i }} onClick={onClick}><span className="fv-hub-stat-icon">{icon}</span><span className="fv-hub-stat-body"><span>{label}</span>{value === null ? <span className="fv-skel" style={{ width: 70, height: 26, margin: "3px 0" }} /> : <strong>{value}</strong>}<small>{badge ? <em>{badge}</em> : <>{live && <span className="fv-live-dot" />} {sub}</>}</small></span><ChevronRight size={16} /></button>;
+function Stat({ i, icon, label, value, sub, badge, live, trend, onClick }: { i: number; icon: React.ReactNode; label: string; value: string | null; sub: string; badge?: string; live?: boolean; trend?: number[]; onClick: () => void }) {
+  return <button type="button" className="fv-hub-stat fv-rise" style={{ ["--i" as string]: i }} onClick={onClick}><span className="fv-hub-stat-icon">{icon}</span><span className="fv-hub-stat-body"><span>{label}</span>{value === null ? <span className="fv-skel" style={{ width: 70, height: 26, margin: "3px 0" }} /> : <strong>{value}</strong>}<small>{badge ? <em>{badge}</em> : <>{live && <span className="fv-live-dot" />} {sub}</>}</small></span>{value !== null && trend && <Sparkline values={trend} label={label} />}<ChevronRight size={16} /></button>;
 }
 function AutoMenu({ edit, remove }: { edit: () => void; remove: () => void }) {
   const [open, setOpen] = useState(false);

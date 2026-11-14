@@ -3,7 +3,7 @@
 // never an outside link), upvotes and "use" that credit the author, sharing your own tip, and your points and invite
 // link with a shareable card. Points record contribution; they aren't money. Demo Mode shows fictional tips.
 import { useEffect, useState } from "react";
-import { ArrowRight, ChevronUp, Copy, Gift, Lightbulb, Share2 } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp, Copy, Gift, Lightbulb, Share2 } from "lucide-react";
 import { api } from "../live";
 import { ago } from "../swap-format";
 import { ShareCard } from "../WorkspaceViews";
@@ -25,7 +25,9 @@ const DEMO: Read = {
   feeShare: { bps: 0, text: "Fee share is off: FlowVault charges no fee today, so there's nothing to share." },
 };
 
-export function Community({ example, signedIn, navigate }: { example: boolean; signedIn: boolean; navigate: (screen: string) => void }) {
+/** `compact` starts as one strip that cycles through the top tips with your points; it opens into the full view. */
+export function Community({ example, signedIn, navigate, compact = false }: { example: boolean; signedIn: boolean; navigate: (screen: string) => void; compact?: boolean }) {
+  const [open, setOpen] = useState(!compact), [idx, setIdx] = useState(0), [paused, setPaused] = useState(false);
   const [data, setData] = useState<Read | null>(example ? DEMO : null), [error, setError] = useState(""), [sharing, setSharing] = useState(false), [card, setCard] = useState(false), [note, setNote] = useState("");
   const load = () => api("/api/growth", undefined, "GET").then((r) => setData(r as Read)).catch((e) => setError((e as Error).message));
   useEffect(() => { if (example) return; const t = setTimeout(() => void load(), 0); return () => clearTimeout(t); }, [example, signedIn]);  
@@ -54,14 +56,33 @@ export function Community({ example, signedIn, navigate }: { example: boolean; s
     if (!signedIn || t.mine) return;
     await api("/api/growth", { op: kind, id: t.id }).catch(() => null); void load();
   };
-  if (!data) return error ? null : null;
+  const tipCount = Math.min(data?.tips.length ?? 0, 5);
+  useEffect(() => {
+    if (open || paused || tipCount < 2 || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % tipCount), 6000); return () => clearInterval(t);
+  }, [open, paused, tipCount]);
+  if (!data) return error || !compact ? null : <div className="fv-panel fv-community-strip" aria-hidden><div className="fv-skel" style={{ width: 34, height: 34 }} /><div style={{ flex: 1 }}><div className="fv-skel fv-skel-line" style={{ width: 120, height: 10 }} /><div className="fv-skel fv-skel-line" style={{ width: "60%" }} /></div></div>;
   const link = data.me ? `${window.location.origin}/?ref=${data.me.code}` : "";
   const label = (a: TipAction) => a.kind === "supply" ? `Supply ${a.symbol}` : a.kind === "swap" ? `Buy ${a.symbol}` : "Stake NEAR";
 
-  return <section className="fv-community" aria-label="Community">
+  if (!open) {
+    const tip = data.tips[idx % Math.max(tipCount, 1)];
+    return <section className="fv-panel fv-community-strip fv-rise" aria-label="Community" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)}>
+      <span className="fv-strip-icon"><Lightbulb size={16} /></span>
+      {tip ? <div className="fv-strip-tip" key={tip.id} aria-live="polite">
+        <small>Community tip{example ? " · example" : ""} · <ChevronUp size={11} />{tip.votes}{tip.used ? ` · used by ${tip.used}` : ""}</small>
+        <strong>{tip.title}</strong>
+      </div> : <div className="fv-strip-tip"><small>Community{example ? " · example" : ""}</small><strong>No tips today yet. Share what you&apos;re seeing.</strong></div>}
+      {tip && <button type="button" className="fv-text-button" onClick={() => void mark(tip, "used")}>{label(tip.action)} <ArrowRight size={13} /></button>}
+      {tipCount > 1 && <span className="fv-strip-dots" aria-hidden>{Array.from({ length: tipCount }, (_, i) => <i key={i} className={i === idx % tipCount ? "is-on" : ""} />)}</span>}
+      {data.me && <button type="button" className="fv-points-badge" onClick={() => setOpen(true)} aria-label={`${data.me.points} points: open community and invites`}><Gift size={13} /> {data.me.points.toLocaleString()} pts</button>}
+      <button type="button" className="fv-button" onClick={() => { setOpen(true); if (!tip) setSharing(true); }}>{tip ? `All tips` : "Share a tip"} <ChevronDown size={13} /></button>
+    </section>;
+  }
+  return <section className={"fv-community" + (compact ? " fv-fadein" : "")} aria-label="Community">
     <div className="fv-panel fv-community-tips">
       <div className="fv-section-head"><div><h2><Lightbulb size={16} /> Tips from the community{example ? " · example" : ""}</h2><small className="fv-muted">Shared by FlowVault users. Unverified ideas, not advice; each opens the action in FlowVault for your own review.</small></div>
-        <button type="button" className="fv-button" onClick={() => setSharing(!sharing)}>Share a tip</button></div>
+        <span className="fv-actions"><button type="button" className="fv-button" onClick={() => setSharing(!sharing)}>Share a tip</button>{compact && <button type="button" className="fv-icon-button" aria-label="Show less" onClick={() => { setOpen(false); setSharing(false); }}><ChevronUp size={16} /></button>}</span></div>
       {sharing && <TipForm example={example} signedIn={signedIn} rules={data.rules} done={(t) => { setSharing(false); if (t) { if (example) setData((d) => d && { ...d, tips: [{ ...t, id: "local-" + Date.now(), author: "you (example)", createdAt: new Date().toISOString(), votes: 0, used: 0, mine: true }, ...d.tips] }); else void load(); } }} />}
       {!data.tips.length && <p className="fv-muted">No tips yet today. Share the first one.</p>}
       <ol className="fv-tip-list">{data.tips.slice(0, 5).map((t) => <li key={t.id}>
