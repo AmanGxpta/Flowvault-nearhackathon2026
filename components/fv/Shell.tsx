@@ -950,7 +950,8 @@ export function Shell({ v }: { v: any }) {
               {v.footLabel}
             </span>
             <span className="fv-statusbar">
-              {(v.pfBalances ?? []).slice(0, 2).map((b: any) => <button type="button" key={b.label} onClick={() => v.navigate("portfolio")}><small>{b.label === "Net worth" ? "Portfolio" : b.label}</small><b>{b.value}</b></button>)}
+              {v.notConnected && <button type="button" className="is-nc" onClick={() => (v.openConnect ?? v.connectFirst)?.()}><small>Wallet</small><b>Not connected</b></button>}
+              {!v.notConnected && (v.pfBalances ?? []).slice(0, 2).map((b: any) => <button type="button" key={b.label} onClick={() => v.navigate("portfolio")}><small>{b.label === "Net worth" ? "Portfolio" : b.label}</small><b>{b.value}</b></button>)}
               {(() => { const n = (v.pfRows ?? []).find((r: any) => r.symbol === "NEAR" && (!r.kind || r.kind === "wallet")); return n ? <button type="button" onClick={() => v.navigate("swap")}><small>NEAR</small><b>{n.quantity ?? n.value}</b></button> : null; })()}
               {v.upcoming?.[0] ? <button type="button" onClick={v.goCalendar}><small>Next payment</small><b>{v.upcoming[0].amountF ?? v.upcoming[0].amount} {v.upcoming[0].asset ?? "USDC"} · {v.upcoming[0].dueLabel ?? v.upcoming[0].due}</b></button> : null}
               <button type="button" onClick={v.goPolicy}><small>Guardrails</small><b>On</b></button>
