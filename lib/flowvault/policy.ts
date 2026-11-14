@@ -333,3 +333,33 @@ export function preparationAction(
     ),
   };
 }
+
+/** One line of an approval's hazard scan. `ok: null` means the check doesn't apply or couldn't be read. */
+export interface HazardCheck { id: string; label: string; ok: boolean | null; detail?: string }
+const fmtUsdc = (v: string) => { const n = Number(v); return "$" + (n >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(2)); };
+/**
+ * Every check evaluatePolicy already ran, as one ordered list an approval card can show ("hazard scan"): caps
+ * (including "$X left today" after this action), asset permission, protected assets, venue, recipient, contract
+ * methods, moving cost and fee budget. Extra, action-specific checks (slippage, health, quote freshness) are appended
+ * by the caller. Pure: it reads the evaluation, it doesn't re-decide anything.
+ */
+export function hazardChecks(action: PolicyAction, policy: Policy, check: ReturnType<typeof evaluatePolicy>, extra: HazardCheck[] = []): HazardCheck[] {
+  const bad = (...codes: string[]) => check.violations.find((v) => codes.includes(v.code));
+  const line = (id: string, label: string, codes: string[], okDetail?: string): HazardCheck => { const v = bad(...codes); return { id, label, ok: !v, detail: v?.message ?? okDetail }; };
+  let left: string | null = null;
+  try { if (check.remainingDaily !== null) { const after = units(check.remainingDaily) - units(action.amount); left = decimal(after > 0n ? after : 0n); } } catch { left = null; }
+  const out: HazardCheck[] = [
+    line("per-action", `Within your per-action cap (${fmtUsdc(policy.perActionCap)})`, ["PER_ACTION_CAP", "INVALID_AMOUNT_OR_POLICY"]),
+    { ...line("daily", left !== null ? `${fmtUsdc(left)} left today after this (within limit)` : "Daily limit", ["DAILY_CAP", "LEDGER_UNVERIFIED"]), ...(left === null && !bad("DAILY_CAP", "LEDGER_UNVERIFIED") ? { ok: null } : {}) },
+    line("asset", `${action.asset} may be used this way`, ["ASSET_SCOPE_UNVERIFIED", "ASSET_USE_NOT_ALLOWED"]),
+    line("protected", "Not a protected asset", ["PROTECTED_ASSET"]),
+    line("venue", "Approved venue", ["VENUE_NOT_ALLOWED"]),
+    line("recipient", action.recipient === action.accountId ? "Goes to your own account" : "Recipient is on your allowlist", ["RECIPIENT_NOT_ALLOWED"]),
+    line("methods", "Only allowlisted contract calls", ["METHOD_NOT_ALLOWED", "NESTED_RECEIVER_NOT_ALLOWED"]),
+    line("cost", action.movingCost !== null ? `Moving cost ${fmtUsdc(action.movingCost)} (limit ${fmtUsdc(policy.maxMoveCost)})` : "Moving cost", ["MOVING_COST_CAP", "COST_UNVERIFIED"]),
+    line("gas", "Network fees within your budget", ["GAS_CAP", "GAS_UNVERIFIED"]),
+    ...extra,
+  ];
+  if (bad("INVALID_ACTION")) out.unshift({ id: "action", label: "Action is well-formed", ok: false, detail: bad("INVALID_ACTION")!.message });
+  return out;
+}

@@ -4,7 +4,7 @@
 // reloading never loses the place. Demo Mode flows play the same steps as a labelled simulation: nothing is signed
 // and nothing moves.
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, Check, CircleAlert, RefreshCw, Repeat, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CircleAlert, RefreshCw, Repeat } from "lucide-react";
 import { api } from "../live";
 import { TokenIcon } from "../AssetIdentity";
 import { useTokenCatalog, coreIdentity } from "../useTokenCatalog";
@@ -14,7 +14,8 @@ import { SwapReview } from "../SwapReview";
 import { RheaSheet } from "../RheaSheet";
 import { decimal } from "@/lib/flowvault/money";
 import { deriveSupplyFlow, SUPPLY_STATUS_LABEL, tokenText, type SupplyAttemptView, type SupplyFlow, type SupplyFlowStatus, type SupplyStep } from "@/lib/flowvault/supply-flow";
-import { simAttempt, simDelivered } from "@/lib/flowvault/demo-sim";
+import { exampleChecks, simAttempt, simDelivered } from "@/lib/flowvault/demo-sim";
+import { HazardScan } from "../approvals/HazardScan";
 import { demoGet, demoPut, isDemoId } from "../demo/demo-store";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 
@@ -48,7 +49,7 @@ function DemoSupplyFlow({ id, back }: Props) {
     pay={<div className="fv-stake-action"><div className="fv-confirm-table"><div><span>You pay</span><strong>{f.source.amount} {f.source.fromSymbol}{f.source.fromNetwork === "NEAR" ? "" : " on " + f.source.fromNetwork}</strong></div><div><span>You receive</span><strong>≈ {tokenText(f.source.expectedRaw, f.decimals)} {f.symbol}</strong></div><div><span>Route</span><strong>NEAR Intents · example</strong></div></div>
       <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => save({ payAt: Date.now() })}>Approve in wallet · example</button></div>}
     supply={<div className="fv-stake-action"><div className="fv-confirm-table"><div><span>Supply</span><strong>{supplyAmount} {f.symbol}</strong></div><div><span>Supply APY</span><strong>{f.apy !== null ? f.apy.toFixed(2) + "% · variable" : "variable"}</strong></div><div><span>Network fees</span><strong>up to 0.003 NEAR · example</strong></div></div>
-      <p className="fv-stake-policy"><ShieldCheck size={14} /> Example: checked against the example workspace&apos;s limits</p>
+      <HazardScan compact checks={exampleChecks(Number(supplyAmount.replace(/,/g, "")) || 0, [{ id: "health", label: "No debt: nothing can be liquidated", ok: true }])} />
       <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => save({ supplyAt: Date.now() })}>Sign once to supply · example</button></div>}
     onCancel={() => save({ flow: { ...f, cancelledAt: new Date().toISOString() } })} onResume={() => save({ flow: { ...f, cancelledAt: null } })} />;
 }

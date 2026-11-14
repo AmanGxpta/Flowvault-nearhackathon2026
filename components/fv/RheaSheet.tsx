@@ -3,6 +3,8 @@
 // Borrow. Prepared and checked by the server (prices from Rhea's own oracle, health, liquidity, storage, policy),
 // then approved by the owner in their own NEAR wallet. FlowVault never signs.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HazardScan } from "./approvals/HazardScan";
+import type { HazardCheck } from "@/lib/flowvault/policy";
 import { ReviewFrame } from "./ReviewFrame";
 import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw, Wallet } from "lucide-react";
 import { TokenIcon } from "./AssetIdentity";
@@ -19,7 +21,7 @@ interface Position { symbol: string; decimals: number; priced: boolean; wallet: 
 interface Prepared {
   attempt: WalletAttempt;
   review: { action: Action; symbol: string; amount: string; usdValue: string; healthBefore: string; healthAfter: string; stressedAfter: string | null; gasNearBound: string; steps: { receiver: string; methods: string[] }[]; expiresAt: string; newDebt: boolean; warning?: string };
-  policy: { allowed: boolean; violations: { code: string; message: string }[]; missingEntries: { label: string }[]; revision: number; version: number };
+  policy: { allowed: boolean; violations: { code: string; message: string }[]; missingEntries: { label: string }[]; revision: number; version: number; checks?: HazardCheck[] };
 }
 type Phase = "form" | "preparing" | "review" | "allowing" | "wallet" | "settling" | "done" | "failed" | "error";
 const LABEL: Record<Action, string> = { supply: "Supply", withdraw: "Withdraw", collateral_add: "Add collateral", collateral_release: "Release collateral", borrow: "Borrow", repay: "Repay" };
@@ -179,10 +181,11 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
       </div>}
       {review && phase === "review" && <ol className="fv-confirm-steps">{review.steps.map((s, i) => <li key={i}><span>{i + 1}</span>{s.methods.map(m => STEP[m] ?? m).join(" + ")}<small>{s.receiver}</small></li>)}</ol>}
       {review?.warning && phase === "review" && <p role="status" className="fv-notice">{review.warning}</p>}
+      {prep && phase === "review" && <HazardScan checks={prep.policy.checks} />}
       {prep && phase === "review" && (prep.policy.allowed
-        ? <div className="fv-policy-check is-ok"><ShieldCheck size={17} /><div><strong>Within your limits</strong><small>Per-action cap, daily cap, gas and approved venues checked · policy v{prep.policy.version}</small></div></div>
+        ? prep.policy.checks?.length ? null : <div className="fv-policy-check is-ok"><ShieldCheck size={17} /><div><strong>Within your limits</strong><small>Per-action cap, daily cap, gas and approved venues checked · policy v{prep.policy.version}</small></div></div>
         : <div className="fv-policy-check is-blocked"><ShieldAlert size={17} /><div><strong>{fixable ? `Rhea ${symbol} isn’t in your policy yet` : "Your policy blocks this"}</strong>
-          <ul>{prep.policy.violations.slice(0, 4).map(v => <li key={v.code + v.message}>{v.message}</li>)}</ul>
+          {!prep.policy.checks?.length && <ul>{prep.policy.violations.slice(0, 4).map(v => <li key={v.code + v.message}>{v.message}</li>)}</ul>}
           {fixable && <small>Allowing adds exactly: {prep.policy.missingEntries.map(e => e.label).join("; ") || `${symbol} for this use`}. Nothing else changes.</small>}</div></div>)}
       {phase === "settling" && <div className="fv-confirm-hashes">{attempt?.hashes.map(h => <a key={h} href={"https://nearblocks.io/txns/" + h} target="_blank" rel="noopener noreferrer">{h.slice(0, 8)}…{h.slice(-6)} <ExternalLink size={12} /></a>)}</div>}
       {phase === "done" && <div className="fv-confirm-success"><Check size={18} /> {attempt?.message}<div className="fv-confirm-hashes">{attempt?.hashes.slice(-1).map(h => <a key={h} href={"https://nearblocks.io/txns/" + h} target="_blank" rel="noopener noreferrer">View transaction <ExternalLink size={12} /></a>)}</div></div>}

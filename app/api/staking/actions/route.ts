@@ -3,7 +3,7 @@ import { session, mutation, json, failure } from "@/lib/flowvault/store";
 import { createAttempt, readAttempt } from "@/lib/flowvault/attempts";
 import { keyedAttemptId } from "@/lib/flowvault/preparation-key";
 import { checkPolicy } from "@/lib/flowvault/policy-store";
-import { defaultPolicy } from "@/lib/flowvault/policy";
+import { defaultPolicy, hazardChecks } from "@/lib/flowvault/policy";
 import {
   freshStaking,
   assertStakingContext,
@@ -50,11 +50,9 @@ export async function POST(r: Request) {
       return json({ ...p, attemptId: existing.id }, s.cookie);
     }
     const p = await freshStaking(s.workspace, s.revision, b.kind, b.amountRaw, b.venue);
-    await checkPolicy(
-      s.id,
-      p.policyAction,
-      s.workspace.policy ?? defaultPolicy(s.workspace.mandate.maxMoveCost),
-    );
+    const stakingPolicy = s.workspace.policy ?? defaultPolicy(s.workspace.mandate.maxMoveCost);
+    const checked = await checkPolicy(s.id, p.policyAction, stakingPolicy);
+    const checks = hazardChecks(p.policyAction, stakingPolicy, checked, [{ id: "code", label: "Staking contract code verified", ok: true }, { id: "gas-reserve", label: "0.5 NEAR stays on your account for fees", ok: true }]);
     const current = await session(r);
     assertStakingContext(p, current.workspace, current.revision);
     const attempt = await createAttempt(
@@ -68,7 +66,7 @@ export async function POST(r: Request) {
       throw new Error(
         "Staking idempotency key conflicts with the reviewed request.",
       );
-    return json({ ...attempt.preparation, attemptId: attempt.id }, s.cookie);
+    return json({ ...attempt.preparation, attemptId: attempt.id, checks }, s.cookie);
   } catch (e) {
     return failure(e);
   }

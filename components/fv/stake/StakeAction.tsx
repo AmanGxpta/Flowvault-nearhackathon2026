@@ -3,6 +3,8 @@
 // policy check, gas reserve), shows what you get, then authorizes, hands it to your NEAR wallet and tracks it to
 // final receipts. A declined wallet request is recorded as not sent so the step can be signed again.
 import { useEffect, useRef, useState } from "react";
+import { HazardScan } from "../approvals/HazardScan";
+import type { HazardCheck } from "@/lib/flowvault/policy";
 import { Check, RefreshCw, ShieldCheck } from "lucide-react";
 import type { Policy } from "@/lib/flowvault/policy";
 import { api } from "../live";
@@ -13,7 +15,7 @@ import { stakeAttemptMode } from "@/lib/flowvault/staking-ui";
 import { nearText } from "@/lib/flowvault/stake-flow";
 
 type Phase = "idle" | "preparing" | "review" | "wallet" | "settling" | "done" | "error";
-type Prep = StakingPreparation & { attemptId: string };
+type Prep = StakingPreparation & { attemptId: string; checks?: HazardCheck[] };
 
 export function StakeAction({ amountRaw, existing, onAttempt, onChange, disabledReason, autoReview, venue = "linear" }: {
   amountRaw: string; existing?: { id: string; state: string; hashes: number; preparation?: StakingPreparation | null } | null;
@@ -124,7 +126,7 @@ export function StakeAction({ amountRaw, existing, onAttempt, onChange, disabled
       <div><span>Kept for gas</span><strong>{nearText(prep.quote.exitReserveNearRaw)} NEAR stays on your account</strong></div>
     </div>}
     {prep?.reserveNote && phase === "review" && <p className="fv-notice" role="status">{prep.reserveNote}</p>}
-    {phase === "review" && <p className="fv-stake-policy"><ShieldCheck size={14} /> Checked against your limits · {symbol} contract code verified</p>}
+    {phase === "review" && (prep?.checks?.length ? <HazardScan checks={prep.checks} compact /> : <p className="fv-stake-policy"><ShieldCheck size={14} /> Checked against your limits · {symbol} contract code verified</p>)}
     {(error || disabledReason) && <p className="fv-notice" role="alert">{error || disabledReason}</p>}
     {phase === "review" ? (left === 0
       ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => void prepare()}><RefreshCw size={15} /> Quote expired · refresh</button>

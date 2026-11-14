@@ -2,12 +2,13 @@
 // Demo Mode swap: the same review card as a real swap, played as a labelled simulation with the example wallets.
 // "Approve" waits briefly in a pretend wallet, runs, and lands slightly under the quote. Nothing is signed or sent.
 import { useEffect, useState } from "react";
-import { Check, ExternalLink, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { Check, ExternalLink, RefreshCw, X } from "lucide-react";
 import { ReviewFrame } from "../ReviewFrame";
 import { TokenIcon } from "../AssetIdentity";
 import { coreIdentity } from "../useTokenCatalog";
 import { fmtAmount, fmtUsd } from "../swap-format";
-import { simAttempt, simDelivered } from "@/lib/flowvault/demo-sim";
+import { exampleChecks, simAttempt, simDelivered } from "@/lib/flowvault/demo-sim";
+import { HazardScan } from "../approvals/HazardScan";
 import { units, decimal } from "@/lib/flowvault/money";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 
@@ -34,7 +35,7 @@ export function DemoSwapReview({ from, to, amount, route, close, onDone }: { fro
       <div><span>Route</span><strong>{route.venue}{route.eta ? ` · ~${route.eta}s` : ""}</strong></div>
       {a?.hash && <div><span>Transaction</span><strong className="fv-demo-hash">{a.hash} <small>(example, not on chain)</small></strong></div>}
     </div>
-    {!a && <p className="fv-stake-policy"><ShieldCheck size={14} /> Example: checked against the example workspace&apos;s limits</p>}
+    {!a && <HazardScan checks={exampleChecks(Number(amount) * Number(from.price ?? 0), [{ id: "slippage", label: "Minimum received within 1% slippage", ok: true }])} />}
     {a?.state === "confirmed" && <div className="fv-confirm-success"><Check size={18} /> Example: {fmtAmount(delivered)} {to.symbol} arrived.<div className="fv-confirm-hashes"><span className="fv-demo-hash">View transaction <ExternalLink size={12} /> unavailable for examples</span></div></div>}
     <div className="fv-confirm-actions">
       {!a ? <button type="button" className="fv-button fv-primary fv-wide-button" onClick={() => setAt(Date.now())}>Approve in wallet · example</button>

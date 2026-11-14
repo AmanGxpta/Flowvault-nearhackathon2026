@@ -4,7 +4,7 @@
 import { session } from "./store.ts";
 import { attemptsDb, createAttempt, readAttempt, saveAttempt, listActiveAttempts, listAttempts } from "./attempts.ts";
 import { assertSignable } from "./execution.ts";
-import { evaluatePolicy, defaultPolicy } from "./policy.ts";
+import { evaluatePolicy, hazardChecks, defaultPolicy } from "./policy.ts";
 import { checkPolicy, readLedger, reservePolicy, releasePolicy } from "./policy-store.ts";
 import { networkRpc, view } from "./near.ts";
 import { appendStep } from "./timeline.ts";
@@ -107,7 +107,7 @@ export async function prepareSwap(request: Request, tokens: SwapToken[], body: {
       gasNearBound: preparation.gasNearBound, steps: transactions.map(t => ({ receiver: t.receiverId, methods: t.actions.map(a => a.params.methodName) })),
       hops: actions.length, expiresAt: preparation.expiresAt, unwrapNote: preparation.unwrapNote,
     },
-    policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version },
+    policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version, checks: hazardChecks(preparation.policyAction, policy, check, [{ id: "slippage", label: `Minimum received within ${Number(body.slippage ?? 100) / 100}% slippage`, ok: true }, { id: "quote", label: "Fresh quote, re-checked when it expires", ok: true }]) },
   };
 }
 
@@ -315,7 +315,7 @@ export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], 
       fromNetwork: from.network, toNetwork: to.network,
       steps: solTx ? [{ receiver: q.depositAddress, methods: ["transfer USDC"] }] : deposit.evmTx ? [{ receiver: from.contract === "native" ? q.depositAddress : from.contract, methods: [from.contract === "native" ? "send " + from.symbol : "transfer " + from.symbol] }] : deposit.transactions.map(t => ({ receiver: t.receiverId, methods: t.actions.map(a => a.params.methodName) })),
     },
-    policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version },
+    policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version, checks: hazardChecks(preparation.policyAction, policy, check, [{ id: "slippage", label: `Minimum received within ${bps / 100}% slippage`, ok: true }, { id: "route", label: "NEAR Intents delivers or refunds to the sender", ok: true }, ...(body.payTo ? [] : [{ id: "own", label: "Delivers only to your own wallet", ok: true }])]) },
   };
 }
 
@@ -511,5 +511,5 @@ export async function resumeIntentsSwap(request: Request, id: string) {
     fromNetwork: p.from.network, toNetwork: p.to.network,
     ...(earlier.length ? {warning: "An earlier wallet prompt may still be open. Reject it before approving this payment."} : {}),
     steps: p.evmTx ? [{receiver: p.from.contract === "native" ? p.depositAddress : p.from.contract, methods: [p.from.contract === "native" ? "send " + p.from.symbol : "transfer " + p.from.symbol]}] : p.transactions.map(t => ({receiver:t.receiverId, methods:t.actions.map(a=>a.params.methodName)})),
-  }, policy: {allowed:check.allowed, violations:check.violations, missingEntries:missing, revision:s.revision, version:policy.version} };
+  }, policy: {allowed:check.allowed, violations:check.violations, missingEntries:missing, revision:s.revision, version:policy.version, checks: hazardChecks(p.policyAction, policy, check)} };
 }

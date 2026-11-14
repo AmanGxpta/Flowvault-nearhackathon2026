@@ -4,7 +4,7 @@
 import { session } from "./store.ts";
 import { createAttempt, readAttempt, saveAttempt, listActiveAttempts, listAttempts } from "./attempts.ts";
 import { assertSignable } from "./execution.ts";
-import { evaluatePolicy, defaultPolicy } from "./policy.ts";
+import { evaluatePolicy, hazardChecks, defaultPolicy } from "./policy.ts";
 import { checkPolicy, readLedger, reservePolicy, releasePolicy } from "./policy-store.ts";
 import { appendStep } from "./timeline.ts";
 import { decimal, units } from "./money.ts";
@@ -184,7 +184,7 @@ export async function prepareTrade(request: Request, body: TradeBody) {
     attempt,
     review: { tool: lq.tool, output: dec(lq.outputRaw, lq.to.decimals), minimum: dec(lq.minOutRaw, lq.to.decimals), fromUsd: preparation.fromUsd, minOutUsd, gasUsd, fees: lq.feesUsd, durationSec: lq.durationSec, approvals: evmTxs.length - (lq.evmTx ? 1 : 0), sender, recipient, fromChain: from.name, toChain: to.name, expiresAt: preparation.expiresAt,
       ...(closed.length ? { warning: `An earlier trade request from this wallet (${ago(closed[0].createdAt)}) was closed as not sent, but its wallet prompt may still be open. Reject it in your wallet before approving this one.` } : {}) },
-    policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version },
+    policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version, checks: hazardChecks(preparation.policyAction, policy, check, [{ id: "approval", label: "Token approval is for the exact amount, never unlimited", ok: true }]) },
   };
 }
 

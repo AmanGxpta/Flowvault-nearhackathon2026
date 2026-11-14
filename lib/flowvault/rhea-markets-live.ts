@@ -4,7 +4,7 @@
 import { session } from "./store.ts";
 import { createAttempt, readAttempt, saveAttempt, listActiveAttempts, listAttempts } from "./attempts.ts";
 import { assertSignable } from "./execution.ts";
-import { evaluatePolicy, defaultPolicy } from "./policy.ts";
+import { evaluatePolicy, hazardChecks, defaultPolicy } from "./policy.ts";
 import { checkPolicy, readLedger, reservePolicy, releasePolicy } from "./policy-store.ts";
 import { networkRpc, view } from "./near.ts";
 import { appendStep } from "./timeline.ts";
@@ -177,7 +177,7 @@ export async function prepareRhea(request: Request, body: { action: RheaKind; to
     attempt,
     review: { action: body.action, symbol: m.symbol, amount: preparation.amount, usdValue: preparation.usdValue, healthBefore: b.healthBefore, healthAfter: b.healthAfter, stressedAfter: b.stressedAfter, gasNearBound: preparation.gasNearBound, steps: b.transactions.map(t => ({ receiver: t.receiverId, methods: t.actions.map(x => x.params.methodName) })), expiresAt: preparation.expiresAt, newDebt: b.newDebt,
       ...(closed.length ? { warning: `An earlier Rhea request from this account (${ago(closed[0].createdAt)}) was closed as not sent, but its wallet prompt may still be open. Reject it in your wallet before approving this one.` } : {}) },
-    policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version },
+    policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version, checks: hazardChecks(policyAction, policy, check, [{ id: "health", label: b.healthAfter === "no debt" ? "No debt: nothing can be liquidated" : `Health after ${b.healthAfter}${b.stressedAfter && b.stressedAfter !== "no debt" ? ` (${b.stressedAfter} after a price drop)` : ""}`, ok: b.healthAfter === "no debt" || Number(b.healthAfter) >= 1.2 }, { id: "debt", label: b.newDebt ? (body.approveNewDebt ? "New debt, confirmed by you" : "New debt needs your confirmation") : "No new debt", ok: !b.newDebt || body.approveNewDebt === true }, { id: "oracle", label: "Priced by Rhea's own oracle", ok: true }]) },
   };
 }
 

@@ -3,6 +3,8 @@
 // and to your own proven wallets (EVM chains and Solana). A live quote previews as you type; Review prepares the
 // exact transactions, checks your balance, fees and limits, and your own wallet signs.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HazardScan } from "./approvals/HazardScan";
+import type { HazardCheck } from "@/lib/flowvault/policy";
 import { ReviewFrame } from "./ReviewFrame";
 import { Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw, ArrowRight, Wallet, ChevronDown } from "lucide-react";
 import { TokenIcon } from "./AssetIdentity";
@@ -18,7 +20,7 @@ interface Preview { tool: string; output: string; minimum: string; fromUsd: stri
 interface Prepared {
   attempt: WalletAttempt;
   review: { tool: string; output: string; minimum: string; fromUsd: string | null; minOutUsd: string | null; gasUsd: string | null; fees: { name: string; usd: string | null; included: boolean }[]; durationSec: number | null; approvals: number; warning?: string; sender: string; recipient: string; fromChain: string; toChain: string; expiresAt: string };
-  policy: { allowed: boolean; violations: { code: string; message: string }[]; missingEntries: { label: string }[]; revision: number; version: number };
+  policy: { allowed: boolean; violations: { code: string; message: string }[]; missingEntries: { label: string }[]; revision: number; version: number; checks?: HazardCheck[] };
 }
 const feeText = (f: { name: string; usd: string | null; included: boolean }) => `${f.name} ${f.usd === null ? "unknown" : fmtUsd(f.usd)}${f.included ? "" : " (on top)"}`;
 const short = (a?: string) => !a ? "" : a.length > 14 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
@@ -234,10 +236,11 @@ function TradeReview({ body, sessions, close, inline, onAttempt }: { body: Recor
         {r.approvals > 0 && phase === "review" && <div><span>Approval</span><strong>Exactly {fmtAmount(p.amount)} {p.from.symbol} for the LI.FI router (not unlimited)</strong></div>}
       </div>}
       {r?.warning && phase === "review" && <p role="status" className="fv-notice">{r.warning}</p>}
+      {prep && phase === "review" && <HazardScan checks={prep.policy.checks} />}
       {prep && phase === "review" && (prep.policy.allowed
-        ? <div className="fv-policy-check is-ok"><ShieldCheck size={17} /><div><strong>Within your limits</strong><small>Per-action cap, daily cap, cost limit and approved venues checked · policy v{prep.policy.version}</small></div></div>
+        ? prep.policy.checks?.length ? null : <div className="fv-policy-check is-ok"><ShieldCheck size={17} /><div><strong>Within your limits</strong><small>Per-action cap, daily cap, cost limit and approved venues checked · policy v{prep.policy.version}</small></div></div>
         : <div className="fv-policy-check is-blocked"><ShieldAlert size={17} /><div><strong>{fixable ? "LI.FI trades aren’t in your policy yet" : "Your policy blocks this trade"}</strong>
-          <ul>{prep.policy.violations.slice(0, 4).map(v => <li key={v.code + v.message}>{v.message}</li>)}</ul>
+          {!prep.policy.checks?.length && <ul>{prep.policy.violations.slice(0, 4).map(v => <li key={v.code + v.message}>{v.message}</li>)}</ul>}
           {fixable && <small>Allowing adds exactly: {prep.policy.missingEntries.map(e => e.label).join("; ")}. Nothing else changes.</small>}</div></div>)}
       {(phase === "settling" || phase === "done" || phase === "failed") && <div className="fv-confirm-hashes">{attempt?.hashes.map(h => <a key={h} href={link(h)} target="_blank" rel="noopener noreferrer">{h.slice(0, 8)}…{h.slice(-6)} <ExternalLink size={12} /></a>)}</div>}
       {phase === "done" && <div className="fv-confirm-success"><Check size={18} /> {attempt?.message}</div>}

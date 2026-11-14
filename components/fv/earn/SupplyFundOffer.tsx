@@ -33,7 +33,7 @@ export function SupplyFundOffer({ tokenId, symbol, apy, owner: liveOwner, exampl
   const holdings = useWalletBalances(owner, tokens, !!owner, example);
   const target = tokens.find((t) => t.network === "near" && t.contract === tokenId && !!t.assetId);
   // Pay with anything you hold that NEAR Intents can take, except the token itself.
-  const payable = useMemo(() => tokens.filter((t) => !!t.assetId && PAY_NETWORKS.includes(t.network) && (example || t.network !== "sol" || t.contract === SOLANA_USDC) && t.id !== target?.id && BigInt(holdings.balances[t.id]?.raw ?? "0") > 0n), [tokens, holdings.balances, target?.id]);
+  const payable = useMemo(() => tokens.filter((t) => !!t.assetId && PAY_NETWORKS.includes(t.network) && (example || t.network !== "sol" || t.contract === SOLANA_USDC) && t.id !== target?.id && BigInt(holdings.balances[t.id]?.raw ?? "0") > 0n), [tokens, holdings.balances, target?.id, example]);
   // Rank by value: the wallet's own valuation, else the catalog price, so the pick doesn't depend on which read lands first.
   // Supplying a stablecoin: pay with stablecoins first (1:1, no price risk), then anything else.
   const stableTarget = /^USD/i.test(symbol);

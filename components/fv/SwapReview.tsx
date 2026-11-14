@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HazardScan } from "./approvals/HazardScan";
+import type { HazardCheck } from "@/lib/flowvault/policy";
 import { ReviewFrame } from "./ReviewFrame";
 import { ArrowRight, Check, ShieldCheck, ShieldAlert, X, ExternalLink, RefreshCw } from "lucide-react";
 import { TokenIcon } from "./AssetIdentity";
@@ -17,7 +19,7 @@ import type { WalletAttempt } from "@/lib/flowvault/execution";
 interface Prepared {
   attempt: WalletAttempt;
   review: { output: string; minimum: string; inputUsd: string | null; minOutUsd: string | null; gasNearBound: string; steps: { receiver: string; methods: string[] }[]; hops?: number; route?: string; eta?: number | null; gasUsd?: string | null; sender?: string; recipient?: string; fromNetwork?: string; toNetwork?: string; expiresAt: string; unwrapNote?: string; warning?: string };
-  policy: { allowed: boolean; violations: { code: string; message: string }[]; missingEntries: { label: string }[]; revision: number; version: number };
+  policy: { allowed: boolean; violations: { code: string; message: string }[]; missingEntries: { label: string }[]; revision: number; version: number; checks?: HazardCheck[] };
 }
 type Phase = "preparing" | "review" | "allowing" | "wallet" | "settling" | "done" | "failed" | "error";
 const FIXABLE = new Set(["VENUE_NOT_ALLOWED", "METHOD_NOT_ALLOWED", "NESTED_RECEIVER_NOT_ALLOWED", "ASSET_USE_NOT_ALLOWED", "ASSET_SCOPE_UNVERIFIED"]);
@@ -186,10 +188,11 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
       {review?.unwrapNote && phase === "review" && <p className="fv-muted fv-confirm-note">{review.unwrapNote}</p>}
       {review?.warning && phase === "review" && <p role="status" className="fv-notice">{review.warning}</p>}
 
+      {prep && phase === "review" && <HazardScan checks={prep.policy.checks} />}
       {prep && phase === "review" && (prep.policy.allowed
-        ? <div className="fv-policy-check is-ok"><ShieldCheck size={17} /><div><strong>Within your limits</strong><small>Per-action cap, daily cap, cost limit and approved venues checked · policy v{prep.policy.version}</small></div></div>
+        ? prep.policy.checks?.length ? null : <div className="fv-policy-check is-ok"><ShieldCheck size={17} /><div><strong>Within your limits</strong><small>Per-action cap, daily cap, cost limit and approved venues checked · policy v{prep.policy.version}</small></div></div>
         : <div className="fv-policy-check is-blocked"><ShieldAlert size={17} /><div><strong>{fixable ? (intents ? "NEAR Intents swaps aren’t in your policy yet" : "Rhea / Ref swaps aren’t in your policy yet") : "Your policy blocks this swap"}</strong>
-          <ul>{prep.policy.violations.slice(0, 4).map(v => <li key={v.code + v.message}>{v.message}</li>)}</ul>
+          {!prep.policy.checks?.length && <ul>{prep.policy.violations.slice(0, 4).map(v => <li key={v.code + v.message}>{v.message}</li>)}</ul>}
           {fixable && <small>Allowing adds exactly: {prep.policy.missingEntries.map(e => e.label).join("; ") || "this asset's swap permission"}. Nothing else changes.</small>}</div></div>)}
 
       {phase === "settling" && <div className="fv-confirm-hashes">{attempt?.hashes.map(h => <a key={h} href={explorer(h)} target="_blank" rel="noopener noreferrer">{h.slice(0, 8)}…{h.slice(-6)} <ExternalLink size={12} /></a>)}</div>}

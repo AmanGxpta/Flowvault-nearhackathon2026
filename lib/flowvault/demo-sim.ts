@@ -30,3 +30,20 @@ export function simDelivered(expectedRaw: string | null | undefined, bps = 8n) {
   const v = BigInt(expectedRaw);
   return (v - (v * bps) / 10_000n).toString();
 }
+
+/** The hazard scan an example approval shows: the example workspace's limits applied to this amount. */
+export function exampleChecks(amountUsd: number, extra: { id: string; label: string; ok: boolean | null }[] = []) {
+  const fmt = (n: number) => "$" + (n >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(2));
+  const daily = 50_000, perAction = 10_000, used = 750;
+  return [
+    { id: "per-action", label: `Within your per-action cap (${fmt(perAction)})`, ok: amountUsd <= perAction },
+    { id: "daily", label: `${fmt(Math.max(0, daily - used - amountUsd))} left today after this (within limit)`, ok: used + amountUsd <= daily },
+    { id: "asset", label: "Asset may be used this way", ok: true },
+    { id: "protected", label: "Not a protected asset", ok: true },
+    { id: "venue", label: "Approved venue", ok: true },
+    { id: "recipient", label: "Goes to your own account", ok: true },
+    { id: "methods", label: "Only allowlisted contract calls", ok: true },
+    { id: "gas", label: "Network fees within your budget", ok: true },
+    ...extra,
+  ];
+}
