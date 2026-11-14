@@ -5,8 +5,8 @@
 import { z } from "zod";
 import { session, mutation, json, failure, type SessionInfo } from "@/lib/flowvault/store";
 import { proven } from "@/lib/flowvault/account-registry";
-import { cloidFor, finishLink, getLink, listLinks, listOrders, placeOrder, prepareToPerp, prepareWithdraw, readPerps, reconcileOrders, relayUserAction, revokeLink, startLink, syncPerpLedger, verifyLink } from "@/lib/flowvault/perps-service";
-import { draftPerpMandate, HL_INTENTS_USDC } from "@/lib/flowvault/hyperliquid";
+import { cloidFor, finishLink, getLink, listLinks, listOrders, placeOrder, placeProtection, previewOrder, prepareToPerp, prepareWithdraw, readPerps, reconcileOrders, relayUserAction, revokeLink, startLink, syncPerpLedger, verifyLink } from "@/lib/flowvault/perps-service";
+import { draftPerpMandate, HL_INTENTS_USDC, orderStatus, tpslProblem } from "@/lib/flowvault/hyperliquid";
 import { draftMandate } from "@/lib/flowvault/mandate";
 import { STRATEGY_SPECS } from "@/lib/flowvault/strategy-spec";
 import { killSwitch, mandateGet, mandateInsert, auditAppend } from "@/lib/flowvault/mandate-store";
@@ -59,20 +59,25 @@ export async function GET(r: Request) {
   }
 }
 
-const order = z.object({
-  action: z.literal("order"),
+const decimal = z.string().regex(/^\d{1,12}(\.\d{1,8})?$/);
+const orderFields = {
   mandateId: z.string().max(80),
   master: addr,
   coin: z.string().regex(/^[A-Z0-9]{1,12}$/),
   isBuy: z.boolean(),
-  size: z.string().regex(/^\d{1,12}(\.\d{1,8})?$/),
+  size: decimal,
   kind: z.enum(["market", "limit", "stop_loss", "take_profit"]),
-  price: z.string().regex(/^\d{1,12}(\.\d{1,8})?$/).optional(),
+  price: decimal.optional(),
   tif: z.enum(["Gtc", "Ioc", "Alo"]).optional(),
   reduceOnly: z.boolean(),
   leverage: z.number().int().min(1).max(50),
-  key: z.string().uuid(),
-}).strict();
+  margin: z.enum(["cross", "isolated"]).optional(),
+  /** Take profit and stop loss for a market entry: placed as reduce-only trigger orders once it fills. */
+  tp: decimal.optional(),
+  sl: decimal.optional(),
+};
+const order = z.object({ action: z.literal("order"), ...orderFields, key: z.string().uuid() }).strict();
+const preview = z.object({ action: z.literal("order_preview"), ...orderFields }).strict();
 const body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("link_start"), master: addr, chainId, days: z.number().int().min(1).max(180).optional() }).strict(),
   z.object({ action: z.literal("link_finish"), master: addr, signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict(),
@@ -82,6 +87,7 @@ const body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("to_perp_prepare"), master: addr, amount: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/), chainId }).strict(),
   z.object({ action: z.literal("relay"), master: addr, userAction: z.record(z.string(), z.unknown()), signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/) }).strict(),
   order,
+  preview,
   z.object({ action: z.literal("close"), mandateId: z.string().max(80), master: addr, coin: z.string().regex(/^[A-Z0-9]{1,12}$/), key: z.string().uuid() }).strict(),
 ]);
 
@@ -90,6 +96,20 @@ function requireOwner(s: SessionInfo) {
   if (!s.workspace.accountId) throw new Error("Connect your NEAR wallet first. Mandates and agents are saved with your NEAR account.");
   if (s.slot === "personal" && s.account !== s.workspace.accountId) throw new Error("Connect your NEAR wallet first. Mandates and agents are saved with your NEAR account.");
   return s.workspace.accountId;
+}
+
+/** Audits an order outcome; an unknown outcome freezes the mandate until it's reconciled. */
+async function record(sessionId: string, m: { id: string; version: number }, rec: Awaited<ReturnType<typeof placeOrder>>) {
+  const at = new Date().toISOString();
+  const what = rec.intent.kind === "take_profit" ? "Take profit" : rec.intent.kind === "stop_loss" ? "Stop loss" : rec.intent.reduceOnly ? "Reduce-only" : "Order";
+  await auditAppend(sessionId, [{ id: await keyedAttemptId(sessionId, "mandate-audit:" + m.id + ":order:" + rec.cloid + ":" + rec.state), mandateId: m.id, mandateVersion: m.version, runId: null, at, phase: rec.state === "rejected" && !rec.wire ? "check" : "execute", summary: `${what} ${rec.intent.coin} ${rec.intent.isBuy ? "buy" : "sell"} ${rec.intent.size}${rec.intent.price && rec.intent.kind !== "market" ? " at " + rec.intent.price : ""}: ${rec.state}${rec.error ? " — " + rec.error : ""}.`, data: { order: rec } }]);
+  if (rec.state === "unknown") {
+    const latest = await mandateGet(sessionId, m.id);
+    if (latest) {
+      const { mandateSave } = await import("@/lib/flowvault/mandate-store");
+      await mandateSave(sessionId, { ...latest.mandate, frozen: { at, reason: `Order ${rec.cloid} outcome unknown; check Hyperliquid before anything else runs.`, ref: rec.cloid }, updatedAt: at }, latest.revision).catch(() => undefined);
+    }
+  }
 }
 
 export async function POST(r: Request) {
@@ -123,13 +143,31 @@ export async function POST(r: Request) {
       await auditAppend(s.id, [{ id: await keyedAttemptId(s.id, "mandate-audit:" + id + ":create"), mandateId: id, mandateVersion: 1, runId: null, at: m.createdAt, phase: "lifecycle", summary: `Perps draft created naming agent ${row.link.agentAddress}.` }]);
       return json({ mandate: m }, s.cookie);
     }
-    // order / close: under an active perps mandate, agent-signed only after every check passes.
-    if (b.action !== "order" && b.action !== "close") throw new Error("Unknown action.");
+    // order / preview / close: under an active perps mandate, agent-signed only after every check passes.
+    if (b.action !== "order" && b.action !== "order_preview" && b.action !== "close") throw new Error("Unknown action.");
     const stored = await mandateGet(s.id, b.mandateId);
     if (!stored || stored.mandate.accountId !== accountId) throw new Error("Mandate not found.");
     const m = stored.mandate;
     if (!m.scope.accounts.includes("evm:" + b.master)) throw new Error("This mandate doesn't cover that account.");
     const kill = !!(await killSwitch(s.id));
+    if (b.action !== "close" && (b.tp || b.sl)) {
+      if (b.kind !== "market" || b.reduceOnly) throw new Error("A take profit or stop loss goes with a market order that opens or adds to a position.");
+    }
+    if (b.action === "order_preview") {
+      const p = await previewOrder({ sessionId: s.id, mandate: m, master: b.master, intent: { coin: b.coin, isBuy: b.isBuy, size: b.size, kind: b.kind, price: b.price, tif: b.tif, reduceOnly: b.reduceOnly }, leverage: b.leverage, killSwitch: kill });
+      if (b.tp || b.sl) {
+        const problem = p.midPx ? tpslProblem(b.isBuy, p.midPx, b.tp, b.sl) : "No mid price to check the take profit and stop loss against.";
+        p.checks.push({ id: "tpsl", ok: !problem, detail: problem ?? `${[b.tp && "Take profit " + b.tp, b.sl && "stop loss " + b.sl].filter(Boolean).join(" and ")} on the right side of the price; placed reduce-only once the order fills.` });
+        p.allowed = p.allowed && !problem;
+      }
+      return json(p, s.cookie);
+    }
+    // Reject a take profit or stop loss on the wrong side before anything is placed.
+    if (b.action === "order" && (b.tp || b.sl)) {
+      const mid = (await readPerps(b.master)).mids[b.coin];
+      const problem = mid ? tpslProblem(b.isBuy, mid, b.tp, b.sl) : "No mid price to check the take profit and stop loss against.";
+      if (problem) throw new Error(problem + " Nothing was placed.");
+    }
     let rec;
     if (b.action === "close") {
       const view = await readPerps(b.master);
@@ -138,18 +176,18 @@ export async function POST(r: Request) {
       const short = p.szi.startsWith("-");
       rec = await placeOrder({ sessionId: s.id, mandate: m, master: b.master, intent: { coin: b.coin, isBuy: short, size: short ? p.szi.slice(1) : p.szi, kind: "market", reduceOnly: true, cloid: cloidFor(s.id + ":" + b.key) }, leverage: p.leverage.value, secret, killSwitch: kill });
     } else {
-      rec = await placeOrder({ sessionId: s.id, mandate: m, master: b.master, intent: { coin: b.coin, isBuy: b.isBuy, size: b.size, kind: b.kind, price: b.price, tif: b.tif, reduceOnly: b.reduceOnly, cloid: cloidFor(s.id + ":" + b.key) }, leverage: b.leverage, secret, killSwitch: kill });
+      rec = await placeOrder({ sessionId: s.id, mandate: m, master: b.master, intent: { coin: b.coin, isBuy: b.isBuy, size: b.size, kind: b.kind, price: b.price, tif: b.tif, reduceOnly: b.reduceOnly, cloid: cloidFor(s.id + ":" + b.key) }, leverage: b.leverage, isCross: b.margin !== "isolated", secret, killSwitch: kill });
     }
-    const at = new Date().toISOString();
-    await auditAppend(s.id, [{ id: await keyedAttemptId(s.id, "mandate-audit:" + m.id + ":order:" + rec.cloid + ":" + rec.state), mandateId: m.id, mandateVersion: m.version, runId: null, at, phase: rec.state === "rejected" && !rec.wire ? "check" : "execute", summary: `${rec.intent.reduceOnly ? "Reduce-only" : "Order"} ${rec.intent.coin} ${rec.intent.isBuy ? "buy" : "sell"} ${rec.intent.size}: ${rec.state}${rec.error ? " — " + rec.error : ""}.`, data: { order: rec } }]);
-    if (rec.state === "unknown") {
-      const latest = await mandateGet(s.id, m.id);
-      if (latest) {
-        const { mandateSave } = await import("@/lib/flowvault/mandate-store");
-        await mandateSave(s.id, { ...latest.mandate, frozen: { at, reason: `Order ${rec.cloid} outcome unknown; check Hyperliquid before anything else runs.`, ref: rec.cloid }, updatedAt: at }, latest.revision).catch(() => undefined);
-      }
-    }
-    return json({ order: rec }, s.cookie);
+    await record(s.id, m, rec);
+    if (rec.state === "unknown" || b.action === "close" || !(b.tp || b.sl)) return json({ order: rec }, s.cookie);
+    // Take profit and stop loss: only once the entry has filled, for the size that filled, checked against the fill price.
+    const fill = orderStatus(rec.response);
+    if (rec.state !== "filled" || !fill.filledSz || !fill.avgPx) return json({ order: rec, protection: [], protectionNote: "The order didn't fill, so no take profit or stop loss was placed." }, s.cookie);
+    const problem = tpslProblem(b.isBuy, fill.avgPx, b.tp, b.sl);
+    if (problem) return json({ order: rec, protection: [], protectionNote: problem + " The position is open without it; add it from the position." }, s.cookie);
+    const protection = await placeProtection({ sessionId: s.id, mandate: m, master: b.master, coin: b.coin, entryIsBuy: b.isBuy, size: fill.filledSz, leverage: b.leverage, tp: b.tp, sl: b.sl, key: s.id + ":" + b.key, secret, killSwitch: kill });
+    for (const p of protection) await record(s.id, m, p);
+    return json({ order: rec, protection }, s.cookie);
   } catch (e) {
     return failure(e);
   }

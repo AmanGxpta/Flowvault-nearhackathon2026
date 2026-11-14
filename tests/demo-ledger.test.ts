@@ -137,3 +137,12 @@ test("approved sales: quote within limits and holdings, then the sale delivers e
   const after = applySale(l, perm, q.ok ? q.qty : 0, 30);
   assert.equal(after.wallet[USDC_ID], 34);
 });
+
+test("an example order keeps its take profit and stop loss on the position; adding to it can replace them", () => {
+  const l = applyPerpOpen(seedLedger(), { coin: "ETH", side: "long", notional: 1000, leverage: 5, price: 2000, tp: 2200, sl: 1900 });
+  assert.deepEqual([l.perps.positions[0].tp, l.perps.positions[0].sl], [2200, 1900]);
+  const added = applyPerpOpen(l, { coin: "ETH", side: "long", notional: 200, leverage: 5, price: 2000, sl: 1950 });
+  assert.deepEqual([added.perps.positions[0].tp, added.perps.positions[0].sl], [2200, 1950]);
+  const plain = applyPerpOpen(seedLedger(), { coin: "BTC", side: "short", notional: 900, leverage: 5, price: 90_000 });
+  assert.equal("tp" in plain.perps.positions[0], false);
+});

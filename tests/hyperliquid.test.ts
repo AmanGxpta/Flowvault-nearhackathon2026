@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   actionHash, addressOf, approveAgentAction, bytesToHex, checkPerpOrder, l1TypedData, msgpack, orderAction, orderStatus,
   orderWire, parseClearinghouse, parseMeta, perpLedger, perpPortfolioPositions, protectiveOrders, realizedPerpResult,
-  recoverTyped, resolveHedge, roundPx, roundSz, signTyped, toRaw, userTypedData, withdrawAction, wire, type OrderIntent,
+  recoverTyped, resolveHedge, roundPx, roundSz, signTyped, toRaw, tpslProblem, userTypedData, withdrawAction, wire, type OrderIntent,
 } from "../lib/flowvault/hyperliquid.ts";
 import { draftMandate, mandateDigest, transition } from "../lib/flowvault/mandate.ts";
 import { authorityFor } from "../lib/flowvault/mandate-authority.ts";
@@ -234,4 +234,15 @@ test("perps mandate draft: names the agent in the signed terms, validates, and p
   assert.notEqual(mandateDigest(m), mandateDigest(other));
   assert.match(validateMandate({ ...m, perps: undefined }).join(), /need perp limits/);
   assert.match(validateMandate({ ...m, perps: { ...m.perps!, maxLeverage: 50 } }).join(), /1 to 20/);
+});
+
+test("take profit and stop loss have to sit on the right side of the entry for a long and a short", () => {
+  assert.equal(tpslProblem(true, "3000", "3300", "2900"), null);
+  assert.equal(tpslProblem(false, "3000", "2700", "3100"), null);
+  assert.equal(tpslProblem(true, "3000", undefined, "2900"), null);
+  assert.match(tpslProblem(true, "3000", "2950")!, /Take profit 2950 has to be above/);
+  assert.match(tpslProblem(true, "3000", undefined, "3000")!, /Stop loss 3000 has to be below/);
+  assert.match(tpslProblem(false, "3000", "3100")!, /Take profit 3100 has to be below/);
+  assert.match(tpslProblem(false, "3000", undefined, "2900")!, /Stop loss 2900 has to be above/);
+  assert.match(tpslProblem(true, "0", "1")!, /No entry price/);
 });

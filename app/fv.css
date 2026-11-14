@@ -476,6 +476,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .fv-ticket-go.is-long:not(:disabled){background:#2E8B57;border-color:#2E8B57;color:#fff}.fv-ticket-go.is-short:not(:disabled){background:#C8553D;border-color:#C8553D;color:#fff}
 .fv-ticket-steps{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:12px}.fv-ticket-steps li{display:flex;gap:8px;align-items:flex-start;color:var(--fvc-6F786B)}.fv-ticket-steps li.is-done{color:var(--fvc-3F6B3C)}.fv-ticket-steps svg{flex:none;margin-top:2px}.fv-ticket-steps small{display:block;font-size:11px}
 .fv-ticket-note{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--fvc-6F786B);margin:0}
+.fv-ticket-tpsl input[aria-invalid]{border-color:var(--fvc-9A3F32)}
+.fv-order-results{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px;font-size:13px}.fv-order-results li{display:flex;gap:8px;align-items:flex-start;line-height:1.4}.fv-order-results svg{flex:none;margin-top:2px}.fv-order-results li.is-ok svg{color:var(--fvc-3F6B3C)}.fv-order-results li.is-bad svg{color:var(--fvc-8A5F25)}
 @media (max-width:1240px){.fv-trade-layout{grid-template-columns:1fr}.fv-ticket{position:static}}
 .fv-ticket{overflow:hidden;min-width:0;box-sizing:border-box;width:100%}
 .fv-ticket>*{min-width:0;max-width:100%;box-sizing:border-box}

@@ -3,8 +3,10 @@
 // owner approve a FlowVault agent (signed in their own Ethereum wallet), create a perps mandate naming it, and
 // place or close orders that FlowVault's agent signs only after the mandate’s checks pass. Unrealized gains are
 // shown but never counted as money you can spend. Withdrawals are signed by the master wallet.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { TokenIcon } from "./AssetIdentity";
+import { PerpOrderReview } from "./PerpOrderReview";
+import type { OrderDraft } from "./OrderTicket";
 import { Share2 } from "lucide-react";
 import type {AgentMandate} from "@/lib/flowvault/contracts";
 import {perpLimitForm,perpLimitUpdate} from "@/lib/flowvault/perps-limits";
@@ -34,20 +36,22 @@ const btn: React.CSSProperties = { padding: "7px 12px", borderRadius: "9px", bor
 const muted: React.CSSProperties = { color: "var(--fvc-5B6458)", fontSize: "12.5px", lineHeight: 1.45 };
 const input: React.CSSProperties = { padding: "6px 8px", borderRadius: "8px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", fontSize: "12.5px", minWidth: 0 };
 
-export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onNavigate, connect }: { scope: Scope; connect?: () => void; onNavigate?: (view: string) => void; selectedMarket?: string; onMarket?: (coin: string) => void; onShare?: (value: { title: string; subtitle: string; lines: string[]; amount?: string }) => void; draft?: { coin: string; side: string; size: string; leverage: string; kind: string; price: string; n: number } | null }) {
+/** Positions, setup (funding, agent, mandate, limits) and withdrawals for each proven Ethereum account. Orders are
+ * entered on the Trade page's ticket: each new `draft` opens the order review for the account that can trade it.
+ * `onChanged` fires after every read, so the ticket's setup steps follow what happens here. */
+export function PerpsCard({ scope, onShare, onMarket, draft, onNavigate, connect, onChanged }: { scope: Scope; connect?: () => void; onNavigate?: (view: string) => void; onMarket?: (coin: string) => void; onShare?: (value: { title: string; subtitle: string; lines: string[]; amount?: string }) => void; draft?: OrderDraft | null; onChanged?: () => void }) {
   const [st, setSt] = useState<State | null>(null);
   const [mandates, setMandates] = useState<MandateLite[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  const [review, setReview] = useState<{ mandateId: string; master: string; fingerprint: string; closeCoin?: string } | null>(null);
-  const [form, setForm] = useState({ coin: "ETH", side: "buy", size: "0.01", leverage: "2", kind: "market", price: "" });
+  const [closing, setClosing] = useState<{ mandateId: string; master: string; coin: string } | null>(null);
+  const [protect, setProtect] = useState<{ master: string; coin: string; kind: "take_profit" | "stop_loss" } | null>(null);
+  const [order, setOrder] = useState<{ d: OrderDraft; master: string; mandateId: string } | null>(null);
   const { sessions } = useMultiWallets();
-  // A draft from the order ticket fills this form; the owner still reviews it here against the mandate.
-  useEffect(() => { if (!draft) return; const t = setTimeout(() => setForm({ coin: draft.coin, side: draft.side, size: draft.size, leverage: draft.leverage, kind: draft.kind, price: draft.price }), 0); return () => clearTimeout(t); }, [draft]);
-  const selectedCoin = selectedMarket ?? form.coin;
-  const fingerprint = JSON.stringify({...form,coin:selectedCoin});
+  const onChangedRef = useRef(onChanged);
+  useEffect(() => { onChangedRef.current = onChanged; }, [onChanged]);
 
   const read = useCallback(async () => {
     try {
@@ -55,6 +59,7 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onN
       setSt(p);
       setMandates((m.mandates ?? []).filter((x: MandateLite) => x.authority.kind === "hyperliquid_agent"));
       setErr(null);
+      onChangedRef.current?.();
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -63,6 +68,19 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onN
     const timer = setTimeout(() => void read(), 0);
     return () => clearTimeout(timer);
   }, [read]);
+  const tradable = (master: string) => mandates.find((x) => x.scope.accounts.includes("evm:" + master) && x.state === "active" && !x.frozen);
+  // A new draft from the ticket opens the review for the first account that has finished setup.
+  const seen = useRef<number | null>(null);
+  useEffect(() => {
+    if (!draft || draft.n === seen.current || !st) return;
+    seen.current = draft.n;
+    const a = st.accounts.find((x) => x.link?.status === "verified" && tradable(x.master));
+    const t = setTimeout(() => {
+      if (a) { setNote(null); setOrder({ d: draft, master: a.master, mandateId: tradable(a.master)!.id }); }
+      else setNote("No account has finished setup yet, so nothing can be placed. Finish the steps on the ticket first.");
+    }, 0);
+    return () => clearTimeout(t);
+  }, [draft, st, mandates]); // eslint-disable-line react-hooks/exhaustive-deps -- tradable reads mandates
 
   const run = async (label: string, f: () => Promise<string | void>) => {
     setBusy(label);
@@ -133,15 +151,20 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onN
       const r = await api("/api/perps", { action: "relay", master, userAction: p.action, signature }, "POST", scope);
       return r.response?.status === "ok" ? `Withdrawal accepted: you receive ${p.youReceiveUsdc} USDC. ${p.note}` : "Hyperliquid didn't confirm the withdrawal.";
     });
-  const order = (mandateId: string, master: string, close?: string) =>
+  const report = (o: Order) => {
+    const failed = o.checks.filter((c) => c.ok !== true);
+    return `${o.intent.coin} ${o.intent.isBuy ? "buy" : "sell"} ${o.intent.size}: ${o.state}.` + (o.error ? " " + o.error : "") + (failed.length ? " Failed: " + failed.map((c) => c.detail).join(" ") : "");
+  };
+  const closePosition = (mandateId: string, master: string, coin: string) =>
+    run("order", async () => report((await api("/api/perps", { action: "close", mandateId, master, coin, key: crypto.randomUUID() }, "POST", scope)).order));
+  // A take profit or stop loss on an open position: a reduce-only trigger order for the whole position.
+  const placeProtect = (mandateId: string, p: Pos, master: string, kind: "take_profit" | "stop_loss", price: string) =>
     run("order", async () => {
-      const key = crypto.randomUUID();
-      const r = close
-        ? await api("/api/perps", { action: "close", mandateId, master, coin: close, key }, "POST", scope)
-        : await api("/api/perps", { action: "order", mandateId, master, coin: selectedCoin, isBuy: form.side === "buy", size: form.size, kind: form.kind, ...(form.kind !== "market" && form.price ? { price: form.price } : {}), reduceOnly: form.kind === "stop_loss" || form.kind === "take_profit", leverage: Number(form.leverage), key }, "POST", scope);
-      const o: Order = r.order;
-      const failed = o.checks.filter((c) => c.ok !== true);
-      return `${o.intent.coin} ${o.intent.isBuy ? "buy" : "sell"} ${o.intent.size}: ${o.state}.` + (o.error ? " " + o.error : "") + (failed.length ? " Failed: " + failed.map((c) => c.detail).join(" ") : "");
+      const short = p.szi.startsWith("-");
+      const o: Order = (await api("/api/perps", { action: "order", mandateId, master, coin: p.coin, isBuy: short, size: short ? p.szi.slice(1) : p.szi, kind, price, reduceOnly: true, leverage: p.leverage.value, key: crypto.randomUUID() }, "POST", scope)).order;
+      setProtect(null);
+      const what = kind === "take_profit" ? "Take profit" : "Stop loss";
+      return o.state === "resting" ? `${what} set at ${price} for your ${p.coin} ${short ? "short" : "long"}, reduce-only.` : `${what} not set. ` + report(o);
     });
 
   if (st && st.source !== "live") return null;
@@ -173,7 +196,9 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onN
                 {s.positions.map(p => <div className="fv-perp-position" key={p.coin}>
                   <div className="fv-section-head"><div className="fv-asset-cell"><TokenIcon symbol={p.coin} core={['ETH','BTC'].includes(p.coin)} /><strong>{p.coin}</strong><span className="fv-chip">{p.szi.startsWith('-') ? 'Short' : 'Long'} · {p.leverage.value}×</span></div>{onShare && <button style={btn} onClick={() => onShare({title:p.coin + ' ' + (p.szi.startsWith('-') ? 'Short' : 'Long'),subtitle:'Open position · unrealized · ' + new Date(s.capturedAt).toLocaleString(),lines:[p.leverage.value + '× ' + p.leverage.type, 'Entry ' + (p.entryPx ?? 'Unknown'), 'Mark ' + (p.markPx ?? 'Unknown')],amount:u(p.unrealizedPnlUsdcRaw) + ' USDC unrealized PnL'})}><Share2 size={14}/> Share</button>}</div>
                   <div className="fv-perp-stats"><div><small>Size</small><strong>{p.szi.replace('-','')} {p.coin}</strong></div><div><small>Entry / mark</small><strong>{p.entryPx ?? '—'} / {p.markPx ?? '—'}</strong></div><div><small>Unrealized PnL</small><strong>{u(p.unrealizedPnlUsdcRaw)} USDC</strong></div><div><small>Liquidation estimate</small><strong>{p.liquidationPx ?? 'Unavailable'}</strong></div><div><small>Margin used</small><strong>{u(p.marginUsedUsdcRaw)} USDC</strong></div></div>
-                  {activeM && <div className="fv-actions"><button type="button" style={btn} disabled={!!busy} onClick={() => { setReview({mandateId:activeM.id,master:a.master,fingerprint,closeCoin:p.coin}); }}>Close position</button>{['stop_loss','take_profit'].map(kind => <button key={kind} style={btn} onClick={() => { setReview(null); onMarket?.(p.coin); setForm({ coin:p.coin, side:p.szi.startsWith('-') ? 'buy' : 'sell',size:p.szi.replace('-',''),leverage:String(p.leverage.value),kind,price:'' }); }}>{kind === 'stop_loss' ? 'Stop loss' : 'Take profit'}</button>)}</div>}
+                  {activeM && <div className="fv-actions"><button type="button" style={btn} disabled={!!busy} onClick={() => { setProtect(null); setClosing({ mandateId: activeM.id, master: a.master, coin: p.coin }); }}>Close position</button>{(['take_profit','stop_loss'] as const).map(kind => <button type="button" key={kind} style={btn} disabled={!!busy} aria-pressed={protect?.master === a.master && protect.coin === p.coin && protect.kind === kind} onClick={() => { setClosing(null); onMarket?.(p.coin); setProtect({ master: a.master, coin: p.coin, kind }); }}>{kind === 'stop_loss' ? 'Stop loss' : 'Take profit'}</button>)}</div>}
+                  {activeM && closing?.master === a.master && closing.coin === p.coin && <div className="fv-actions" role="group" aria-label={"Close " + p.coin}><span style={muted}>A reduce-only market order closes the whole {p.coin} position.</span><button type="button" style={btn} disabled={!!busy} onClick={() => { setClosing(null); void closePosition(activeM.id, a.master, p.coin); }}>{busy === "order" ? "Closing…" : "Confirm close"}</button><button type="button" style={btn} onClick={() => setClosing(null)}>Cancel</button></div>}
+                  {activeM && protect?.master === a.master && protect.coin === p.coin && <ProtectForm p={p} kind={protect.kind} busy={busy === "order"} cancel={() => setProtect(null)} submit={(price) => void placeProtect(activeM.id, p, a.master, protect.kind, price)} />}
                 </div>)}
               </div>
             ) : s ? <div style={muted}>No open positions.</div> : null}
@@ -198,18 +223,7 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onN
               <button type="button" style={btn} disabled={!!busy} onClick={() => void run("sync", async () => { const r = await api("/api/perps", { action: "sync", master: a.master }, "POST", scope); return `${r.entries.length} ledger entries checked.`; })}>Sync trading history</button>
             </div>
             {m?.perps ? <PerpsLimitsEditor key={m.id+":"+m.version} mandate={m} scope={scope} changed={read} /> : null}
-            {activeM ? (
-              <form onSubmit={(e) => { e.preventDefault(); setReview({mandateId:activeM.id,master:a.master,fingerprint}); }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: "6px", marginTop: "10px" }}>
-                <select aria-label="Market" style={input} value={selectedCoin} onChange={(e) => {setForm({ ...form, coin: e.target.value });onMarket?.(e.target.value);}}><option>ETH</option><option>BTC</option><option>NEAR</option></select>
-                <select aria-label="Side" style={input} value={form.side} onChange={(e) => setForm({ ...form, side: e.target.value })}><option value="buy">Long</option><option value="sell">Short</option></select>
-                <input aria-label="Size" style={input} value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value.trim() })} />
-                <input aria-label="Leverage" style={input} value={form.leverage} onChange={(e) => setForm({ ...form, leverage: e.target.value.trim() })} />
-                <select aria-label="Order type" style={input} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}><option value="market">Market (IOC)</option><option value="limit">Limit</option><option value="stop_loss">Stop loss · reduce only</option><option value="take_profit">Take profit · reduce only</option></select>
-                {form.kind !== "market" ? <input aria-label={form.kind === "limit" ? "Limit price" : "Trigger price"} placeholder={form.kind === "limit" ? "Limit price" : "Trigger price"} style={input} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value.trim() })} /> : null}
-                <button type="submit" style={btn} disabled={!!busy}>{busy === "order" ? "Checking…" : "Review order"}</button>
-              </form>
-            ) : null}
-            {review?.master === a.master && review.fingerprint === fingerprint && activeM && review.mandateId === activeM.id ? <section className="fv-perp-position" aria-label="Review order"><h3>{review.closeCoin ? "Close " + review.closeCoin + " position" : "Review order"}</h3><p>{review.closeCoin ? "A reduce-only order will close the current position." : <>{form.side === 'buy' ? 'Buy / long' : 'Sell / short'} {form.size} {selectedCoin} · {form.leverage}× · {form.kind.replace('_',' ')}{form.price ? ' at ' + form.price : ''}</>}</p><p style={muted}>Your active trading agent submits this order under the limits you signed. It does not open a new wallet signature. Fees, margin and liquidation depend on execution; orders may be rejected. {form.kind === 'stop_loss' || form.kind === 'take_profit' ? 'Reduce only: this order can reduce an existing position, not open one.' : 'Leverage increases both gains and losses.'}</p><button style={btn} disabled={!!busy} onClick={() => {setReview(null);void order(activeM.id,a.master,review.closeCoin);}}>{review.closeCoin ? "Confirm close position" : "Confirm and place order"}</button><button style={btn} onClick={() => setReview(null)}>Back to edit</button></section> : null}
+            {activeM ? <p style={{ ...muted, marginTop: "8px" }}>Ready to trade: place orders from the ticket on the Trade page.</p> : null}
             {a.orders.length ? (
               <details style={{ ...muted, marginTop: "6px" }}>
                 <summary style={{ cursor: "pointer" }}>Recent orders ({a.orders.length})</summary>
@@ -221,9 +235,25 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onN
           </div>
         );
       })}
+      {order ? <PerpOrderReview key={order.d.n} d={order.d} master={order.master} mandateId={order.mandateId} scope={scope} close={() => setOrder(null)} done={(summary) => { setOrder(null); setNote(summary); void read(); }} /> : null}
       {st ? <details style={{...muted,marginTop:18}}><summary style={{cursor:"pointer"}}>How funding works</summary><p>{st.deposit.note}</p></details> : null}
     </section>
   );
+}
+
+/** Take profit or stop loss for an open position: a reduce-only trigger order for the whole position. */
+function ProtectForm({ p, kind, busy, cancel, submit }: { p: Pos; kind: "take_profit" | "stop_loss"; busy: boolean; cancel: () => void; submit: (price: string) => void }) {
+  const [price, setPrice] = useState("");
+  const short = p.szi.startsWith("-"), mark = Number(p.markPx), px = Number(price), tp = kind === "take_profit";
+  const above = tp ? !short : short;
+  const wrong = px > 0 && mark > 0 && (above ? px <= mark : px >= mark);
+  const what = tp ? "take profit" : "stop loss";
+  return <form className="fv-actions" aria-label={`${tp ? "Take profit" : "Stop loss"} for ${p.coin}`} onSubmit={(e) => { e.preventDefault(); if (px > 0 && !wrong) submit(price); }}>
+    <input aria-label={`${tp ? "Take profit" : "Stop loss"} trigger price`} placeholder={`${above ? "Above" : "Below"} ${p.markPx ?? "mark"}`} style={{ ...input, width: "130px" }} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d.]/g, ""))} />
+    <button type="submit" style={btn} disabled={busy || !(px > 0) || wrong}>{busy ? "Placing…" : `Set ${what}`}</button>
+    <button type="button" style={btn} onClick={cancel}>Cancel</button>
+    <span style={muted}>{wrong ? `For a ${short ? "short" : "long"}, a ${what} has to be ${above ? "above" : "below"} the mark.` : `Reduce-only for the whole position (${p.szi.replace("-", "")} ${p.coin}); it triggers as a market order.`}</span>
+  </form>;
 }
 
 function PerpsLimitsEditor({mandate:m,scope,changed}:{mandate:AgentMandate;scope:Scope;changed:()=>Promise<void>}) {

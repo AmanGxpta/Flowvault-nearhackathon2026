@@ -71,6 +71,17 @@ function Position({ p, pick, note }: { p: DemoPerp; pick: () => void; note: (m: 
       setBusy("");
     } }, { wallet: 500, settle: 900 });
   };
+  // Take profit and stop loss: when the live mark crosses a trigger, the position closes there, as on Hyperliquid.
+  const fired = useRef(false);
+  useEffect(() => {
+    if (!mark || fired.current) return;
+    const long = p.side === "long";
+    const hit = p.tp && (long ? mark >= p.tp : mark <= p.tp) ? "Take profit" : p.sl && (long ? mark <= p.sl : mark >= p.sl) ? "Stop loss" : null;
+    if (!hit) return;
+    fired.current = true;
+    try { const before = demoLedger().perps.realized; const next = applyPerpClose(demoLedger(), p.coin, mark); saveDemoLedger(next); const got = next.perps.realized - before; note(`Example: ${hit.toLowerCase()} triggered at ${usd(mark)} and closed your ${p.coin} ${p.side} (${got >= 0 ? "+" : "−"}${usd(Math.abs(got))}). Nothing was signed.`); }
+    catch (e) { note((e as Error).message); }
+  }, [mark, p, note]);
   const tone = (n: number | null) => (n === null ? "" : n >= 0 ? "fv-up" : "fv-down");
   return <div className="fv-pos-row" role="row">
     <span role="cell"><button type="button" className="fv-pos-market fv-link-reset" onClick={pick}><TokenIcon symbol={p.coin} core={["ETH", "BTC"].includes(p.coin)} size={26} /><span><strong>{p.coin}-PERP</strong><small>Perpetual</small></span></button></span>
@@ -81,7 +92,7 @@ function Position({ p, pick, note }: { p: DemoPerp; pick: () => void; note: (m: 
     <span role="cell" className={tone(pnl)}>{pnl === null ? "…" : `${pnl >= 0 ? "+" : "−"}${usd(Math.abs(pnl))}`}</span>
     <span role="cell" className={tone(roe)}>{roe === null ? "…" : `${roe >= 0 ? "+" : ""}${roe.toFixed(2)}%`}</span>
     <span role="cell"><em className="fv-pos-lev">{p.leverage}×</em></span>
-    <span role="cell" className="fv-pos-liq">{usd(liq)}</span>
+    <span role="cell" className="fv-pos-liq">{usd(liq)}{p.tp || p.sl ? <small>{[p.tp && "TP " + usd(p.tp), p.sl && "SL " + usd(p.sl)].filter(Boolean).join(" · ")}</small> : null}</span>
     <span role="cell"><strong>{usd(margin)}</strong><small>Isolated</small></span>
     <span role="cell" className="fv-pos-actions"><button type="button" className="fv-button" disabled={!!busy || !mark} onClick={() => act("reduce")}>{busy === "reduce" ? "…" : "Reduce 50%"}</button><button type="button" className="fv-button" disabled={!!busy || !mark} onClick={() => act("close")}>{busy === "close" ? "Closing…" : "Close"}</button></span>
   </div>;
@@ -98,6 +109,9 @@ function OrderReview({ d, coin, existing, free, ordersToday, close, done }: { d:
   const effect = !opposite ? (existing ? `Adds to your ${d.coin} ${existing.side}` : null) : adds > 1e-9 ? `Closes your ${d.coin} ${existing!.side} and opens a ${sideNow} of ${qty(adds)}` : reduces >= existing!.size - 1e-9 ? `Closes your ${d.coin} ${existing!.side}` : `Reduces your ${d.coin} ${existing!.side} to ${qty(existing!.size - reduces)}`;
   const side: "long" | "short" = d.side === "buy" ? "long" : "short";
   const liq = price ? perpLiq({ coin: d.coin, side, size, entry: price, leverage: lev, openedAt: 0 }, MAX_LEV[d.coin] ?? 10) : null;
+  const tp = Number(d.tp) > 0 ? Number(d.tp) : undefined, sl = Number(d.sl) > 0 ? Number(d.sl) : undefined;
+  const tpslOk = !price || ((tp === undefined || (side === "long" ? tp > price : tp < price)) && (sl === undefined || (side === "long" ? sl < price : sl > price)));
+  const pnlAt = (px: number) => price ? (px - price) * size * (side === "long" ? 1 : -1) : 0;
   const checks = [
     { id: "lev", label: lev <= MANDATE.leverage ? `Leverage ${lev}× within your mandate’s ${MANDATE.leverage}×` : `Leverage ${lev}× is above your mandate’s ${MANDATE.leverage}× maximum`, ok: lev <= MANDATE.leverage },
     { id: "notional", label: notional <= MANDATE.notional ? `${usd(notional)} order within your ${usd(MANDATE.notional)} limit` : `${usd(notional)} order is above your ${usd(MANDATE.notional)} limit`, ok: notional <= MANDATE.notional },
@@ -106,6 +120,7 @@ function OrderReview({ d, coin, existing, free, ordersToday, close, done }: { d:
     { id: "loss", label: `Loss stop ${usd(MANDATE.lossStop)} armed`, ok: true },
     { id: "withdraw", label: "The agent can trade but never withdraw", ok: true },
     { id: "fresh", label: "Price from the live Hyperliquid book", ok: !!mark },
+    ...(tp || sl ? [{ id: "tpsl", label: tpslOk ? `${[tp && "Take profit", sl && "stop loss"].filter(Boolean).join(" and ")} set reduce-only once it fills` : `Take profit has to be ${side === "long" ? "above" : "below"} and stop loss ${side === "long" ? "below" : "above"} the price for a ${side}`, ok: tpslOk }] : []),
   ];
   const ok = checks.every((c) => c.ok);
   const [phase, setPhase] = useState<"review" | "placing" | "error">("review"), [err, setErr] = useState("");
@@ -113,7 +128,7 @@ function OrderReview({ d, coin, existing, free, ordersToday, close, done }: { d:
     simulateApproval("demo-perp-" + crypto.randomUUID(), {
       wallet: () => setPhase("placing"), submitted: () => {},
       landed: () => {
-        try { saveDemoLedger(applyPerpOpen(demoLedger(), { coin: d.coin, side, notional, leverage: lev, price: price! })); done(`Example: ${effect ? effect.replace(/^./, (c) => c.toLowerCase()) + " — " : ""}${side} ${qty(size)} ${d.coin} filled at ${usd(price!)} by the FlowVault agent under your mandate. Nothing was signed.`); }
+        try { saveDemoLedger(applyPerpOpen(demoLedger(), { coin: d.coin, side, notional, leverage: lev, price: price!, tp, sl })); done(`Example: ${effect ? effect.replace(/^./, (c) => c.toLowerCase()) + " — " : ""}${side} ${qty(size)} ${d.coin} filled at ${usd(price!)} by the FlowVault agent under your mandate${tp || sl ? `, with ${[tp && "take profit at " + usd(tp), sl && "stop loss at " + usd(sl)].filter(Boolean).join(" and ")}` : ""}. Nothing was signed.`); }
         catch (e) { setErr((e as Error).message); setPhase("error"); }
       },
     }, { wallet: 700, settle: 1300 });
@@ -129,11 +144,13 @@ function OrderReview({ d, coin, existing, free, ordersToday, close, done }: { d:
       <div><span>Order value</span><strong>{usd(notional)}</strong></div>
       <div><span>Margin · fee</span><strong>{usd(margin)} · {usd(fee)} taker</strong></div>
       <div><span>Liquidation estimate</span><strong className="fv-down">{adds <= 1e-9 ? "No new position" : liq ? usd(liq) : "—"}</strong></div>
+      {tp && <div><span>Take profit</span><strong>{usd(tp)}{price ? <small className="fv-up"> · ≈ {pnlAt(tp) >= 0 ? "+" : "−"}{usd(Math.abs(pnlAt(tp)))}</small> : null}</strong></div>}
+      {sl && <div><span>Stop loss</span><strong>{usd(sl)}{price ? <small className="fv-down"> · ≈ {pnlAt(sl) >= 0 ? "+" : "−"}{usd(Math.abs(pnlAt(sl)))}</small> : null}</strong></div>}
     </div>
     <HazardScan checks={checks} />
     <div className="fv-confirm-actions">
       {phase === "placing" ? <button type="button" className="fv-button fv-primary fv-wide-button" disabled><RefreshCw size={15} className="fv-spin" /> Placing with the agent…</button>
-        : ok ? <button type="button" className={"fv-button fv-primary fv-wide-button fv-ticket-go " + (side === "long" ? "is-long" : "is-short")} disabled={!price} onClick={place}>Place {side} · example</button>
+        : ok ? <button type="button" className={"fv-button fv-primary fv-wide-button fv-ticket-go " + (side === "long" ? "is-long" : "is-short")} disabled={!price} onClick={place}>Place {side}{tp || sl ? " with " + [tp && "TP", sl && "SL"].filter(Boolean).join(" / ") : ""} · example</button>
         : <button type="button" className="fv-button fv-wide-button" onClick={close}>Change the order: it’s outside your mandate</button>}
     </div>
   </ReviewFrame>;

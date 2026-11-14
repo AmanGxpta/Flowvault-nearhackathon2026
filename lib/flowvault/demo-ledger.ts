@@ -17,7 +17,7 @@ export interface RheaPos { supplied: number; collateral: number; borrowed: numbe
 export interface DemoVaultRequest { id: number; kind: "deposit" | "redemption"; amount: number; at: number; readyAt: number; status: "queued" | "done" | "cancelled" }
 /** Redemption notice in the demo (the example vault's real notice is days). */
 export const VAULT_NOTICE_DEMO_MS = 30_000;
-export interface DemoPerp { coin: string; side: "long" | "short"; size: number; entry: number; leverage: number; openedAt: number }
+export interface DemoPerp { coin: string; side: "long" | "short"; size: number; entry: number; leverage: number; openedAt: number; /** Take profit and stop loss trigger prices (reduce-only, whole position). */ tp?: number; sl?: number }
 export interface DemoLedger {
   v: 1;
   /** NEAR wallet by Rhea token id; wrap.near holds the account's native NEAR. */
@@ -187,7 +187,7 @@ export const perpLiq = (p: DemoPerp, maxLev: number) => { const mm = 1 / (2 * ma
 export function freeMargin(l: DemoLedger) { return round(l.perps.margin - l.perps.positions.reduce((s, p) => s + perpMargin(p), 0)); }
 /** An order nets against an open position the way Hyperliquid does: the same side adds (averaging the entry), the
  * opposite side reduces it and realizes PnL on the closed part, and anything beyond flips the position. */
-export function applyPerpOpen(l: DemoLedger, o: { coin: string; side: "long" | "short"; notional: number; leverage: number; price: number }, now = Date.now()): DemoLedger {
+export function applyPerpOpen(l: DemoLedger, o: { coin: string; side: "long" | "short"; notional: number; leverage: number; price: number; tp?: number; sl?: number }, now = Date.now()): DemoLedger {
   if (!(o.notional > 0) || !(o.price > 0)) throw new Error("Enter a size above zero.");
   const n = clone(l), size = round(o.notional / o.price), same = n.perps.positions.find((p) => p.coin === o.coin);
   let rest = size;
@@ -202,8 +202,8 @@ export function applyPerpOpen(l: DemoLedger, o: { coin: string; side: "long" | "
   const margin = rest * o.price / o.leverage, free = freeMargin(n);
   if (margin > free + 1e-9) throw new Error(`This needs ${fmt(margin)} USDC of margin; ${fmt(free)} USDC is free.`);
   const keep = n.perps.positions.find((p) => p.coin === o.coin);
-  if (keep) { const total = keep.size + rest; keep.entry = round((keep.entry * keep.size + o.price * rest) / total); keep.size = round(total); keep.leverage = o.leverage; }
-  else n.perps.positions.push({ coin: o.coin, side: o.side, size: rest, entry: o.price, leverage: o.leverage, openedAt: now });
+  if (keep) { const total = keep.size + rest; keep.entry = round((keep.entry * keep.size + o.price * rest) / total); keep.size = round(total); keep.leverage = o.leverage; if (o.tp) keep.tp = o.tp; if (o.sl) keep.sl = o.sl; }
+  else n.perps.positions.push({ coin: o.coin, side: o.side, size: rest, entry: o.price, leverage: o.leverage, openedAt: now, ...(o.tp ? { tp: o.tp } : {}), ...(o.sl ? { sl: o.sl } : {}) });
   n.activity.unshift({ at: now, text: `${same && same.side !== o.side ? "Flipped to" : keep ? "Added to" : "Opened"} ${o.side} ${fmt(rest)} ${o.coin} at $${fmt(o.price)} (${o.leverage}×)` });
   return n;
 }

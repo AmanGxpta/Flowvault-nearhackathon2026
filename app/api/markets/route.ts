@@ -2,16 +2,16 @@ import { hlPost } from "@/lib/flowvault/perps-service";
 import { snapshot } from "@/lib/flowvault/snapshot-cache";
 import { parseBook, parseCandles, displayMid, intervalMs, type DisplayMarket } from "@/lib/flowvault/market-display";
 
-export interface PerpListing { coin: string; price: string | null; change24h: number | null; volume24h: number | null; openInterestUsd: number | null; funding: number | null; maxLeverage: number }
+export interface PerpListing { coin: string; price: string | null; change24h: number | null; volume24h: number | null; openInterestUsd: number | null; funding: number | null; maxLeverage: number; szDecimals: number }
 /** Every listed (not delisted) Hyperliquid perp with mark price, 24h change, volume, open interest and funding. */
 async function perpListings(): Promise<PerpListing[]> {
   return snapshot("perp-listings", async () => {
-    const [meta, ctxs] = await hlPost("/info", { type: "metaAndAssetCtxs" }) as [{ universe: { name: string; maxLeverage: number; isDelisted?: boolean }[] }, { markPx?: string; prevDayPx?: string; dayNtlVlm?: string; openInterest?: string; funding?: string }[]];
+    const [meta, ctxs] = await hlPost("/info", { type: "metaAndAssetCtxs" }) as [{ universe: { name: string; maxLeverage: number; szDecimals: number; isDelisted?: boolean }[] }, { markPx?: string; prevDayPx?: string; dayNtlVlm?: string; openInterest?: string; funding?: string }[]];
     const num = (v?: string) => (v && /^-?\d+(\.\d+)?(e-?\d+)?$/.test(v) && Number.isFinite(Number(v)) ? Number(v) : null);
     return meta.universe.flatMap((u, i) => {
       if (u.isDelisted) return [];
       const c = ctxs[i] ?? {}, mark = num(c.markPx), prev = num(c.prevDayPx), oi = num(c.openInterest);
-      return [{ coin: u.name, price: mark !== null && mark > 0 ? c.markPx! : null, change24h: mark && prev ? ((mark - prev) / prev) * 100 : null, volume24h: num(c.dayNtlVlm), openInterestUsd: oi !== null && mark ? oi * mark : null, funding: num(c.funding), maxLeverage: u.maxLeverage }];
+      return [{ coin: u.name, price: mark !== null && mark > 0 ? c.markPx! : null, change24h: mark && prev ? ((mark - prev) / prev) * 100 : null, volume24h: num(c.dayNtlVlm), openInterestUsd: oi !== null && mark ? oi * mark : null, funding: num(c.funding), maxLeverage: u.maxLeverage, szDecimals: u.szDecimals }];
     }).sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0));
   }, old => old);
 }

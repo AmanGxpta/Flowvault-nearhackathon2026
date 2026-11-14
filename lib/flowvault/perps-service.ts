@@ -8,7 +8,7 @@ import type { Workspace } from "./types";
 import {
   HL_API, HL_MAX_AGENT_DAYS, HL_WITHDRAW_FEE_RAW, approveAgentAction, checkPerpOrder, fromRaw, l1TypedData, orderAction,
   hlRefusal, readSpot, orderStatus, orderWire, parseClearinghouse, usdClassTransferAction, parseMeta, perpLedger, protectiveOrders, realizedPerpResult, recoverTyped,
-  signTyped, splitSig, toRaw, updateLeverageAction, userTypedData, withdrawAction,
+  roundSz, signTyped, splitSig, toRaw, updateLeverageAction, userTypedData, withdrawAction,
   type AssetMeta, type OrderIntent, type PerpSnapshot, type TypedData,
 } from "./hyperliquid";
 import { mandateDigest } from "./mandate";
@@ -272,6 +272,8 @@ export async function placeOrder(input: {
   master: string;
   intent: OrderIntent;
   leverage: number;
+  /** Margin mode an opening order sets on the asset (cross unless the owner chose isolated). */
+  isCross?: boolean;
   secret: string | null;
   killSwitch: boolean;
   now?: number;
@@ -312,9 +314,11 @@ export async function placeOrder(input: {
   const asset = view.meta.find((a) => a.name === intent.coin)!;
   const pos = view.snapshot.positions.find((p) => p.coin === intent.coin);
   const fetcher = input.fetcher ?? fetch;
-  // Leverage applies per asset; set it before an opening order when it differs (agents may sign this L1 action).
-  if (!intent.reduceOnly && (!pos || pos.leverage.value !== input.leverage)) {
-    const lev = updateLeverageAction(asset.index, input.leverage, true);
+  // Leverage and margin mode apply per asset; set them before an opening order when either differs (agents may sign
+  // this L1 action).
+  const isCross = input.isCross ?? true;
+  if (!intent.reduceOnly && (!pos || pos.leverage.value !== input.leverage || (pos.leverage.type === "cross") !== isCross)) {
+    const lev = updateLeverageAction(asset.index, input.leverage, isCross);
     const n = now;
     const r = await hlPost("/exchange", { action: lev, nonce: n, signature: signTyped(l1TypedData(lev, n), priv) }, fetcher).catch((e) => ({ status: "err", response: String(e) }));
     if (r?.status !== "ok") {
@@ -340,6 +344,62 @@ export async function placeOrder(input: {
   const st = orderStatus(resp);
   const out: PerpOrderRecord = { ...submitted, state: st.state, response: resp, error: st.error, updatedAt: new Date().toISOString() };
   await advance(sessionId, "submitted", out);
+  return out;
+}
+
+/** Hyperliquid refuses orders worth less than this (USDC base units). */
+export const HL_MIN_ORDER_USDC_RAW = 10_000_000n;
+
+/**
+ * The checks an order would face, without journaling or sending anything: the same gate and mandate checks
+ * placeOrder runs, plus the size after rounding to the asset's lot size and Hyperliquid's $10 minimum. The order
+ * review shows these before the owner confirms; placeOrder runs them again on fresh reads.
+ */
+export async function previewOrder(input: { sessionId: string; mandate: AgentMandate; master: string; intent: Omit<OrderIntent, "cloid">; leverage: number; killSwitch: boolean; now?: number }) {
+  const { sessionId, mandate: m } = input;
+  const now = input.now ?? Date.now();
+  const master = input.master.toLowerCase();
+  const intent: OrderIntent = { ...input.intent, cloid: "0x" + "0".repeat(32) };
+  const row = await getLink(sessionId, master);
+  const view = await readPerps(master);
+  const prior = await listOrders(sessionId, master, 200);
+  const res = checkPerpOrder({
+    mandate: m, limits: m.perps, snapshot: view.snapshot, meta: view.meta, midPx: view.mids[intent.coin] ?? null, intent, leverage: input.leverage,
+    todayNotionalUsdcRaw: todayNotional(prior, now).toString(), realizedLossUsdcRaw: (await perpRealizedLoss(sessionId, master)).toString(), now,
+    agentVerified: row?.link.status === "verified",
+  });
+  const asset = view.meta.find((a) => a.name === intent.coin);
+  let size: string | null = null;
+  try { size = asset ? roundSz(intent.size, asset.szDecimals) : null; } catch { size = null; }
+  const checks: MandateCheck[] = [...perpGate(m, row?.link ?? null, input.killSwitch, now), ...res.checks];
+  checks.push({ id: "lot_size", ok: size !== null, detail: size !== null ? `Size ${size} ${intent.coin} after rounding to Hyperliquid's lot size.` : `${intent.size} ${intent.coin} rounds to zero at Hyperliquid's lot size.` });
+  if (!intent.reduceOnly && res.notionalUsdcRaw !== null) {
+    const ok = BigInt(res.notionalUsdcRaw) >= HL_MIN_ORDER_USDC_RAW;
+    checks.push({ id: "min_order", ok, detail: ok ? "Above Hyperliquid's $10 minimum order." : `Order ${fromRaw(BigInt(res.notionalUsdcRaw), 6)} USDC is below Hyperliquid's $10 minimum.` });
+  }
+  return { checks, allowed: checks.every((c) => c.ok === true), notionalUsdcRaw: res.notionalUsdcRaw, size, midPx: view.mids[intent.coin] ?? null };
+}
+
+/**
+ * After an opening order fills, places its take profit and stop loss as reduce-only trigger orders for the filled
+ * size. Each one goes through placeOrder, so it is journaled, checked under the mandate and audited like any order.
+ * The fill can take a moment to show up in the account read; when the only failing check is "no position to reduce
+ * yet", it waits and tries again (a fresh cloid each time, since a rejected cloid is final).
+ */
+export async function placeProtection(input: { sessionId: string; mandate: AgentMandate; master: string; coin: string; entryIsBuy: boolean; size: string; leverage: number; tp?: string; sl?: string; key: string; secret: string | null; killSwitch: boolean; wait?: (ms: number) => Promise<void> }): Promise<PerpOrderRecord[]> {
+  const wait = input.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const out: PerpOrderRecord[] = [];
+  for (const [kind, price] of [["take_profit", input.tp], ["stop_loss", input.sl]] as const) {
+    if (!price) continue;
+    let rec: PerpOrderRecord | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      rec = await placeOrder({ sessionId: input.sessionId, mandate: input.mandate, master: input.master, intent: { coin: input.coin, isBuy: !input.entryIsBuy, size: input.size, kind, price, reduceOnly: true, cloid: cloidFor(input.key + ":" + kind + ":" + attempt) }, leverage: input.leverage, secret: input.secret, killSwitch: input.killSwitch });
+      const failing = rec.checks.filter((c) => c.ok !== true);
+      if (!(rec.state === "rejected" && failing.length === 1 && failing[0].id === "reduces_position")) break;
+      await wait(1500);
+    }
+    out.push(rec!);
+  }
   return out;
 }
 

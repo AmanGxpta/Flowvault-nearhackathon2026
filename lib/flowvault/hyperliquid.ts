@@ -334,6 +334,17 @@ export function orderWire(i: OrderIntent, a: AssetMeta, midPx: string | null, sl
 export function orderAction(orders: ReturnType<typeof orderWire>[], grouping: "na" | "normalTpsl" | "positionTpsl" = "na") {
   return { type: "order", orders, grouping };
 }
+/**
+ * A take profit and a stop loss each have to be on the right side of the entry price: for a long, the take profit is
+ * above the entry and the stop loss below it; a short is the reverse. Returns what's wrong, or null when both are valid.
+ */
+export function tpslProblem(isBuy: boolean, entryPx: string, tp?: string, sl?: string): string | null {
+  const e = Number(entryPx), side = isBuy ? "long" : "short";
+  if (!(e > 0)) return "No entry price to check the take profit and stop loss against.";
+  if (tp !== undefined && !(isBuy ? Number(tp) > e : Number(tp) < e)) return `Take profit ${tp} has to be ${isBuy ? "above" : "below"} the entry price (${entryPx}) for a ${side}.`;
+  if (sl !== undefined && !(isBuy ? Number(sl) < e : Number(sl) > e)) return `Stop loss ${sl} has to be ${isBuy ? "below" : "above"} the entry price (${entryPx}) for a ${side}.`;
+  return null;
+}
 export function cancelByCloidAction(asset: number, cloid: string) {
   return { type: "cancelByCloid", cancels: [{ asset, cloid }] };
 }
