@@ -347,6 +347,13 @@ export async function sendIntentsDeposit(s: WalletSession, p: { evmTx: { chainId
   return hash;
 }
 
+/** A Solana wallet session in this browser for an address the server has already proven, or null. */
+export async function solanaSessionFor(address: string): Promise<WalletSession | null> {
+  start();
+  await new Promise((r) => setTimeout(r, 300)); // let Wallet Standard wallets register
+  return (await liveSessions()).find((s) => s.chain === "solana" && s.address === address) ?? null;
+}
+
 /** A usable EVM session for an address the server has already proven: the remembered session if this browser has
  * one, otherwise any wallet here that exposes that address without a prompt (eth_accounts). Found sessions are
  * remembered. Returns null when no wallet in this browser offers the address. */

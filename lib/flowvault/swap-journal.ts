@@ -25,6 +25,8 @@ import { submitLegDeposit } from "./funding-mesh-live.ts";
 import { INTENTS_ORIGINS, readIntentsQuote, intentsDeposit, intentsPolicyAction, intentsPolicyEntries, verifyEvmDeposit, verifyNearDeposit, type IntentsPreparation } from "./swap-intents.ts";
 
 const QUOTE_TTL_MS = 60_000;
+/** Circle's USDC mint on Solana (the one 1Click lists). */
+const SOLANA_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const NEAR_GAS_RESERVE = 50_000_000_000_000_000_000_000n; // 0.05 NEAR kept for future fees
 
 export async function refPrices() {
@@ -253,12 +255,22 @@ export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], 
   if (!r.ok) throw new Error(typeof qb?.message === "string" ? qb.message : "NEAR Intents quote unavailable.");
   const q = readIntentsQuote(qb, sent);
   const side = (t: SwapToken) => ({ network: t.network, contract: t.contract, symbol: t.symbol, decimals: t.decimals, assetId: t.assetId! });
-  const deposit = intentsDeposit(side(from), sender, q.depositAddress, amountRaw, q.depositMemo);
+  // Solana pays with an SPL USDC transfer built (and rebuilt in the browser) by the Solana module; EVM and NEAR
+  // origins build their deposit here.
+  const solOrigin = from.network === "sol";
+  if (solOrigin && from.contract !== SOLANA_USDC) throw new Error("From Solana, FlowVault can pay with USDC for now.");
+  const deposit = solOrigin ? { transactions: [], evmTx: null } : intentsDeposit(side(from), sender, q.depositAddress, amountRaw, q.depositMemo);
+  let solTx: IntentsPreparation["solTx"] = null;
 
   // Balance and fee checks on the origin chain, before anything reaches a wallet.
   let gasUsd6: bigint | null = null, gasNear = 0n;
   const ethPrice = tokens.find(t => t.id === from.network + ":native")?.price;
-  if (deposit.evmTx) {
+  if (solOrigin) {
+    const { solanaLegTransaction } = await import("./solana-funding.ts");
+    solTx = await solanaLegTransaction(sender, { depositAddress: q.depositAddress, amountInRaw: amountRaw, depositMemo: q.depositMemo } as never);
+    const lamports = 105_000n + (solTx.createRecipientAta ? 2_039_280n : 0n);
+    const g = usdOf(lamports.toString(), 9, tokens.find(t => t.id === "sol:native")?.price); gasUsd6 = g === null ? null : units(g);
+  } else if (deposit.evmTx) {
     const chain = rpcChain(from.network);
     const [balHex, gasPriceHex] = await Promise.all([evmRpc(chain, "eth_getBalance", [sender, "latest"]), evmRpc(chain, "eth_gasPrice", [])]);
     const native = hexQuantity(balHex), gasRaw = hexQuantity(gasPriceHex) * (from.contract === "native" ? 21_000n : 80_000n) * 2n;
@@ -282,10 +294,10 @@ export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], 
     const g = usdOf(gasNear.toString(), 24, tokens.find(t => t.id === "near:native")?.price); gasUsd6 = g === null ? null : units(g);
   }
   const preparation: IntentsPreparation = {
-    kind: "swap", route: "intents", accountId: sender, amount: String(body.amount), amountRaw, expiresAt: new Date(Math.min(now + 90_000, Date.parse(q.deadline))).toISOString(),
+    kind: "swap", route: "intents", accountId: sender, amount: String(body.amount), amountRaw, expiresAt: new Date(Math.min(now + (solOrigin ? 50_000 : 90_000), Date.parse(q.deadline))).toISOString(),
     from: side(from), to: side(to), recipient, depositAddress: q.depositAddress, depositMemo: q.depositMemo, outputRaw: q.outputRaw, minOutRaw: q.minOutRaw,
     slippageBps: bps, eta: q.eta, quoteDeadline: q.deadline, inputUsd: usdOf(amountRaw, from.decimals, from.price), minOutUsd: usdOf(q.minOutRaw, to.decimals, to.price),
-    capturedAt: new Date(now).toISOString(), venue: "NEAR Intents", transactions: deposit.transactions, evmTx: deposit.evmTx, policyAction: undefined as never, quote: qb,
+    capturedAt: new Date(now).toISOString(), venue: "NEAR Intents", transactions: deposit.transactions, evmTx: deposit.evmTx, solTx, policyAction: undefined as never, quote: qb,
   };
   preparation.policyAction = intentsPolicyAction(preparation, gasUsd6, gasNear);
   const policy = s.workspace.policy ?? defaultPolicy();
@@ -301,7 +313,7 @@ export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], 
       route: "intents", output: decimal(BigInt(q.outputRaw), to.decimals), minimum: decimal(BigInt(q.minOutRaw), to.decimals), inputUsd: preparation.inputUsd, minOutUsd: preparation.minOutUsd,
       gasNearBound: decimal(gasNear, 24), gasUsd: gasUsd6 === null ? null : decimal(gasUsd6), eta: q.eta, expiresAt: preparation.expiresAt, sender, recipient, depositAddress: q.depositAddress,
       fromNetwork: from.network, toNetwork: to.network,
-      steps: deposit.evmTx ? [{ receiver: from.contract === "native" ? q.depositAddress : from.contract, methods: [from.contract === "native" ? "send " + from.symbol : "transfer " + from.symbol] }] : deposit.transactions.map(t => ({ receiver: t.receiverId, methods: t.actions.map(a => a.params.methodName) })),
+      steps: solTx ? [{ receiver: q.depositAddress, methods: ["transfer USDC"] }] : deposit.evmTx ? [{ receiver: from.contract === "native" ? q.depositAddress : from.contract, methods: [from.contract === "native" ? "send " + from.symbol : "transfer " + from.symbol] }] : deposit.transactions.map(t => ({ receiver: t.receiverId, methods: t.actions.map(a => a.params.methodName) })),
     },
     policy: { allowed: check.allowed, violations: check.violations, missingEntries: missing, revision: s.revision, version: policy.version },
   };
@@ -394,7 +406,7 @@ export async function intentsJournalAction(request: Request, id: string, action:
   }
   if ((action === "check" || action === "attach") && ["confirmed", "failed"].includes(a.state)) return a;
   let revision: number | undefined;
-  const evm = !!p.evmTx;
+  const evm = !!p.evmTx, sol = !!p.solTx, single = evm || sol;
   if (action === "authorize") {
     if (a.state !== "prepared") throw new Error("This swap already reached your wallet. Check its status before swapping again.");
     if (Date.parse(a.expiresAt) <= Date.now()) throw new Error("The quote expired. Review the swap again.");
@@ -429,14 +441,17 @@ export async function intentsJournalAction(request: Request, id: string, action:
   } else {
     if (a.state === "prepared") throw new Error("This swap has not reached your wallet.");
     const all = [...new Set([...a.hashes, ...hashes])];
-    if (all.length > (evm ? 1 : p.transactions.length)) throw new Error("More transactions than this swap prepared.");
-    if (all.some(h => evm ? !/^0x[0-9a-fA-F]{64}$/.test(h) : !/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(h))) throw new Error("Invalid transaction hash for this network.");
+    if (all.length > (single ? 1 : p.transactions.length)) throw new Error("More transactions than this swap prepared.");
+    if (all.some(h => evm ? !/^0x[0-9a-fA-F]{64}$/.test(h) : sol ? !/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(h) : !/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(h))) throw new Error("Invalid transaction hash for this network.");
     a.hashes = all;
     if (a.state === "awaiting_wallet" || a.state === "unknown") a.state = "submitted";
     // 1. Origin deposit: verify once, then hint 1Click.
-    if (!p.result && all.length === (evm ? 1 : p.transactions.length)) {
+    if (!p.result && all.length === (single ? 1 : p.transactions.length)) {
       let origin: { state: "deposited" | "failed" } | null = null;
-      if (evm) {
+      if (sol) {
+        const { verifySolanaDeposit } = await import("./solana-funding.ts");
+        origin = await verifySolanaDeposit(all[0], p);
+      } else if (evm) {
         const chain = rpcChain(p.from.network);
         const [tx, receipt] = await Promise.all([evmRpc(chain, "eth_getTransactionByHash", [all[0]]), evmRpc(chain, "eth_getTransactionReceipt", [all[0]])]);
         if (receipt?.blockNumber) {

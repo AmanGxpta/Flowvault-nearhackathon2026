@@ -17,8 +17,9 @@ import { EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
 import { demoId, demoPut } from "../demo/demo-store";
 import type { DemoSupplyRow } from "./SupplyFlowView";
 
-const PAY_NETWORKS = ["near", "eth", "base", "arb", "bsc", "pol"];
-const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", bsc: "BNB Chain", pol: "Polygon" };
+const PAY_NETWORKS = ["near", "eth", "base", "arb", "bsc", "pol", "sol"];
+const SOLANA_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", bsc: "BNB Chain", pol: "Polygon", sol: "Solana" };
 
 export function SupplyFundOffer({ tokenId, symbol, apy, owner: liveOwner, example, held, onFlow, connect }: {
   tokenId: string; symbol: string; apy: number | null; owner: string; example: boolean;
@@ -32,7 +33,7 @@ export function SupplyFundOffer({ tokenId, symbol, apy, owner: liveOwner, exampl
   const holdings = useWalletBalances(owner, tokens, !!owner, example);
   const target = tokens.find((t) => t.network === "near" && t.contract === tokenId && !!t.assetId);
   // Pay with anything you hold that NEAR Intents can take, except the token itself.
-  const payable = useMemo(() => tokens.filter((t) => !!t.assetId && PAY_NETWORKS.includes(t.network) && t.id !== target?.id && BigInt(holdings.balances[t.id]?.raw ?? "0") > 0n), [tokens, holdings.balances, target?.id]);
+  const payable = useMemo(() => tokens.filter((t) => !!t.assetId && PAY_NETWORKS.includes(t.network) && (example || t.network !== "sol" || t.contract === SOLANA_USDC) && t.id !== target?.id && BigInt(holdings.balances[t.id]?.raw ?? "0") > 0n), [tokens, holdings.balances, target?.id]);
   // Rank by value: the wallet's own valuation, else the catalog price, so the pick doesn't depend on which read lands first.
   const suggestion = useMemo(() => defaultSource(payable.map((t) => { const b = holdings.balances[t.id]; return { token: t, raw: b?.largestRaw ?? b?.raw ?? "0", usd: b?.usd ?? (t.price && b ? String(Number(b.amount) * Number(t.price)) : null) }; })), [payable, holdings.balances]);
   const [picked, setPicked] = useState<string | null>(null), [typed, setTyped] = useState<string | null>(null);

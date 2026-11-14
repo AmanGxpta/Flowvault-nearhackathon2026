@@ -8,7 +8,7 @@ import type { SwapTx } from "./swap-exec.ts";
 
 export const INTENTS_VENUE = "1click";
 export const EVM_CHAIN_IDS: Record<string, string> = { eth: "0x1", base: "0x2105", arb: "0xa4b1", bsc: "0x38", pol: "0x89" };
-export const INTENTS_ORIGINS = ["near", "eth", "base", "arb", "bsc", "pol"];
+export const INTENTS_ORIGINS = ["near", "eth", "base", "arb", "bsc", "pol", "sol"];
 const TGAS = 10n ** 12n;
 const ERC20_TRANSFER = "0xa9059cbb";
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -21,6 +21,8 @@ export interface IntentsPreparation {
   outputRaw: string; minOutRaw: string; slippageBps: number; eta: number | null; quoteDeadline: string;
   inputUsd: string | null; minOutUsd: string | null; capturedAt: string; venue: "NEAR Intents";
   transactions: SwapTx[]; evmTx: EvmDepositTx | null; policyAction: PolicyAction; quote: unknown; walletAskedAt?: string; nonceAtAsk?: string;
+  /** Solana origin: the exact USDC transfer to the deposit address (rebuilt and checked by the browser before signing). */
+  solTx?: import("./solana-tx.ts").PreparedSolanaTransfer | null;
   /** Set when FlowVault closed the request as not sent while a wallet prompt might still be open; the deposit
    * address is watched for a late approval for LATE_WATCH_MS after this. */
   closedUnsentAt?: string;
@@ -71,22 +73,23 @@ export function intentsDeposit(from: IntentsSide, sender: string, depositAddress
 }
 
 /** Policy view: the swap sells its input asset at the 1Click venue; the destination is the owner's own wallet. */
-export function intentsPolicyAction(p: Pick<IntentsPreparation, "accountId" | "from" | "inputUsd" | "minOutUsd" | "transactions" | "evmTx">, gasUsd6: bigint | null, gasNearRaw: bigint): PolicyAction {
+export function intentsPolicyAction(p: Pick<IntentsPreparation, "accountId" | "from" | "inputUsd" | "minOutUsd" | "transactions" | "evmTx" | "solTx">, gasUsd6: bigint | null, gasNearRaw: bigint): PolicyAction {
   const usd6 = (v: string) => { const [w, f = ""] = v.split("."); return BigInt(w) * 1000000n + BigInt(f.slice(0, 6).padEnd(6, "0")); };
   const input = p.inputUsd !== null ? usd6(p.inputUsd) : null, out = p.minOutUsd !== null ? usd6(p.minOutUsd) : null;
   const moving = input !== null && out !== null && gasUsd6 !== null ? (input > out ? input - out : 0n) + gasUsd6 : null;
-  const chain = (p.from.network === "near" ? "near" : p.from.network === "bsc" ? "bnb" : p.from.network) as PolicyAction["chain"];
+  const chain = (p.from.network === "near" ? "near" : p.from.network === "bsc" ? "bnb" : p.from.network === "sol" ? undefined : p.from.network) as PolicyAction["chain"];
   return {
     kind: "swap", chain, asset: p.from.symbol, amount: input !== null && input > 0n ? decimal(input) : "0.000001", recipient: p.accountId,
     venue: INTENTS_VENUE, movingCost: moving === null ? null : decimal(moving), gasNear: decimal(gasNearRaw, 24), source: "live", accountId: p.accountId,
     methods: intentsMethods(p),
   };
 }
-function intentsMethods(p: Pick<IntentsPreparation, "transactions" | "evmTx" | "from">) {
+function intentsMethods(p: Pick<IntentsPreparation, "transactions" | "evmTx" | "from" | "solTx">) {
+  if (p.solTx) return [{ receiver: "spl:" + p.solTx.mint, method: "transfer" }];
   if (p.evmTx) return [{ receiver: p.from.contract === "native" ? "native:" + p.from.network : p.from.contract.toLowerCase(), method: p.from.contract === "native" ? "transfer" : ERC20_TRANSFER }];
   return p.transactions.flatMap(tx => tx.actions.map(a => ({ receiver: tx.receiverId, method: a.params.methodName })));
 }
-export function intentsPolicyEntries(p: Pick<IntentsPreparation, "transactions" | "evmTx" | "from">): PolicyEntry[] {
+export function intentsPolicyEntries(p: Pick<IntentsPreparation, "transactions" | "evmTx" | "from" | "solTx">): PolicyEntry[] {
   return [{ type: "venue", venue: INTENTS_VENUE, label: "Venue 1click (NEAR Intents swaps)" },
     ...intentsMethods(p).map(m => ({ type: "method" as const, receiver: m.receiver, method: m.method, label: `${m.method === ERC20_TRANSFER ? "transfer" : m.method} of ${p.from.symbol} on ${p.from.network} (deposit for a NEAR Intents swap)` }))];
 }

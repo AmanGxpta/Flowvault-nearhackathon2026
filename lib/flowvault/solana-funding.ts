@@ -114,6 +114,21 @@ export async function solanaTxOutcome(sig: string): Promise<{ failed: boolean; f
   return { failed: !!tx.meta.err, final: true, feeRaw: String(tx.meta.fee) };
 }
 
+/** A Solana USDC deposit for a NEAR Intents swap, proven from the finalized transaction: it succeeded, the owner
+ * paid for it (fee payer), and the deposit address's USDC balance rose by exactly the reviewed amount.
+ * null while not final. */
+export async function verifySolanaDeposit(sig: string, p: { accountId: string; depositAddress: string; amountRaw: string }): Promise<{ state: "deposited" | "failed" } | null> {
+  const rpc = await solana();
+  const tx: any = await rpc.getTransaction(signature(sig), { commitment: "finalized", maxSupportedTransactionVersion: 0, encoding: "jsonParsed" }).send();
+  if (!tx?.meta) return null;
+  if (tx.meta.err) return { state: "failed" };
+  const payer = tx.transaction?.message?.accountKeys?.[0];
+  if (String(payer?.pubkey ?? payer) !== p.accountId) throw new Error("The transaction was paid for by another wallet.");
+  const bal = (rows: any[] | undefined): bigint => (rows ?? []).filter((b) => b.owner === p.depositAddress && b.mint === SOL.usdcMint).reduce((n: bigint, b) => n + BigInt(b.uiTokenAmount?.amount ?? "0"), 0n);
+  if (bal(tx.meta.postTokenBalances) - bal(tx.meta.preTokenBalances) !== BigInt(p.amountRaw)) throw new Error("The transaction does not move the reviewed USDC amount to the deposit address.");
+  return { state: "deposited" };
+}
+
 /** True once the network is past the transaction's last valid block height: an unsent transfer can't land any more. */
 export async function blockhashExpired(lastValidBlockHeight: string): Promise<boolean> {
   // getEpochInfo's blockHeight, not getBlockHeight: some public endpoints return the slot from getBlockHeight

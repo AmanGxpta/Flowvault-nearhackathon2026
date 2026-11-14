@@ -65,3 +65,9 @@ test("origin receipts prove the exact deposit before delivery is tracked", () =>
   assert.equal(verifyNearDeposit([{ final_execution_status: "EXECUTED_OPTIMISTIC" }], np), null);
   assert.throws(() => verifyNearDeposit([{ final_execution_status: "FINAL", status: { SuccessValue: "" }, receipts_outcome: [ev("99")] }], np), /reviewed amount/);
 });
+
+test("a Solana origin is one SPL USDC transfer in policy terms", async () => {
+  const { intentsPolicyEntries } = await import("../lib/flowvault/swap-intents.ts");
+  const entries = intentsPolicyEntries({ transactions: [], evmTx: null, from: { network: "sol", contract: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", symbol: "USDC", decimals: 6, assetId: "x" }, solTx: { mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" } as never });
+  assert.deepEqual(entries.filter((e) => e.type === "method").map((e) => (e as { receiver: string; method: string }).receiver + " " + (e as { method: string }).method), ["spl:EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v transfer"]);
+});

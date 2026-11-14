@@ -35,7 +35,7 @@ export async function swapPreview(body:SwapPreviewBody){
   async function intents(){
     if(!from!.assetId||!to!.assetId)return;
     // Deposits start from NEAR, Ethereum, Base or Arbitrum; delivery can go to NEAR or any network with Ethereum addresses (incl. Hyperliquid).
-    if(!["near","eth","base","arb","bsc","pol"].includes(from!.network)||!(to!.network==="near"||EVM_DEST.includes(to!.network))){warnings.push("Cross-chain previews start from NEAR, Ethereum, Base, Arbitrum, BNB Chain or Polygon and deliver to NEAR or Ethereum-address networks.");return;}
+    if(!["near","eth","base","arb","bsc","pol","sol"].includes(from!.network)||!(to!.network==="near"||EVM_DEST.includes(to!.network))){warnings.push("Cross-chain previews start from NEAR, Ethereum, Base, Arbitrum, BNB Chain, Polygon or Solana and deliver to NEAR or Ethereum-address networks.");return;}
     if(!body.sender||!body.recipient){warnings.push("Add your sending and receiving addresses for a NEAR Intents quote.");return;}
     try{
       const sender=researchAddress(from!.network,body.sender),recipient=to!.network==="near"?researchAddress("near",body.recipient):evmAddress(body.recipient);

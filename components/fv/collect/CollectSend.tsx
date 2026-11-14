@@ -17,7 +17,9 @@ import { CollectRun, type RunLeg } from "./CollectRun";
 
 export const NET_NAME: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", sol: "Solana", bsc: "BNB Chain", pol: "Polygon", op: "Optimism", avax: "Avalanche", gnosis: "Gnosis" };
 /** Chains whose deposits FlowVault can hand to your wallet today. Holdings elsewhere are shown but can't be drawn yet. */
-export const LIVE_ORIGINS = ["near", "eth", "base", "arb", "bsc", "pol"];
+export const LIVE_ORIGINS = ["near", "eth", "base", "arb", "bsc", "pol", "sol"];
+/** From Solana, FlowVault can pay with USDC (SPL) for now. */
+const SOLANA_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const DESTINATIONS: { network: string; symbol: string }[] = [
   { network: "base", symbol: "USDC" }, { network: "arb", symbol: "USDC" }, { network: "near", symbol: "USDC" }, { network: "eth", symbol: "USDC" },
   { network: "pol", symbol: "USDC" }, { network: "bsc", symbol: "USDT" }, { network: "sol", symbol: "USDC" },
@@ -46,7 +48,7 @@ export function CollectSend({ owner: liveOwner, example, connect }: { owner: str
     if (!t?.assetId || !t.price || !b.account) return [];
     return [{ key: id, tokenId: id, symbol: t.symbol, network: t.network, account: b.account, decimals: t.decimals, balanceRaw: b.largestRaw ?? b.raw, price: Number(t.price), gasUsd: GAS_USD[t.network] ?? 0.05, native: t.contract === "native" && NATIVE[t.network] === t.symbol.toUpperCase() }];
   }).filter((s) => usdOf(s, s.balanceRaw) >= 0.01).sort((a, b) => usdOf(b, b.balanceRaw) - usdOf(a, a.balanceRaw)), [holdings.balances, tokens]);
-  const drawable = (s: CollectSource) => example || LIVE_ORIGINS.includes(s.network);
+  const drawable = (s: CollectSource) => example || (LIVE_ORIGINS.includes(s.network) && (s.network !== "sol" || s.tokenId === "sol:" + SOLANA_USDC));
 
   const [picks, setPicks] = useState<CollectPick[]>([]), [touched, setTouched] = useState(false), [run, setRun] = useState<RunLeg[] | null>(null);
   const auto = () => setPicks(autoPick(sources.filter(drawable), targetUsd));

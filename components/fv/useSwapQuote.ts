@@ -21,7 +21,7 @@ export function ownAddress(holdings: ReturnType<typeof useWalletBalances>, n?: s
 export function runsInApp(r: SwapRoute | undefined, from?: SwapToken, to?: SwapToken, sender?: string, recipient?: string) {
   if (!r || !from || !to) return false;
   if (r.venue === "Rhea / Ref") return from.network === "near" && to.network === "near";
-  return r.venue === "NEAR Intents" && ["near", "eth", "base", "arb", "bsc", "pol"].includes(from.network) && !!sender && !!recipient;
+  return r.venue === "NEAR Intents" && (["near", "eth", "base", "arb", "bsc", "pol"].includes(from.network) || from.network === "sol" && from.contract === "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v") && !!sender && !!recipient;
 }
 
 export function useSwapQuote(o: { tokens: SwapToken[]; holdings: ReturnType<typeof useWalletBalances>; owner: string; example: boolean; fromId: string; toId: string; amount: string; slippage: string; sender: string; recipient: string; paused: boolean }) {

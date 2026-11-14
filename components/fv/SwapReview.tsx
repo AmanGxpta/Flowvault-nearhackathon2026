@@ -7,7 +7,8 @@ import { coreIdentity } from "./useTokenCatalog";
 import { api } from "./live";
 import { fmtAmount, fmtUsd } from "./swap-format";
 import { signSwap, signIntentsNear } from "@/lib/flowvault/wallet";
-import { sendIntentsDeposit, evmSessionFor, type WalletSession } from "@/lib/flowvault/wallets";
+import { sendIntentsDeposit, evmSessionFor, solanaSessionFor, type WalletSession } from "@/lib/flowvault/wallets";
+import { sendSolanaTransfer } from "@/lib/flowvault/solana-wallet";
 import type { IntentsPreparation } from "@/lib/flowvault/swap-intents";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 import type { SwapPreparation } from "@/lib/flowvault/swap-exec";
@@ -104,7 +105,12 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
       url.searchParams.set("fv_attempt", id); history.replaceState(null, "", url);
       let hashes: string[];
       const ip = prep.attempt.preparation as unknown as IntentsPreparation;
-      if (intents && ip.evmTx) {
+      if (intents && ip.solTx) {
+        const wallet = await solanaSessionFor(ip.accountId);
+        if (!wallet) throw new Error(`Connect ${short(ip.accountId)} in its Solana wallet first (wallet menu › Connect another wallet). Nothing was sent.`);
+        opened = true;
+        hashes = [await sendSolanaTransfer(wallet, ip.solTx, ip.depositAddress, ip.amountRaw)];
+      } else if (intents && ip.evmTx) {
         const wallet = senderSession?.address.toLowerCase() === ip.accountId.toLowerCase() ? senderSession : await evmSessionFor(ip.accountId);
         if (!wallet) throw new Error(`Connect ${short(ip.accountId)} in its wallet first (wallet menu › Connect another wallet). Nothing was sent.`);
         opened = true;
