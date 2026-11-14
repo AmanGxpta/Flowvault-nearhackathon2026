@@ -7,8 +7,8 @@ import type { PolicyEntry } from "./plans-policy.ts";
 import type { SwapTx } from "./swap-exec.ts";
 
 export const INTENTS_VENUE = "1click";
-export const EVM_CHAIN_IDS: Record<string, string> = { eth: "0x1", base: "0x2105", arb: "0xa4b1" };
-export const INTENTS_ORIGINS = ["near", "eth", "base", "arb"];
+export const EVM_CHAIN_IDS: Record<string, string> = { eth: "0x1", base: "0x2105", arb: "0xa4b1", bsc: "0x38", pol: "0x89" };
+export const INTENTS_ORIGINS = ["near", "eth", "base", "arb", "bsc", "pol"];
 const TGAS = 10n ** 12n;
 const ERC20_TRANSFER = "0xa9059cbb";
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -63,7 +63,7 @@ export function intentsDeposit(from: IntentsSide, sender: string, depositAddress
     return { transactions: txs, evmTx: null };
   }
   const chainId = EVM_CHAIN_IDS[from.network];
-  if (!chainId) throw new Error("In-app NEAR Intents deposits cover NEAR, Ethereum, Base and Arbitrum.");
+  if (!chainId) throw new Error("In-app NEAR Intents deposits cover NEAR, Ethereum, Base, Arbitrum, BNB Chain and Polygon.");
   if (!/^0x[0-9a-fA-F]{40}$/.test(sender) || !/^0x[0-9a-fA-F]{40}$/.test(depositAddress)) throw new Error("Invalid EVM address for the deposit.");
   if (from.contract === "native") return { transactions: [], evmTx: { chainId, from: sender, to: depositAddress, value: "0x" + BigInt(amountRaw).toString(16), data: "0x" } };
   if (!/^0x[0-9a-fA-F]{40}$/.test(from.contract)) throw new Error("Invalid token contract.");
@@ -75,7 +75,7 @@ export function intentsPolicyAction(p: Pick<IntentsPreparation, "accountId" | "f
   const usd6 = (v: string) => { const [w, f = ""] = v.split("."); return BigInt(w) * 1000000n + BigInt(f.slice(0, 6).padEnd(6, "0")); };
   const input = p.inputUsd !== null ? usd6(p.inputUsd) : null, out = p.minOutUsd !== null ? usd6(p.minOutUsd) : null;
   const moving = input !== null && out !== null && gasUsd6 !== null ? (input > out ? input - out : 0n) + gasUsd6 : null;
-  const chain = (p.from.network === "near" ? "near" : p.from.network) as PolicyAction["chain"];
+  const chain = (p.from.network === "near" ? "near" : p.from.network === "bsc" ? "bnb" : p.from.network) as PolicyAction["chain"];
   return {
     kind: "swap", chain, asset: p.from.symbol, amount: input !== null && input > 0n ? decimal(input) : "0.000001", recipient: p.accountId,
     venue: INTENTS_VENUE, movingCost: moving === null ? null : decimal(moving), gasNear: decimal(gasNearRaw, 24), source: "live", accountId: p.accountId,

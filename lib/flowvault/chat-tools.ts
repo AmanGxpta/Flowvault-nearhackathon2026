@@ -86,7 +86,7 @@ async function swapEvidence(ctx: ToolContext, card: Card<"swap">, tokens?: SwapT
   if (q instanceof Error) out.quote = { error: cut(q.message) };
   else if (q) {
     const best = [...q.routes].sort((a, b) => (units(b.output, to.decimals) > units(a.output, to.decimals) ? 1 : -1))[0];
-    out.quote = best ? { venue: best.venue, expectedOutput: best.output, minimumReceived: best.minimum, etaSeconds: best.eta, routes: q.routes.length, expiresAt: q.expiresAt, inApp: best.venue === "Rhea / Ref" ? from.network === "near" && to.network === "near" : ["near", "eth", "base", "arb"].includes(from.network) } : { none: true, why: q.warnings.slice(0, 3).map((w) => cut(w)) };
+    out.quote = best ? { venue: best.venue, expectedOutput: best.output, minimumReceived: best.minimum, etaSeconds: best.eta, routes: q.routes.length, expiresAt: q.expiresAt, inApp: best.venue === "Rhea / Ref" ? from.network === "near" && to.network === "near" : ["near", "eth", "base", "arb", "bsc", "pol"].includes(from.network) } : { none: true, why: q.warnings.slice(0, 3).map((w) => cut(w)) };
   }
   return out;
 }

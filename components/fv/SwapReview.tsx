@@ -21,10 +21,10 @@ interface Prepared {
 type Phase = "preparing" | "review" | "allowing" | "wallet" | "settling" | "done" | "failed" | "error";
 const FIXABLE = new Set(["VENUE_NOT_ALLOWED", "METHOD_NOT_ALLOWED", "NESTED_RECEIVER_NOT_ALLOWED", "ASSET_USE_NOT_ALLOWED", "ASSET_SCOPE_UNVERIFIED"]);
 const STEP_NAMES: Record<string, string> = { near_deposit: "Wrap NEAR", storage_deposit: "Register token", ft_transfer_call: "Swap on Rhea / Ref", ft_transfer: "Deposit to NEAR Intents" };
-const EXPLORERS: Record<string, string> = { eth: "https://etherscan.io/tx/", base: "https://basescan.org/tx/", arb: "https://arbiscan.io/tx/" };
+const EXPLORERS: Record<string, string> = { eth: "https://etherscan.io/tx/", base: "https://basescan.org/tx/", arb: "https://arbiscan.io/tx/", bsc: "https://bscscan.com/tx/", pol: "https://polygonscan.com/tx/" };
 const explorerFor = (network: string, h: string) => h.startsWith("0x") ? (EXPLORERS[network] ?? "https://etherscan.io/tx/") + h : "https://nearblocks.io/txns/" + h;
 const short = (a?: string) => !a ? "" : a.length > 18 ? a.slice(0, 8) + "…" + a.slice(-6) : a;
-const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", sol: "Solana", bsc: "BNB Chain" };
+const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", sol: "Solana", bsc: "BNB Chain", pol: "Polygon" };
 
 export function SwapReview({ from, to, amount, slippage, close, onSettled, route = "ref", sender, recipient, inline, onAttempt, resumeId, journey, payTo }: { from: SwapToken; to: SwapToken; amount: string; slippage: number; close: () => void; onSettled: () => void; route?: "ref" | "intents"; sender?: string; recipient?: string; inline?: boolean; onAttempt?: (a: WalletAttempt) => Promise<void> | void; resumeId?: string; journey?: "stake";
   /** Deliver to someone else's address (collect and send); the recipient is checked against your permissions. */

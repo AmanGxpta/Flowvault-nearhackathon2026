@@ -17,8 +17,8 @@ import { EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
 import { demoId, demoPut } from "../demo/demo-store";
 import type { DemoSupplyRow } from "./SupplyFlowView";
 
-const PAY_NETWORKS = ["near", "eth", "base", "arb"];
-const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum" };
+const PAY_NETWORKS = ["near", "eth", "base", "arb", "bsc", "pol"];
+const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", bsc: "BNB Chain", pol: "Polygon" };
 
 export function SupplyFundOffer({ tokenId, symbol, apy, owner: liveOwner, example, held, onFlow, connect }: {
   tokenId: string; symbol: string; apy: number | null; owner: string; example: boolean;

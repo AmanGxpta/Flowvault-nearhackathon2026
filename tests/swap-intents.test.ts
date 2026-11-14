@@ -32,7 +32,10 @@ test("deposits are exactly one transfer to the deposit address", () => {
   const near = intentsDeposit(NEAR, "owner.near", "a".repeat(64), "1000000000000000000000000", null);
   assert.deepEqual(near.transactions.map(t => t.receiverId + "." + t.actions[0].params.methodName), ["wrap.near.near_deposit", "wrap.near.ft_transfer"]);
   assert.equal(near.transactions[1].actions[0].params.args.receiver_id, "a".repeat(64));
-  assert.throws(() => intentsDeposit({ ...USDC_ETH, network: "sol" }, OWNER, DEPOSIT, "1", null), /cover NEAR, Ethereum, Base and Arbitrum/);
+  assert.throws(() => intentsDeposit({ ...USDC_ETH, network: "sol" }, OWNER, DEPOSIT, "1", null), /cover NEAR, Ethereum, Base, Arbitrum, BNB Chain and Polygon/);
+  // BNB Chain and Polygon deposits are ordinary EVM transfers on their own chain ids.
+  assert.equal(intentsDeposit({ ...USDC_ETH, network: "bsc" }, OWNER, DEPOSIT, "1", null).evmTx?.chainId, "0x38");
+  assert.equal(intentsDeposit({ ...USDC_ETH, network: "pol" }, OWNER, DEPOSIT, "1", null).evmTx?.chainId, "0x89");
 });
 
 test("Intents swaps are checked as selling the input at the 1click venue and need an explicit allow", () => {

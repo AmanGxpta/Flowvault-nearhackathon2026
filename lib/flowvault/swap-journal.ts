@@ -18,7 +18,7 @@ import {
   verifySwapReceipts, type SwapPreparation, type RefRoute,
 } from "./swap-exec.ts";
 import { mayRead } from "./account-registry.ts";
-import { evmRpc, hexQuantity } from "./evm.ts";
+import { evmRpc, hexQuantity, rpcChain } from "./evm.ts";
 import { units } from "./money.ts";
 import { readStatus } from "./funding-mesh-quote.ts";
 import { submitLegDeposit } from "./funding-mesh-live.ts";
@@ -181,14 +181,14 @@ export async function allowSwapInPolicy(request: Request, id: string, revision: 
   const intents = (attempt.preparation as unknown as { route?: string }).route === "intents";
   const policy = structuredClone(s.workspace.policy ?? defaultPolicy());
   const added: string[] = [];
-  const rowChain = (intents ? ({ near: "near", eth: "eth", base: "base", arb: "arb" } as Record<string, "near" | "eth" | "base" | "arb">)[(p.from as unknown as { network: string }).network] : "near") ?? "near";
+  const rowChain = (intents ? ({ near: "near", eth: "eth", base: "base", arb: "arb", bsc: "bnb", pol: "pol" } as Record<string, "near" | "eth" | "base" | "arb" | "bnb" | "pol">)[(p.from as unknown as { network: string }).network] : "near") ?? "near";
   for (const e of intents ? intentsPolicyEntries(attempt.preparation as unknown as IntentsPreparation) : swapPolicyEntries(p)) {
     if (e.type === "venue" && !policy.venues.includes(e.venue)) { policy.venues.push(e.venue); added.push(e.label); }
     if (e.type === "method" && !policy.methods.some(m => m.receiver === e.receiver && m.method === e.method)) { policy.methods.push({ receiver: e.receiver, method: e.method }); added.push(e.label); }
   }
   if (policy.assetRows) {
     const row = policy.assetRows.find(r => r.asset.toLowerCase() === p.from.symbol.toLowerCase() && (!r.chain || r.chain === rowChain));
-    if (!row) { policy.assetRows.push({ asset: p.from.symbol, chain: rowChain, priority: "P3", uses: ["hold", "sell"] }); added.push(`Swap ${p.from.symbol} on ${rowChain}`); }
+    if (!row) { policy.assetRows.push({ asset: p.from.symbol, ...(rowChain === "pol" ? {} : { chain: rowChain }), priority: "P3", uses: ["hold", "sell"] }); added.push(`Swap ${p.from.symbol} on ${rowChain}`); }
     else if (!row.uses.includes("sell")) { row.uses.push("sell"); added.push(`Swap ${p.from.symbol} on ${rowChain}`); }
   }
   if (!added.length) return { added, revision: s.revision };
@@ -237,7 +237,7 @@ export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], 
     throw new Error("Connect and sign in with your NEAR wallet to swap inside FlowVault.");
   const from = tokens.find(t => t.id === body.from), to = tokens.find(t => t.id === body.to);
   if (!from?.assetId || !to?.assetId || from.id === to.id) throw new Error("NEAR Intents doesn't list this pair.");
-  if (!INTENTS_ORIGINS.includes(from.network)) throw new Error("In-app NEAR Intents swaps start from NEAR, Ethereum, Base or Arbitrum.");
+  if (!INTENTS_ORIGINS.includes(from.network)) throw new Error("In-app NEAR Intents swaps start from NEAR, Ethereum, Base, Arbitrum, BNB Chain or Polygon.");
   // Paying someone directly (collect and send) delivers to their address; the recipient is then checked against
   // the policy's recipient allowlist below, like any payment. Otherwise swaps deliver only to your own wallets.
   const sender = ownWallet(s.workspace, from.network, body.sender), recipient = body.payTo ? payeeAddress(to.network, body.recipient) : ownWallet(s.workspace, to.network, body.recipient);
@@ -259,7 +259,7 @@ export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], 
   let gasUsd6: bigint | null = null, gasNear = 0n;
   const ethPrice = tokens.find(t => t.id === from.network + ":native")?.price;
   if (deposit.evmTx) {
-    const chain = from.network as "eth" | "base" | "arb";
+    const chain = rpcChain(from.network);
     const [balHex, gasPriceHex] = await Promise.all([evmRpc(chain, "eth_getBalance", [sender, "latest"]), evmRpc(chain, "eth_gasPrice", [])]);
     const native = hexQuantity(balHex), gasRaw = hexQuantity(gasPriceHex) * (from.contract === "native" ? 21_000n : 80_000n) * 2n;
     if (from.contract === "native") { if (native < BigInt(amountRaw) + gasRaw) throw new Error(`Not enough ${from.symbol} for this amount plus network fees.`); }
@@ -334,7 +334,7 @@ async function resolveUnhashed(sessionId: string, a: import("./execution.ts").Wa
   // EVM: the wallet's transaction count (nonce) is the proof. Unchanged since the wallet was asked means nothing
   // left the wallet, so the swap can close at once (after a short grace for a broadcast still propagating).
   if (p.evmTx && p.nonceAtAsk) {
-    const pending = await evmRpc(p.from.network as "eth" | "base" | "arb", "eth_getTransactionCount", [p.accountId, "pending"]).then(hexQuantity).catch(() => null);
+    const pending = await evmRpc(rpcChain(p.from.network), "eth_getTransactionCount", [p.accountId, "pending"]).then(hexQuantity).catch(() => null);
     const askedAt = Date.parse(p.walletAskedAt ?? a.createdAt);
     if (pending !== null && pending === BigInt(p.nonceAtAsk) && Date.now() - askedAt >= NONCE_GRACE_MS) {
       // Nothing has left the wallet yet, but its prompt may still be open. Close it, and keep watching the
@@ -418,7 +418,7 @@ export async function intentsJournalAction(request: Request, id: string, action:
     revision = s.revision;
     a.state = "awaiting_wallet";
     p.walletAskedAt = new Date().toISOString();
-    if (evm) p.nonceAtAsk = String(hexQuantity(await evmRpc(p.from.network as "eth" | "base" | "arb", "eth_getTransactionCount", [p.accountId, "pending"])));
+    if (evm) p.nonceAtAsk = String(hexQuantity(await evmRpc(rpcChain(p.from.network), "eth_getTransactionCount", [p.accountId, "pending"])));
     a.message = "Waiting for your wallet. Approve the deposit there; NEAR Intents delivers after it lands.";
   } else if (action === "declined") {
     if (a.state === "awaiting_wallet" && !a.hashes.length) { a.state = "failed"; a.message = "Not sent. The wallet request was declined or never opened."; await releasePolicy(s.id, a.id); }
@@ -437,7 +437,7 @@ export async function intentsJournalAction(request: Request, id: string, action:
     if (!p.result && all.length === (evm ? 1 : p.transactions.length)) {
       let origin: { state: "deposited" | "failed" } | null = null;
       if (evm) {
-        const chain = p.from.network as "eth" | "base" | "arb";
+        const chain = rpcChain(p.from.network);
         const [tx, receipt] = await Promise.all([evmRpc(chain, "eth_getTransactionByHash", [all[0]]), evmRpc(chain, "eth_getTransactionReceipt", [all[0]])]);
         if (receipt?.blockNumber) {
           const block = await evmRpc(chain, "eth_getBlockByNumber", [receipt.blockNumber, false]);

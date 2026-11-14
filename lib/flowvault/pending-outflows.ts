@@ -24,14 +24,14 @@ export function applyPendingOutflows<T extends Pos>(positions: T[], outflows: { 
 
 /** Swaps from the last hour whose EVM deposit FlowVault verified but the chain hasn't finalized yet. */
 export async function pendingOutflows(sessionId: string) {
-  const [{ listAttempts }, { evmRpc, hexQuantity }] = await Promise.all([import("./attempts.ts"), import("./evm.ts")]);
+  const [{ listAttempts }, { evmRpc, hexQuantity, rpcChain }] = await Promise.all([import("./attempts.ts"), import("./evm.ts")]);
   const out: { chain: string; accountId: string; asset: string; amountRaw: string; decimals: number }[] = [];
   const recent = (await listAttempts(sessionId)).filter(a => a.kind === "swap" && Date.now() - Date.parse(a.createdAt) < WINDOW_MS);
   const finalized = new Map<string, bigint | null>();
   for (const a of recent) {
     const p = a.preparation as unknown as IntentsPreparation;
     if (p.route !== "intents" || !p.evmTx || !p.result || !a.hashes[0] || !["submitted", "confirmed", "partial"].includes(a.state)) continue;
-    const chain = p.from.network as "eth" | "base" | "arb";
+    const chain = rpcChain(p.from.network);
     try {
       if (!finalized.has(chain)) finalized.set(chain, hexQuantity((await evmRpc(chain, "eth_getBlockByNumber", ["finalized", false]))?.number));
       const receipt = await evmRpc(chain, "eth_getTransactionReceipt", [a.hashes[0]]);

@@ -17,7 +17,7 @@ import { CollectRun, type RunLeg } from "./CollectRun";
 
 export const NET_NAME: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", sol: "Solana", bsc: "BNB Chain", pol: "Polygon", op: "Optimism", avax: "Avalanche", gnosis: "Gnosis" };
 /** Chains whose deposits FlowVault can hand to your wallet today. Holdings elsewhere are shown but can't be drawn yet. */
-export const LIVE_ORIGINS = ["near", "eth", "base", "arb"];
+export const LIVE_ORIGINS = ["near", "eth", "base", "arb", "bsc", "pol"];
 const DESTINATIONS: { network: string; symbol: string }[] = [
   { network: "base", symbol: "USDC" }, { network: "arb", symbol: "USDC" }, { network: "near", symbol: "USDC" }, { network: "eth", symbol: "USDC" },
   { network: "pol", symbol: "USDC" }, { network: "bsc", symbol: "USDT" }, { network: "sol", symbol: "USDC" },

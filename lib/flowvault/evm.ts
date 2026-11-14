@@ -30,6 +30,15 @@ export const EVM_CHAINS = {
   },
 } as const;
 export type PayoutChain = keyof typeof EVM_CHAINS;
+/** Chains FlowVault reads and takes swap deposits from: the payout chains plus Polygon (not a payout destination). */
+export const ORIGIN_CHAINS = { ...EVM_CHAINS, pol: { rpc: "https://polygon-rpc.com", fallback: "https://polygon-bor-rpc.publicnode.com", chainId: 137n, usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", explorer: "https://polygonscan.com" } } as const;
+export type OriginChain = keyof typeof ORIGIN_CHAINS;
+/** The RPC key for a swap-catalog network id (the catalog says "bsc", the RPC table "bnb"). */
+export function rpcChain(network: string): OriginChain {
+  const c = ({ eth: "eth", base: "base", arb: "arb", bsc: "bnb", bnb: "bnb", pol: "pol" } as Record<string, OriginChain>)[network];
+  if (!c) throw new Error("No RPC for network " + network + ".");
+  return c;
+}
 export function payoutAsset(chain: string, token: string = "USDC") {
   if (
     !["base", "arb", "bnb", "eth"].includes(chain) ||
@@ -93,11 +102,11 @@ export function hexQuantity(v: unknown) {
   return BigInt(v);
 }
 export async function evmRpc(
-  chain: PayoutChain,
+  chain: OriginChain,
   method: string,
   params: unknown[],
 ) {
-  const c = EVM_CHAINS[chain];
+  const c = ORIGIN_CHAINS[chain];
   let error = "EVM RPC unavailable.";
   for (const url of [c.rpc, c.fallback]) {
     try {

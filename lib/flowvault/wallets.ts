@@ -218,7 +218,16 @@ export async function sendUsdcTransfer(s: WalletSession, tx: { chainId: string; 
   if (!accounts.some((a) => a.toLowerCase() === s.address.toLowerCase()))
     throw new Error("Select " + s.address + " in " + s.walletName + ", then try again.");
   const current: string = await d.provider.request({ method: "eth_chainId" });
-  if (current.toLowerCase() !== tx.chainId) await d.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: tx.chainId }] });
+  if (current.toLowerCase() !== tx.chainId) {
+    try { await d.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: tx.chainId }] }); }
+    catch (e) {
+      // 4902: the wallet doesn't know this chain yet. Offer to add it (the wallet asks you), then switch.
+      const add = ADDABLE_CHAINS[tx.chainId];
+      if ((e as { code?: number })?.code !== 4902 || !add) throw e;
+      await d.provider.request({ method: "wallet_addEthereumChain", params: [add] });
+      await d.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: tx.chainId }] });
+    }
+  }
   const hash: string = await d.provider.request({ method: "eth_sendTransaction", params: [{ from: s.address, to: tx.to, value: "0x0", data: tx.data }] });
   if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error(s.walletName + " didn’t return a transaction hash.");
   return hash;
@@ -302,6 +311,13 @@ export function evmProvider(id: string): Eip1193 | null {
 
 /** NEAR Intents swap deposit from an EVM wallet: exactly the prepared native transfer or ERC-20 transfer to the
  * quote's deposit address, on the prepared chain, from the prepared address. Anything else is refused. */
+/** Chains a wallet may not have yet, with the public details wallet_addEthereumChain needs. */
+const ADDABLE_CHAINS: Record<string, { chainId: string; chainName: string; nativeCurrency: { name: string; symbol: string; decimals: number }; rpcUrls: string[]; blockExplorerUrls: string[] }> = {
+  "0x38": { chainId: "0x38", chainName: "BNB Smart Chain", nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 }, rpcUrls: ["https://bsc-dataseed.bnbchain.org"], blockExplorerUrls: ["https://bscscan.com"] },
+  "0x89": { chainId: "0x89", chainName: "Polygon", nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 }, rpcUrls: ["https://polygon-rpc.com"], blockExplorerUrls: ["https://polygonscan.com"] },
+  "0xa4b1": { chainId: "0xa4b1", chainName: "Arbitrum One", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://arb1.arbitrum.io/rpc"], blockExplorerUrls: ["https://arbiscan.io"] },
+  "0x2105": { chainId: "0x2105", chainName: "Base", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] },
+};
 export async function sendIntentsDeposit(s: WalletSession, p: { evmTx: { chainId: string; from: string; to: string; value: string; data: string } | null; depositAddress: string; amountRaw: string; from: { contract: string } }) {
   start();
   const tx = p.evmTx;
@@ -316,7 +332,16 @@ export async function sendIntentsDeposit(s: WalletSession, p: { evmTx: { chainId
   const accounts: string[] = await d.provider.request({ method: "eth_requestAccounts" });
   if (!accounts.some((a) => a.toLowerCase() === s.address.toLowerCase())) throw new Error("Select " + s.address + " in " + s.walletName + ", then try again.");
   const current: string = await d.provider.request({ method: "eth_chainId" });
-  if (current.toLowerCase() !== tx.chainId) await d.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: tx.chainId }] });
+  if (current.toLowerCase() !== tx.chainId) {
+    try { await d.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: tx.chainId }] }); }
+    catch (e) {
+      // 4902: the wallet doesn't know this chain yet. Offer to add it (the wallet asks you), then switch.
+      const add = ADDABLE_CHAINS[tx.chainId];
+      if ((e as { code?: number })?.code !== 4902 || !add) throw e;
+      await d.provider.request({ method: "wallet_addEthereumChain", params: [add] });
+      await d.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: tx.chainId }] });
+    }
+  }
   const hash: string = await d.provider.request({ method: "eth_sendTransaction", params: [{ from: s.address, to: tx.to, value: tx.value, data: tx.data }] });
   if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new Error(s.walletName + " didn’t return a transaction hash.");
   return hash;
