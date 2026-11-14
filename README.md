@@ -370,6 +370,8 @@ cargo test --locked --manifest-path contracts/vault/Cargo.toml
 cargo build --locked --manifest-path contracts/policy/Cargo.toml --target wasm32-unknown-unknown --release
 ```
 
+**Deploy** (Cloudflare Workers + D1): `npm run deploy` builds, prepares the Worker config and deploys it. It reads `FLOWVAULT_D1_DATABASE_ID` (required), `FLOWVAULT_WORKER_NAME` (default `flowvault-app`) and `FLOWVAULT_DOMAIN` (optional custom domain, for example `app.flowvault.live`). On every push to `main`, [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs the tests and typecheck, then the same deploy once its repository secrets are set.
+
 **Server settings** (all optional for Demo Mode):
 
 | Setting | Purpose |

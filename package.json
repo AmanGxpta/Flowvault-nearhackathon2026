@@ -22,6 +22,7 @@
     "quote:minimum": "node --experimental-strip-types scripts/check-payment-minimum.mjs",
     "scan:secrets": "node scripts/scan-secrets.mjs",
     "prepare:cloudflare": "node scripts/prepare-cloudflare.mjs",
+    "deploy": "npm run build && node scripts/prepare-cloudflare.mjs && wrangler deploy --config .wrangler/deploy/wrangler.json",
     "validate:diagrams": "node scripts/validate-mermaid.mjs"
   },
   "dependencies": {
