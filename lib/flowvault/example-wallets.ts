@@ -139,5 +139,5 @@ export function exampleWalletHoldings(): { network: string; symbol: string; amou
   const out = ROWS.filter(([, , , , usd, kind]) => (kind ?? "wallet") === "wallet" && usd !== null)
     .filter(([, network]) => CATALOG_NETWORK[network])
     .map(([w, network, symbol, amount, usd]) => ({ network: CATALOG_NETWORK[network], symbol, amount, usd: usd!, account: EXAMPLE_WALLETS[w].address }));
-  return [...out, { network: "near", symbol: "NEAR", amount: "42", usd: "134.72", account: EXAMPLE_NEAR_ACCOUNT }, { network: "near", symbol: "USDC", amount: "1240", usd: "1240.00", account: EXAMPLE_NEAR_ACCOUNT }];
+  return [...out, { network: "near", symbol: "NEAR", amount: "42", usd: "134.72", account: EXAMPLE_NEAR_ACCOUNT }, { network: "near", symbol: "USDC", amount: "4", usd: "4.00", account: EXAMPLE_NEAR_ACCOUNT }];
 }

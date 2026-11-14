@@ -30,6 +30,7 @@ import { useTokenCatalog, coreIdentity } from "./useTokenCatalog";
 import { WalletHistory } from "./WalletHistory";
 import { RatesTable } from "./RatesTable";
 import { SupplyFlowView } from "./earn/SupplyFlowView";
+import { CollectSend } from "./collect/CollectSend";
 import { OrderTicket, type OrderDraft } from "./OrderTicket";
 
 export const destinations = [
@@ -178,8 +179,8 @@ export function SwapDesk({ v }: { v: any }) {
   return <><PageHeading title="Swap" description="Best route across Rhea / Ref and NEAR Intents, checked against your limits."/><Tabs values={["Swap tokens","Managed funding"]} value={tab} set={setTab}/>{tab === "Swap tokens" ? <SwapExplorer owner={v.acc ?? ""} example={!!v.judge} onManaged={()=>setTab("Managed funding")} onConnect={v.openConnect ?? v.connectFirst} onSettled={v.refreshPortfolio}/> : <><section className="fv-panel fv-managed-swap-callout"><div className="fv-section-head"><div><h2>USDC → NEAR</h2><p>Fund your NEAR account from a supported connected wallet.</p></div><Button primary onClick={v.openConvert ?? v.openConnect ?? v.connectFirst}>Choose wallet and amount <ChevronRight size={16}/></Button></div></section><div className="fv-managed-sales"><ApprovedAssetSales scope={v.lendingScope} accounts={v.lendingAccounts}/></div></>}</>;
 }
 export function SendDesk({ v }: { v: any }) {
-  const [tab, setTab] = useState(v.isCalendar ? "Scheduled" : "Send now");
-  return <><PageHeading title="Send" description="Choose what the recipient gets. Review where it comes from." /><Tabs values={["Send now", "Scheduled"]} value={tab} set={setTab} />{tab === "Scheduled" ? <ScheduledDesk v={v}/> : <><section className="fv-send-intro fv-panel"><div><Send size={25} /><h2>Send an exact amount</h2><p>Choose a recipient, token and network. FlowVault compares the funding sources your permissions allow.</p><small>A one-off payment is saved for tracking. Nothing moves until you review and sign.</small></div><Button primary onClick={v.openSendNow}>New payment <ArrowUpRight size={16} /></Button></section>{v.hasPy && <div className="fv-legacy-content"><PayOnADateView v={{ ...v, why: { ...v.why, pay: false } }} /></div>}{!v.hasPy && <p className="fv-muted">No payments to review. Create your first payment above, or schedule one for later.</p>}</>}</>;
+  const [tab, setTab] = useState(() => v.isCalendar ? "Scheduled" : typeof window !== "undefined" && new URL(window.location.href).searchParams.get("tab") === "collect" ? "Collect & send" : "Send now");
+  return <><PageHeading title="Send" description="Choose what the recipient gets. Review where it comes from." /><Tabs values={["Send now", "Collect & send", "Scheduled"]} value={tab} set={setTab} />{tab === "Scheduled" ? <ScheduledDesk v={v}/> : tab === "Collect & send" ? <CollectSend key={String(!!v.judge)} owner={v.acc ?? ""} example={!!v.judge} connect={() => (v.openConnect ?? v.connectFirst)?.()} /> : <><section className="fv-send-intro fv-panel"><div><Send size={25} /><h2>Send an exact amount</h2><p>Choose a recipient, token and network. FlowVault compares the funding sources your permissions allow.</p><small>A one-off payment is saved for tracking. Nothing moves until you review and sign.</small></div><Button primary onClick={v.openSendNow}>New payment <ArrowUpRight size={16} /></Button></section>{v.hasPy && <div className="fv-legacy-content"><PayOnADateView v={{ ...v, why: { ...v.why, pay: false } }} /></div>}{!v.hasPy && <p className="fv-muted">No payments to review. Create your first payment above, or schedule one for later.</p>}</>}</>;
 }
 
 export function CommandSearch({ v }: { v: any }) {

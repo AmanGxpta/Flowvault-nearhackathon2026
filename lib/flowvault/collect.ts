@@ -38,6 +38,8 @@ export interface CollectSummary {
 
 /** Route cost assumed for planning (NEAR Intents spread + slippage bound); the live quote replaces it. */
 export const ROUTE_COST_BPS = 50;
+/** Plans aim this far above the target so slippage below the estimate still delivers the full amount. */
+export const TARGET_BUFFER_BPS = 30;
 /** Native coins keep this share back for the deposit's own gas. */
 export const NATIVE_KEEP_BPS = 1000;
 /** Legs below this value aren't worth a network fee and NEAR Intents may refuse them. */
@@ -76,7 +78,8 @@ export function autoPick(sources: CollectSource[], targetUsd: number, o: { exclu
   const rank = (s: CollectSource) => { const i = o.priority?.indexOf(s.key) ?? -1; return i < 0 ? Infinity : i; };
   const ordered = [...usable].sort((a, b) => rank(a) - rank(b) || costPerDollar(a, targetUsd) - costPerDollar(b, targetUsd));
   const picks: CollectPick[] = [];
-  let remaining = targetUsd;
+  // Aim a little above the target: deliveries land slightly under estimates, and the recipient must get it all.
+  let remaining = targetUsd * (1 + TARGET_BUFFER_BPS / 10_000);
   for (const s of ordered) {
     if (remaining <= 0.005 || picks.length >= (o.maxLegs ?? 12)) break;
     const maxUsd = usdOf(s, spendableRaw(s).toString());

@@ -23,6 +23,8 @@ function exampleBalances(tokens: SwapToken[]) {
 }
 
 const CHAIN_TO_NETWORK: Record<string, string> = { eth: "eth", base: "base", arb: "arb", solana: "sol" };
+/** Whole-wallet reads name networks; these are the ones the swap catalog can pay from. */
+const NETWORK_BY_NAME: Record<string, string> = { Ethereum: "eth", Base: "base", Arbitrum: "arb", Solana: "sol", "BNB Chain": "bsc", Polygon: "pol", Optimism: "op", Avalanche: "avax", Gnosis: "gnosis" };
 
 /** Balances of every connected wallet, keyed by swap-catalog id: the NEAR account's full token inventory (public
  * research read) plus the ETH/SOL and USDC that the portfolio reads for proven Ethereum, Base, Arbitrum and Solana
@@ -39,8 +41,10 @@ export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enab
       const p = r.portfolio ?? r;
       const values = new Map<string, string>((p.capital?.valuations ?? []).filter((v: any) => /^\d+$/.test(String(v.usdcRaw ?? ""))).map((v: any) => [v.positionId, v.usdcRaw])); // eslint-disable-line @typescript-eslint/no-explicit-any
       const balances: Record<string, Holding> = {}, addresses: Record<string, string> = {}, covered = new Set<string>();
-      for (const pos of (p.positions ?? []) as { id: string; asset: string; chain?: string; amount: string; accountId?: string; ownership?: string; kind?: string }[]) {
-        const network = CHAIN_TO_NETWORK[pos.chain ?? ""];
+      for (const row of (p.positions ?? []) as { id: string; asset: string; displayAsset?: string; chain?: string; network?: string; amount: string; accountId?: string; ownership?: string; kind?: string }[]) {
+        // Whole-wallet rows (Zerion) name their network and keep the plain symbol in displayAsset.
+        const pos = { ...row, asset: row.displayAsset ?? row.asset };
+        const network = CHAIN_TO_NETWORK[pos.chain ?? ""] ?? NETWORK_BY_NAME[pos.network ?? ""];
         if (!network || pos.ownership === "watched" || (pos.kind && pos.kind !== "wallet") || !pos.accountId) continue;
         covered.add(network);
         addresses[network] ??= pos.accountId;
