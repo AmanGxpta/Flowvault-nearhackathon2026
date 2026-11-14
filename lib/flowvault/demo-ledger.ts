@@ -259,7 +259,9 @@ export function demoPortfolio<R extends PortfolioRow>(rows: R[], l: DemoLedger, 
     const row = id ? out.find((r) => r.id === id) : out.find((r) => r.id === `demo:${kind}:${token}`);
     if (row) { row.qty = Math.max(0, (row.qty ?? 0) + delta); if (usd !== null && typeof row.usd === "number") { row.usd = Math.max(0, row.usd + usd); row.value = money(row.usd); } return; }
     if (delta <= 0) return;
-    out.push({ id: `demo:${kind}:${token}`, kind, symbol: sym(token), name: `${sym(token)}${venue ? " · " + venue : ""}`, qty: delta, usd, value: usd !== null ? money(usd) : "Unvalued", chain: "NEAR", network: "near", account: "example-account.near", walletLabel: "example-account.near", venue, ownership: "owner", tag: "FICTIONAL" } as unknown as R);
+    // New positions belong to the same NEAR account card as the seed's NEAR rows.
+    const home = out.find((r) => r.id === "near-wallet") ?? out.find((r) => r.id === "cash") ?? {} as Partial<R>;
+    out.push({ ...home, id: `demo:${kind}:${token}`, kind, symbol: sym(token), name: `${sym(token)}${venue ? " · " + venue : ""}`, qty: delta, usd, value: usd !== null ? money(usd) : "Unvalued", venue, ownership: "owner", tag: "FICTIONAL", groupId: undefined, icon: undefined } as unknown as R);
   };
   const wallets = new Set([...Object.keys(seed.wallet), ...Object.keys(l.wallet)]);
   for (const t of wallets) {
