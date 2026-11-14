@@ -5,10 +5,12 @@ import { OpenStakeFlows } from "./stake/OpenStakeFlows";
 import { PairPicker, type Pair } from "./PairPicker";
 import { SpotDesk } from "./SpotDesk";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
-import { ArrowDownUp, ArrowUpRight, BarChart3, Wallet, Search, SlidersHorizontal, Plus, X, ChevronRight, Send, Sprout, Activity, Share2, Download, Landmark, TrendingUp } from "lucide-react";
+import { ArrowDownUp, ArrowUpRight, BarChart3, Wallet, Search, SlidersHorizontal, Plus, X, ChevronDown, ChevronRight, Send, Sprout, Activity, Share2, Download, Landmark, TrendingUp } from "lucide-react";
 import { MarketPanel } from "./MarketPanel";
 import { TokenIcon, tokenLogo } from "./AssetIdentity";
 import { Skel } from "./Skel";
+import { Allocation, NftGrid, ProtocolList, SearchBox, TokenList, WalletBar, money, toHolding, type Nft } from "./portfolio/Holdings";
+import { totals, type HoldingRow } from "@/lib/flowvault/portfolio-view";
 import { PerpsCard } from "./Perps";
 import { VaultsCard } from "./Vaults";
 import { LendingVenues } from "./LendingVenues";
@@ -75,29 +77,48 @@ function allocation(rows: any[]): string[] {
 export function PortfolioHome({ v }: { v: any }) {
   const [tab, setTab] = useState("Tokens");
   const [query, setQuery] = useState("");
-  const [network, setNetwork] = useState("All networks");
-  const [accounts, setAccounts] = useState(false), [snapshot, setSnapshot] = useState(false);
-  const all = (v.pfRows ?? []).filter((r: any) => r.ownership !== "watched");
-  const rows = all.filter((r: any) => (tab === "Tokens" ? !r.kind || r.kind === "wallet" : r.kind && r.kind !== "wallet") && (network === "All networks" || r.chain === network) && (r.name + " " + r.symbol + " " + r.sub).toLowerCase().includes(query.toLowerCase()));
+  const [network, setNetwork] = useState("");
+  const [wallet, setWallet] = useState("");
+  const [accounts, setAccounts] = useState(false), [snapshot, setSnapshot] = useState(false), [gapsOpen, setGapsOpen] = useState(false);
+  const raw = (v.pfRows ?? []).filter((r: any) => r.ownership !== "watched");
+  const all = raw.filter((r: any) => !r.status);
+  const gaps = raw.filter((r: any) => r.status);
+  // Empty balances (0, or dust worth $0.00 with no quantity) are noise once many wallets are connected.
+  const holdings: HoldingRow[] = all.map(toHolding).filter((h: HoldingRow) => !(h.usd === 0 && Math.abs(h.quantity ?? 0) < 1e-9));
+  const walletNames = new Map(holdings.map((h) => [h.account, h.walletLabel || h.account]));
+  const wallets = [...walletNames].map(([account, label]) => ({ account, label, usd: holdings.filter((h) => h.account === account && h.usd !== null).reduce((s, h) => s + (h.kind === "debt" ? -h.usd! : h.usd!), 0) })).sort((a, b) => b.usd - a.usd);
+  const scoped = holdings.filter((h) => !wallet || h.account === wallet);
+  const q = query.trim().toLowerCase();
+  const visible = scoped.filter((h) => (!network || h.network === network) && (!q || (h.symbol + " " + h.name + " " + (h.venue ?? "") + " " + h.network).toLowerCase().includes(q)));
+  const nfts: Nft[] = (v.pfNfts ?? []).filter((n: Nft) => (!wallet || n.accountId === wallet) && (!network || n.network === network) && (!q || (n.name + " " + (n.collection ?? "")).toLowerCase().includes(q)));
+  const t = totals(scoped);
+  const nftFloor = (v.pfNfts ?? []).filter((n: Nft) => !wallet || n.accountId === wallet).reduce((s: number, n: Nft) => s + (n.floorUsd ?? 0) * (Number(n.amount) || 1), 0);
+  const tokenCount = new Set(visible.filter((h) => h.kind === "wallet").map((h) => h.symbol.toUpperCase())).size;
+  const defiCount = new Set(visible.filter((h) => h.kind !== "wallet").map((h) => h.venue ?? "")).size;
+  const act = (h: HoldingRow) => h.kind === "wallet" ? v.navigate(h.symbol === "USDC" ? "pay" : "swap") : h.kind === "debt" || h.kind === "collateral" ? v.navigate("credit") : v.goStrategies();
   const summary = [v.pfBalances?.[0], v.pfBalances?.[1], v.pfBalances?.[4]].filter(Boolean);
+  const networks = [...new Set(scoped.map((h) => h.network))].sort();
+  const tabs = ["Tokens" + (tokenCount ? " " + tokenCount : ""), "DeFi" + (defiCount ? " " + defiCount : ""), "NFTs" + (nfts.length ? " " + nfts.length : "")];
+  const current = tabs.find((x) => x.startsWith(tab)) ?? tabs[0];
+  const empty = <div className="fv-empty"><Wallet size={28} /><h3>{v.portfolioLoading ? "Reading your portfolio" : v.portfolioReadError ? "Portfolio unavailable" : !v.pfHas ? "Connect a wallet to see your portfolio" : query || network || wallet ? "Nothing matches" : tab === "DeFi" ? "No DeFi positions" : tab === "NFTs" ? "No NFTs" : "No token balances to show"}</h3><p>{v.portfolioLoading ? "Fetching balances and positions from your connected wallets…" : v.portfolioReadError ? "Your balances could not be read. Nothing is assumed to be zero." : !v.pfHas ? "Connect your wallets to see everything you hold, on every chain." : query || network || wallet ? "Try another search, network or wallet." : "Nothing here in the wallets FlowVault reads."}</p>{!v.portfolioLoading && (v.portfolioReadError || !v.pfHas) && <Button onClick={v.portfolioReadError ? v.refreshPortfolio : v.openConnect ?? v.connectFirst}>{v.portfolioReadError ? "Try again" : "Connect wallet"}</Button>}</div>;
   return <>
-    <PageHeading title="Portfolio" description="Your wallets and positions, in one place." />
-    <div className="fv-summary-grid">{summary.map((b: any, i: number) => <section key={b.label} className={"fv-summary" + (!i ? " fv-summary-main" : "")}><span>{i === 0 ? "Portfolio value" : b.label}</span><strong><Skel v={b.value} /></strong><small>{b.sub}</small></section>)}</div>
+    <PageHeading title="Portfolio" description="Everything you hold, across every wallet, chain and protocol." action={<button type="button" className="fv-button" onClick={() => setAccounts(true)}><Wallet size={15} /> Wallets ({v.pfAccounts?.length ?? 0})</button>} />
+    <div className="fv-summary-grid">{summary.map((b: any, i: number) => <section key={b.label} className={"fv-summary" + (!i ? " fv-summary-main" : "")}><span>{i === 0 ? (wallet ? "Wallet value" : "Portfolio value") : b.label}</span><strong>{i === 0 && wallet ? money(t.tokens + t.defi - t.debt) : <Skel v={b.value} />}</strong>
+      {i === 0 && (t.tokens > 0 || t.defi > 0) ? <div className="fv-summary-split"><span>Tokens <b>{money(t.tokens)}</b></span>{t.defi > 0 && <span>DeFi <b>{money(t.defi)}</b></span>}{t.debt > 0 && <span>Debt <b>−{money(t.debt)}</b></span>}{nftFloor > 0 && <span title="Floor estimate, not counted">NFTs <b>≈{money(nftFloor)}</b></span>}</div> : <small>{b.sub}</small>}</section>)}</div>
     <div className="fv-quick-actions"><Button primary onClick={() => v.navigate("swap")}><ArrowDownUp size={17} /> Swap</Button><Button onClick={v.goPay}><Send size={17} /> Send</Button><Button onClick={v.goStrategies}><Sprout size={17} /> Earn</Button><Button onClick={() => v.navigate("research")}><BarChart3 size={17} /> Markets</Button><Button disabled={!all.length} onClick={() => setSnapshot(true)}><Share2 size={16} /> Share snapshot</Button><Button onClick={v.goCalendar}>Scheduled payments <ChevronRight size={15} /></Button></div>
     {snapshot && <ShareCard title="My treasury, with a plan" subtitle={(v.upcoming?.length ? v.upcoming.length + " scheduled payment" + (v.upcoming.length === 1 ? "" : "s") + " planned" : "Every move checked against my limits") + " · FlowVault"} lines={allocation(all)} amount={summary[0]?.value} example={v.judge} close={() => setSnapshot(false)} />}
     {v.rec && !["READING", "IDLE", "LIQUID"].includes(v.rec.tag) && <details className="fv-attention"><summary><span><span className="fv-status-dot" />{v.rec.title}</span><span>Review <ChevronRight size={15} /></span></summary><p>{v.rec.body}</p><Button onClick={v.rec.onClick}>{v.rec.cta}</Button></details>}
-    <section className="fv-panel">
-      <div className="fv-section-head"><Tabs values={["Tokens", "Positions"]} value={tab} set={setTab} /><button type="button" className="fv-text-button" onClick={() => setAccounts(!accounts)}><Wallet size={15} /> Wallets ({v.pfAccounts?.length ?? 0})</button></div>
-      <div className="fv-table-tools"><label className="fv-search-input"><Search size={16} /><input aria-label="Search your assets" placeholder="Search assets" value={query} onChange={e => setQuery(e.target.value)} /></label><select aria-label="Filter by network" value={network} onChange={e => setNetwork(e.target.value)}><option>All networks</option>{[...new Set(all.map((r: any) => r.chain) as string[])].map(x => <option key={x}>{x}</option>)}</select></div>
-      <div className="fv-holdings-header"><span>Asset</span><span>Balance / value</span><span>Availability</span><span /></div>
-      {rows.map((r: any, i: number) => <div className="fv-holding" key={r.id ?? r.name + i}>
-        <div className="fv-asset-cell"><TokenIcon key={r.symbol + r.network} symbol={r.symbol ?? "?"} core={!!r.symbol} network={r.network} /><div><strong>{r.symbol ?? r.name}</strong><small>{r.name}</small><small className="fv-wallet-attribution">{r.accountLabel ?? r.sub}</small></div></div>
-        <div className="fv-holding-value"><strong>{r.value}</strong><small>{r.quantity ?? r.sub}</small></div>
-        <div className="fv-holding-availability"><span>{r.by}</span><small>{r.path}</small></div>
-        {r.kind ? <button className="fv-row-action" onClick={() => r.kind === "wallet" ? v.navigate(r.symbol === "USDC" ? "pay" : "swap") : r.kind === "debt" || r.kind === "collateral" ? v.navigate("credit") : v.goStrategies()}>{r.kind === "wallet" ? "Use" : "Manage"}<ArrowUpRight size={14} /></button> : <span className="fv-muted">{r.tag}</span>}
-      </div>)}
-      {!rows.length && <div className="fv-empty"><Wallet size={28} /><h3>{v.portfolioLoading ? "Reading your portfolio" : v.portfolioReadError ? "Portfolio unavailable" : !v.pfHas ? "Connect a wallet to see your portfolio" : query || network !== "All networks" ? "No matching assets" : tab === "Positions" ? "No positions to show" : "No token balances to show"}</h3><p>{v.portfolioLoading ? "Fetching balances and positions from your connected wallets…" : v.portfolioReadError ? "Your balances could not be read. Nothing is assumed to be zero." : !v.pfHas ? "Browse Research while you explore, or connect your wallet to see your funds." : "Try another filter or explore supported markets."}</p>{!v.portfolioLoading && <Button onClick={v.portfolioReadError ? v.refreshPortfolio : !v.pfHas ? v.openConnect ?? v.connectFirst : () => v.navigate("research")}>{v.portfolioReadError ? "Try again" : !v.pfHas ? "Connect wallet" : "Explore Research"}</Button>}</div>}
-      <div className="fv-panel-foot">{v.footLabel}. Unpriced holdings stay visible; totals may have incomplete coverage.</div>
+    {gaps.length > 0 && <section className="fv-coverage" role="status"><button type="button" aria-expanded={gapsOpen} onClick={() => setGapsOpen(!gapsOpen)}><span className="fv-status-dot" /><span>{gaps.length === 1 ? gaps[0].name : gaps.length + " parts of your portfolio aren’t fully read"}</span><small>{gaps.every((g: any) => g.tag === "PARTIAL") ? "The total shows what’s read so far" : "Not counted until they read"}</small>{gapsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
+      {gapsOpen && <ul>{gaps.map((g: any, i: number) => <li key={i}><strong>{g.name}</strong><small>{g.sub}</small></li>)}</ul>}</section>}
+    <WalletBar wallets={wallets} value={wallet} set={(a) => { setWallet(a); setNetwork(""); }} />
+    <Allocation rows={scoped} network={network} setNetwork={setNetwork} multiWallet={!wallet && wallets.length > 1} wallets={walletNames} setWallet={(a) => { setWallet(a); setNetwork(""); }} />
+    <section className="fv-panel fv-holdings-panel">
+      <div className="fv-section-head"><Tabs values={tabs} value={current} set={(x) => setTab(x.split(" ")[0])} /></div>
+      <div className="fv-table-tools"><SearchBox value={query} set={setQuery} /><select aria-label="Filter by network" value={network} onChange={e => setNetwork(e.target.value)}><option value="">All networks</option>{networks.map(x => <option key={x} value={x}>{x}</option>)}</select></div>
+      {tab === "Tokens" ? (visible.some((h) => h.kind === "wallet") ? <TokenList rows={visible} act={act} /> : empty)
+        : tab === "DeFi" ? (visible.some((h) => h.kind !== "wallet") ? <ProtocolList rows={visible} act={act} /> : empty)
+        : nfts.length ? <NftGrid nfts={nfts} wallets={walletNames} /> : empty}
+      <div className="fv-panel-foot">{v.footLabel}. Spam tokens are hidden; unpriced holdings aren’t counted.</div>
     </section>
     {!!v.upcoming?.length && <section className="fv-panel fv-upcoming"><div className="fv-section-head"><h2>Upcoming payments</h2><Button onClick={v.goCalendar}>View all</Button></div>{v.upcoming.slice(0, 3).map((o: any, i: number) => <div className="fv-list-row" key={o.id ?? i}><div><strong>{o.name ?? o.title}</strong><small>{o.dueLabel ?? o.due} · {o.amountF ?? o.amount} {o.asset ?? "USDC"}</small></div><Button onClick={o.onPay ?? v.goCalendar}>{o.btnLabel ?? "Review"}</Button></div>)}</section>}
     {accounts && <Modal title="Your wallets" close={() => setAccounts(false)}><p className="fv-muted">Only verified owned wallets contribute to your portfolio. Public addresses belong in Research.</p>{(v.pfAccounts ?? []).map((a: any, i: number) => <div className="fv-wallet-card" key={i}><strong>{a.name}</strong><span className="fv-chip">{a.tag}</span><p>{a.sub}</p><div className="fv-actions">{a.actions?.map((x: any) => <Button key={x.label} onClick={x.onClick}>{x.label}</Button>)}</div></div>)}<Button primary onClick={() => { setAccounts(false); (v.openConnect ?? v.connectFirst)(); }}>Connect another wallet</Button></Modal>}

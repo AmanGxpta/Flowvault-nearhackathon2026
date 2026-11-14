@@ -213,7 +213,8 @@ const reasonList = (rs: string[]) => {
 };
 /** Portfolio sections (BACKEND_API §13): each read succeeds or fails on its own. */
 export const SECTION_NAME: Record<string, string> = { "near-native": "NEAR balance", "near-usdc": "NEAR wallet USDC", rhea: "Rhea supply", "linear-balance": "LiNEAR balance", "base-usdc": "Base USDC", "arb-usdc": "Arbitrum USDC", "native-staking": "Native staking", "linear-staking": "LiNEAR staking", "rnear-staking": "rNEAR staking", staking: "Staking" };
-const NET_NAME: Record<string, string> = { eth: "Ethereum", base: "Base", arb: "Arbitrum" };
+const NET_NAME: Record<string, string> = { eth: "Ethereum", base: "Base", arb: "Arbitrum", all: "every chain", hyperliquid: "Hyperliquid" };
+const CHAIN_LABEL: Record<string, string> = { eth: "Ethereum", base: "Base", arb: "Arbitrum", bnb: "BNB Chain", near: "NEAR", solana: "Solana", evm: "Ethereum" };
 /** "acct:evm:0x…:eth" (Interface A2: one section per connected account and network) → "0x32e5…004a · Ethereum". */
 const secName = (id: string) => {
   if (SECTION_NAME[id]) return SECTION_NAME[id];
@@ -896,8 +897,9 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   const protSet = new Set((snap.policy?.policy?.protectedAssets ?? []).map((x: string) => x.toLowerCase()));
   const rows = (pf?.positions ?? []).filter((p: any) => p.amount !== "0" || p.id === "usdc-wallet");
   // Positions valued by the capital view (Pyth evidence for ETH/SOL/NEAR on connected wallets) carry their USD
-  // there, keyed by position id; use it when the position itself has no inline valuation.
-  const capVal = new Map<string, number>(((pf as any)?.capital?.valuations ?? []).filter((x: any) => /^\d+$/.test(String(x.usdcRaw ?? ""))).map((x: any) => [x.positionId, Number(x.usdcRaw) / 1e6]));
+  // there, keyed by position id; use it when the position itself has no inline valuation. Only the observed value:
+  // the stress rows (same id, drawdown applied) are for headroom maths, not for showing what you hold.
+  const capVal = new Map<string, number>(((pf as any)?.capital?.valuations ?? []).filter((x: any) => x.kind !== "stress" && /^\d+$/.test(String(x.usdcRaw ?? ""))).map((x: any) => [x.positionId, Number(x.usdcRaw) / 1e6]));
   out.pfRows = rows.map((p: any) => {
     const watched = p.ownership === "watched";
     const isUsdc = p.asset === "USDC";
@@ -909,7 +911,9 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
       id: p.id, symbol: p.asset, kind: p.kind, network: p.chain ?? 'near', ownership: p.ownership ?? 'owner', accountLabel: shortAddress(p.accountId ?? (example ? 'fictional account' : acct)), quantity: displayQuantity(p.amount, p.asset),
       name: p.label,
       sub: (p.asset !== "USDC" ? (p.amount === "unknown" ? "quantity unknown" : num(Number(p.amount)) + " " + p.asset) : shortAddress(p.accountId ?? (example ? "fictional account" : acct))) + (p.venue ? " · " + p.venue : ""),
-      chain: chainName(p.chain ?? "near"),
+      chain: p.network ?? CHAIN_LABEL[p.chain ?? "near"] ?? String(p.chain),
+      usd: val, qty: p.amount === "unknown" ? null : Number(p.amount), account: String(p.accountId ?? (example ? "fictional account" : acct ?? "")).toLowerCase(),
+      walletLabel: shortAddress(p.accountId ?? (example ? "fictional account" : acct)), venue: p.venue ?? null, groupId: p.groupId, icon: p.icon,
       value: val !== null ? usd(val) : "Unvalued",
       valColor: val !== null ? "#1E2A22" : "#8A5F25",
       by,
@@ -926,13 +930,14 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   const readErr = [snap.portfolioError, ...(pf?.errors ?? []), ...(sections.length ? [] : [...new Set(((pf?.usable?.netWorth?.reasons ?? []) as string[]).filter((r) => /^[a-z-]+:/.test(r)).map(readReason))]), ...((pf as any)?.watchedErrors ?? []).map((e: any) => (typeof e === "string" ? e : (e.label ?? e.id ?? "watched") + ": " + (e.error ?? e.message ?? "read failed")))].filter(Boolean);
   // One row per section that couldn't be read, beside the real rows; unconfigured EVM wallets are said plainly.
   for (const sec of sections.filter((x) => x.status === "unavailable" || x.status === "partial"))
-    out.pfRows.push({ name: secName(sec.id) + (sec.status === "partial" ? " · partly read" : " · unavailable"), sub: (sec.reasons ?? []).map(readReason).join(" · ") || "read failed", chain: /:eth$/.test(sec.id) ? "Ethereum" : /^acct:solana/.test(sec.id) ? "Solana" : /base/.test(sec.id) ? "Base" : /arb/.test(sec.id) ? "Arbitrum" : "NEAR", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Not counted until it reads · affects " + (sec.affects ?? []).join(", "), tag: sec.status === "partial" ? "PARTIAL" : "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: sec.capturedAt ? "tried " + hhmm(sec.capturedAt) : "", opacity: 1 });
+    out.pfRows.push({ status: true, name: secName(sec.id) + (sec.status === "partial" ? " · partly read" : " · unavailable"), sub: (sec.reasons ?? []).map(readReason).join(" · ") || "read failed", chain: /:eth$/.test(sec.id) ? "Ethereum" : /^acct:solana/.test(sec.id) ? "Solana" : /base/.test(sec.id) ? "Base" : /arb/.test(sec.id) ? "Arbitrum" : "NEAR", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Not counted until it reads · affects " + (sec.affects ?? []).join(", "), tag: sec.status === "partial" ? "PARTIAL" : "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: sec.capturedAt ? "tried " + hhmm(sec.capturedAt) : "", opacity: 1 });
   // Multi-wallet: chains you haven't connected aren't "missing", they just aren't yours here. Only the main NEAR
   // account is called out, because plans run from it.
   if (!example && sections.some((x) => x.id === "near" && x.status === "not-configured"))
-    out.pfRows.push({ name: "No main NEAR account", sub: "Plans run from a NEAR account. Connect a NEAR wallet from the wallet menu (top right); your other wallets are read meanwhile.", chain: "NEAR", value: "—", valColor: "#8A9285", by: "Not read", byColor: "#8A9285", path: "Not a zero balance", tag: "NOT CONNECTED", tagBg: "#EEF0E8", tagColor: "#5B6458", src: "", opacity: 0.85 });
+    out.pfRows.push({ status: true, name: "No main NEAR account", sub: "Plans run from a NEAR account. Connect a NEAR wallet from the wallet menu (top right); your other wallets are read meanwhile.", chain: "NEAR", value: "—", valColor: "#8A9285", by: "Not read", byColor: "#8A9285", path: "Not a zero balance", tag: "NOT CONNECTED", tagBg: "#EEF0E8", tagColor: "#5B6458", src: "", opacity: 0.85 });
   if (readErr.length)
-    out.pfRows.push({ name: "Some reads failed", sub: readErr.join(" · "), chain: "—", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Nothing is assumed while a read fails", tag: "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: "", opacity: 1 });
+    out.pfRows.push({ status: true, name: "Some reads failed", sub: readErr.join(" · "), chain: "—", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Nothing is assumed while a read fails", tag: "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: "", opacity: 1 });
+  out.pfNfts = (pf as any)?.nfts ?? [];
   out.pfHas = out.pfRows.length > 0;
   out.pfEmpty = !out.pfHas;
   // Account registry (any chain, any number per chain). Accounts enter only through their wallet; rows show
