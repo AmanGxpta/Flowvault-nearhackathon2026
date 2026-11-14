@@ -1,11 +1,11 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- token icons from the rates and market feeds, fixed 24-26px, from hosts not known in advance */
-// The watchlist in one compact list: the tokens you starred in Markets (the same list, kept in this browser), with
+// The watchlist in one compact list: the tokens you starred in Markets (the same list, saved with your account), with
 // live price and 24h move refreshed every minute; a price that changes flashes. With nothing starred it suggests
 // the most traded liquid NEAR tokens (swappable here) to star. Buy opens the swap with the token filled in; nothing executes from here.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Star } from "lucide-react";
-import { parseResearch } from "@/lib/flowvault/research";
+import { useWatchlist } from "../useWatchlist";
 import { isStableAsset } from "@/lib/flowvault/brief";
 
 type Row = { chain: string; address: string; symbol: string; name?: string; icon: string | null; priceUsd: string | null; change: { h24?: number }; liquidityUsd: number | null; volume?: { h24?: number }; swapId?: string | null };
@@ -16,21 +16,15 @@ const price = (p: string | null) => { if (!p) return "—"; const n = Number(p);
 const chainName = (c: string) => c.charAt(0).toUpperCase() + c.slice(1);
 
 export function WatchlistCompact({ owner, example, buy, open }: { owner: string; example: boolean; buy: (swapId: string) => void; open: (token: string | null) => void }) {
-  const storageKey = "fv-research-v1:" + (example ? "example" : "personal:" + (owner || "visitor"));
-  const [saved, setSaved] = useState<string[] | null>(null);
+  const list = useWatchlist({ owner, example, locked: false });
+  const saved = list.loaded ? list.data.saved.map(toMarket) : null;
   const [rows, setRows] = useState<Row[]>([]), [suggest, setSuggest] = useState<Row[]>([]), [loading, setLoading] = useState(true), [flash, setFlash] = useState<Record<string, "up" | "down">>({});
   const last = useRef<Record<string, string | null>>({});
 
-  useEffect(() => { const t = setTimeout(() => { try { setSaved(parseResearch(localStorage.getItem(storageKey)).saved.map(toMarket)); } catch { setSaved([]); } }, 0); return () => clearTimeout(t); }, [storageKey]);
   const toggle = (r: Row) => {
-    const id = r.chain + ":" + r.address;
-    let data = { wallets: [] as unknown[], saved: [] as string[] };
-    try { data = parseResearch(localStorage.getItem(storageKey)); } catch { /* storage blocked */ }
-    const has = data.saved.some((x) => toMarket(x).toLowerCase() === id.toLowerCase());
-    const next = { ...data, saved: has ? data.saved.filter((x) => toMarket(x).toLowerCase() !== id.toLowerCase()) : [...data.saved, id] };
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* lives for this view */ }
-    setSaved(next.saved.map(toMarket));
-    if (!has) setRows((x) => x.some((y) => key(y) === key(r)) ? x : [...x, r]); else setRows((x) => x.filter((y) => key(y) !== key(r)));
+    const id = r.chain + ":" + r.address, raw = list.data.saved.find((x) => toMarket(x).toLowerCase() === id.toLowerCase());
+    void list.apply(raw ? { op: "unstar", id: raw } : { op: "star", id }).catch(() => {});
+    if (!raw) setRows((x) => x.some((y) => key(y) === key(r)) ? x : [...x, r]); else setRows((x) => x.filter((y) => key(y) !== key(r)));
   };
 
   const read = useCallback(async (ids: string[]) => {
