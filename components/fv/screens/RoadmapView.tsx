@@ -2,10 +2,11 @@
 /* eslint-disable */
 import { Fragment } from "react";
 import { tc } from "../theme";
-import { roadmapRows, roadmapNext } from "../roadmap";
+import { roadmapRows, roadmapNext, roadmapCounts, roadmapUpdated } from "../roadmap";
 
 // Design section: ROADMAP
 export function RoadmapView({ v }: { v: any }) {
+  const c = roadmapCounts();
   return (
     <>
       <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
@@ -24,8 +25,9 @@ export function RoadmapView({ v }: { v: any }) {
             color: "var(--fvc-4A5349)",
           }}
         >
-          IMPLEMENTED · NEXT · PLANNED
+          {c.built} IMPLEMENTED · {c.backend} BACKEND READY · {c.next} NEXT · {c.planned} PLANNED
         </span>
+        <span style={{ fontSize: "12px", color: "var(--fvc-8A9285)" }}>{roadmapUpdated}</span>
       </div>
       <h1
         style={{
