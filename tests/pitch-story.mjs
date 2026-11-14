@@ -32,32 +32,32 @@ const p = await api("/api/portfolio");
 const owned = p.positions.filter((x) => x.ownership !== "watched");
 const ownedValue = owned.reduce((n, x) => {
   assert.equal(x.valuation?.source, "demo");
-  return n + units(x.valuation.amount);
+  // Debt is owned too, and counts against net worth.
+  return n + (x.kind === "debt" ? -1n : 1n) * units(x.valuation.amount);
 }, 0n);
 assert.equal(p.source, "demo");
 assert.ok(p.positions.every((x) => x.fictional === true));
-assert.equal(ownedValue, units("25526.48"));
+assert.equal(ownedValue, units("35198.18"));
 assert.equal(p.usable.netWorth.amount, decimal(ownedValue));
 const cash = owned
   .filter((x) => x.asset === "USDC" && x.kind === "wallet")
   .reduce((n, x) => n + units(x.amount), 0n);
 assert.equal(p.usable.cashNow.amount, decimal(cash));
 assert.equal(p.usable.cashNow.amount, "15190");
-assert.equal(p.usable.committedCapital.amount, "8201.76");
+assert.equal(p.usable.committedCapital.amount, "10967.09");
 assert.equal(p.usable.borrowingHeadroom.amount, "54.536533");
 assert.equal(p.credit.fictional, true);
 assert.equal(p.credit.borrowExecution, false);
 assert.equal(p.usable.withdrawableByDate.length, 4);
 assert.ok(p.usable.withdrawableByDate.every((d) => d.amount === "22690"));
-assert.ok(
-  p.positions.some((x) => x.ownership === "watched" && x.valuation === null),
-);
+// Accounts enter only through their own wallet, so the example has no watched holdings.
+assert.ok(p.positions.every((x) => x.ownership !== "watched"));
 const needed = w.obligations.reduce((n, o) => n + units(o.amount), 0n);
 assert.equal(obligations.obligationsInHorizon, decimal(needed));
 assert.equal(obligations.holdback, decimal(needed + units(w.mandate.reserve)));
 assert.equal(obligations.holdback, "11550");
 console.log(
-  "PASS Observe: one plan, four dated obligations, five balances, watched holdings excluded; all fictional.",
+  "PASS Observe: one plan, four dated obligations, five balances, owned accounts only; all fictional.",
 );
 const policy = await api("/api/policy");
 const action = {
