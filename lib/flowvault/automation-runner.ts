@@ -35,14 +35,21 @@ export async function evaluate(c: Ctx, a: Automation, now = Date.now()): Promise
   if (a.kind === "brief") {
     const [m, limits] = await Promise.all([reads.markets().catch(() => null), reads.limits().catch(() => null)]);
     const cards = todayCards({ holdings: wallet.filter((r) => r.catalogId).map((r) => ({ tokenId: r.catalogId!, symbol: r.asset, network: r.network, amount: Number(r.amount), usd: r.usd !== null ? Number(r.usd) : null })), rates: (m?.rows ?? []).map((r) => ({ tokenId: r.tokenId, symbol: r.symbol, supplyApy: r.supplyApy })), stakeApy: null, held24h: {}, trending: [] }, 3);
-    const top = [...h.rows].filter((r) => r.kind !== "debt" && r.usd !== null).sort((x, y) => Number(y.usd) - Number(x.usd)).slice(0, 3);
-    const soon = (c.workspace.obligations ?? []).filter((o) => o.status === "pending" && Date.parse(o.dueDate + "T23:59:59Z") - now < 7 * 86_400_000);
+    // Largest holdings by asset across chains and wallets.
+    const byAsset = new Map<string, number>();
+    for (const r of h.rows) if (r.kind !== "debt" && r.usd !== null) byAsset.set(r.asset, (byAsset.get(r.asset) ?? 0) + Number(r.usd));
+    const top = [...byAsset].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([asset, v]) => ({ asset, usd: v }));
+    const pending = (c.workspace.obligations ?? []).filter((o) => o.status === "pending");
+    const overdue = pending.filter((o) => Date.parse(o.dueDate + "T23:59:59Z") < now);
+    const soon = pending.filter((o) => !overdue.includes(o) && Date.parse(o.dueDate + "T23:59:59Z") - now < 7 * 86_400_000);
+    const pay = (o: (typeof pending)[number]) => `${o.amount} ${o.token} to ${o.label} on ${o.dueDate}`;
     return { kind: "brief", title: "Your brief", lines: [
-      `Portfolio ≈ ${usd(total)}${h.unvalued ? ` (${h.unvalued} holdings unpriced)` : ""}. Largest: ${top.map((r) => `${r.asset} ${usd(Number(r.usd))}`).join(", ") || "none"}.`,
+      `Portfolio ≈ ${usd(total)}${h.unvalued ? ` (${h.unvalued} holdings unpriced)` : ""}. Largest: ${top.map((r) => `${r.asset} ${usd(r.usd)}`).join(", ") || "none"}.`,
       limits ? `Spendable now ${limits.spendableNow ? "$" + limits.spendableNow : "unknown"}; available after your plan ${limits.surplus ? "$" + limits.surplus : "unknown"}.` : "Limits couldn't be read.",
       ...(idle >= 1 ? [`${usd(idle)} in stablecoins is sitting in wallets.`] : []),
       ...cards.map((x) => x.title + "."),
-      soon.length ? `${soon.length} payment${soon.length === 1 ? "" : "s"} due in the next 7 days: ${soon.slice(0, 3).map((o) => `${o.amount} ${o.token} to ${o.label} on ${o.dueDate}`).join("; ")}.` : "No payments due in the next 7 days.",
+      ...(overdue.length ? [`Overdue: ${overdue.slice(0, 3).map(pay).join("; ")}.`] : []),
+      soon.length ? `Due in the next 7 days: ${soon.slice(0, 3).map(pay).join("; ")}.` : "Nothing else due in the next 7 days.",
     ], action: { kind: "view", screen: "hub" } };
   }
 
