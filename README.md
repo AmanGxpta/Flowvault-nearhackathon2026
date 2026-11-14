@@ -4,7 +4,11 @@
 
 FlowVault connects your wallets, earning positions and supported financial accounts into one capital account that follows your rules. Tell it what you need, for example *"pay Aman 1,000 USDT on BNB by the 23rd without touching my ETH"*. It works out where the money can come from, compares the routes, shows the cost and risk, and carries the plan you approve through to a verified result. Built on NEAR, with NEAR Intents for cross-chain settlement.
 
-**Live app:** _link added at deployment_ · **Demo video:** _link added at submission_ · **Try it without a wallet:** [Demo Mode](#16-try-it--get-started)
+**Live app:** _link added at deployment_ · **Demo video:** [watch the 3-minute walkthrough](media/flowvault-demo.mp4) · **Try it without a wallet:** [Demo Mode](#16-try-it--get-started)
+
+[![FlowVault demo video: a 3-minute walkthrough of the capital account, from portfolio to a planned cross-chain payment](media/flowvault-demo-poster.jpg)](media/flowvault-demo.mp4)
+
+*Click the image to play the demo video (3:05).*
 
 > **Project history:** This project reuses the name and domain of an earlier hackathon-winning submission. The previous submission was a different product. The implementation, functionality, and architecture presented here were developed independently for the NEAR Hackathon.
 
@@ -183,7 +187,7 @@ Each mechanism below goes from the intuition to the implementation, with its sta
 
 ### 8.4 Cash access and cross-chain payments
 *Intuition:* state the outcome, and let FlowVault find the route.
-*Implementation:* payment plans compare idle cash, Rhea withdrawal and approved sales. They request **exact-output** NEAR Intents quotes so the recipient gets the exact amount, and check the quote echoes the request. Payments settle to Base, Arbitrum, BNB (USDT) and Ethereum (USDC/USDT). A source deposit being confirmed is not "paid": paid requires an independently verified, finalized transfer of the exact token and amount to the recipient. **Built; owner-funded run pending.**
+*Implementation:* payment plans compare idle cash, Rhea withdrawal and approved sales. They request **exact-output** NEAR Intents quotes so the recipient gets the exact amount, and check the quote echoes the request. Payments settle to Base, Arbitrum, BNB (USDT) and Ethereum (USDC/USDT). A source deposit being confirmed is not "paid": paid requires an independently verified, finalized transfer of the exact token and amount to the recipient. **Built and run with real funds:** in the owner's funded walkthrough, exactly 1 USDC reached a Base address, verified from a finalized Base receipt.
 
 ### 8.5 Collect and send, and multi-wallet funding
 *Intuition:* pay from wherever the money is.
@@ -301,7 +305,7 @@ Fee revenue, user NAV, partner incentives and any future token rewards are accou
 | Stage | Milestones |
 | --- | --- |
 | **Now (this build)** | Capital account, dated obligations, policy, payments, collect & send, Rhea earn/borrow, staking, swaps, markets, LI.FI trading, perps under mandate, Ask FlowVault, automations, monitoring, Demo Mode, policy and vault contracts |
-| **Next** | Hosted deployment; owner-funded runs of supply → withdraw → exact-output payout on video; verify NEAR AI Cloud's TEE attestation and response signatures; deploy the policy contract and show an on-chain rule; USDC-paid gas through an ERC-7677 wallet |
+| **Next** | Hosted deployment; verify NEAR AI Cloud's TEE attestation and response signatures; deploy the policy contract and show an on-chain rule; USDC-paid gas through an ERC-7677 wallet |
 | **Then** | Deploy and audit the strategy vault; curator publishing flow; capital partner program; more venues and chains |
 | **Later** | Exchange account integrations, partner-issued card spending, treasury and API distribution |
 
@@ -348,7 +352,7 @@ All accounts, prices and amounts in Demo Mode are fictional. Dates roll forward 
 | Evidence | What it is | What it doesn't prove |
 | --- | --- | --- |
 | **Live reads** | Finalized NEAR, Rhea, staking, EVM and Solana reads, with freshness and coverage | Complete coverage of every chain, or a verified USD price for every asset |
-| **Owner execution paths** | Wallet-signed supply, withdraw, borrow, repay, stake, swap, pay and trade, each with a journal and outcome checks | A funded FlowVault track record; the owner signs each step |
+| **Owner execution paths** | Wallet-signed supply, withdraw, borrow, repay, stake, swap, pay and trade, each with a journal and outcome checks | A track record beyond the owner's one funded walkthrough; the owner signs each step |
 | **Dry quotes** | Live NEAR Intents quotes with no deposit address and no funds moved | A reserved route or realized fee |
 | **Demo Mode** | The same engines running on clearly labelled fictional data | Live holdings or returns |
 | **SIMULATED replays** | 15 disconnected outcome scenarios with synthetic values | Funded executions |
@@ -385,7 +389,6 @@ cargo build --locked --manifest-path contracts/policy/Cargo.toml --target wasm32
 
 ## 19. Limitations and disclaimers
 
-- **No funded track record yet.** Every money-moving path is implemented and tested, and the owner's funded rehearsal is pending. FlowVault never signs, holds keys or moves funds on its own.
 - **Contracts aren't deployed or audited.** The policy and vault contracts are built and tested locally; pooled deposits need an independent security review first.
 - **AI provider.** Ask FlowVault runs on NEAR AI Cloud and sends it what its tools read (for example balances, limits, scheduled payments or a quote), naming what it shared on each turn. TEE attestation and response signatures aren't verified yet.
 - **Cross-chain legs aren't atomic.** Each leg settles on its own chain; FlowVault shows where every leg's money is and how to recover it.
