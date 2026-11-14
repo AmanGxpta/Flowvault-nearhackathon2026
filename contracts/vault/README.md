@@ -1,6 +1,6 @@
 # FlowVault vault — local, undeployed
 
-Contract/interface: [vault-interface.md](../../docs/handoff/vault-interface.md). One immutable native-USDC underlying (6 decimals), standard NEP-141 shares (18), fixed virtual offsets, full-width U256 conversions. Every monetary value is an integer; JSON uses decimal strings.
+Contract interface: `src/lib.rs` (views and methods), with `operations.rs`, `redemptions.rs` and `math.rs`. One immutable native-USDC underlying (6 decimals), standard NEP-141 shares (18), fixed virtual offsets, full-width U256 conversions. Every monetary value is an integer; JSON uses decimal strings.
 
 Implemented: custody receipt, prepaid request storage, queued deposits outside NAV, share settlement, stale-bounded owner/curator NAV attestations, HWM performance fees crystallized only by owner reports (curator reports price but never mint fees; deposits above the mark wait for an owner report)/loss recovery/split, NEP-141 share storage/transfers, FIFO notice/minimum/liquidity-gated redemption settlement into fixed claims, private nonce-bound claim callbacks (failure restores claim), cancellation/amendment, pause/irreversible shutdown and limits/pruning. Typed bounded Rhea USDC supply/withdrawal, persistent raw authority budgets, reserve/concentration guards, nonce-bound callbacks, reporter-only liquid sync with escrow protection, and disclosed owner upgrade method are implemented. The contract is local and undeployed; owner rehearsal and security review remain outstanding.
 

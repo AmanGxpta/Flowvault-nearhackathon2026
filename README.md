@@ -381,9 +381,7 @@ cargo build --locked --manifest-path contracts/policy/Cargo.toml --target wasm32
 | `FLOWVAULT_AGENT_KEY_SECRET` | Seals Hyperliquid agent keys |
 | `FLOWVAULT_CUSTODY_SIGNERS` | Scoped signers for vault custody mandates |
 
-**Layout:** `app/` (UI and API routes) · `components/` · `lib/flowvault/` (engines, adapters, journals, chat) · `worker/` (Worker entry and cron) · `contracts/` (Rust NEAR contracts) · `db/` and `drizzle/` (D1 schema) · `tests/` · `docs/` (API contract, architecture, runbooks).
-
-**Further reading:** [Backend API](docs/BACKEND_API.md) · [Architecture](docs/ARCHITECTURE.md) · [Product requirements](docs/PRODUCT.md) · [Build status](docs/BUILD_STATUS.md) · [Owner runbook](docs/OWNER_RUNBOOK.md) · [Cloudflare deployment](docs/CLOUDFLARE_DEPLOY.md) · [Demo script](docs/DEMO_SCRIPT.md)
+**Layout:** `app/` (UI and API routes) · `components/` · `lib/flowvault/` (engines, adapters, journals, chat) · `worker/` (Worker entry and cron) · `contracts/` (Rust NEAR contracts) · `db/` and `drizzle/` (D1 schema) · `tests/`.
 
 ## 19. Limitations and disclaimers
 

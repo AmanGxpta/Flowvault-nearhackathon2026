@@ -21,7 +21,7 @@ POLICY_OWNER_ID='<your-owner>.testnet' \
 
 The script runs tests/build, then invokes near-cli-rs deployment + `new` atomically, signing as the contract account using your keychain. It accepts only `.testnet` accounts and has no private-key arguments, generated accounts, inherited demo accounts or mainnet fallback. The agent only syntax-checks it; running it is the owner's deployment action. Install near-cli-rs yourself. The script does not create accounts, configure rules/agents, connect the app or publish a site.
 
-Methods and JSON contracts are in `docs/BACKEND_API.md` §9. Unit tests cover the proposal/approval lifecycle, malformed rules, caps, daily totals across plan/day changes, protected assets, revocation, expiry, caller checks, outcome record labels, pagination/resource bounds and NEP-297 logs.
+Methods and JSON contracts are defined in `src/lib.rs`. Unit tests cover the proposal/approval lifecycle, malformed rules, caps, daily totals across plan/day changes, protected assets, revocation, expiry, caller checks, outcome record labels, pagination/resource bounds and NEP-297 logs.
 
 Reserve and dated obligations are stored as plan evidence; the contract does **not** independently query balances/health or check quote costs. Those checks remain in the backend and owner wallet. Proposals describe an action, not executable arguments or a token allowance. An approval grants no transaction authority; recorded success is explicitly `unverified_record`. The app's live journal/payment proof is still finalized RPC evidence. No claim is made that the app currently reads a deployed policy contract or that function-call keys are provisioned.
 
