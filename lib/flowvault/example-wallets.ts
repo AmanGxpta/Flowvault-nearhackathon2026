@@ -95,12 +95,8 @@ export function exampleWalletPositions(valuation: (usd: string) => Position["val
   });
 }
 
-/** Generated artwork (no remote images): a two-colour gradient with the collection's initials. */
-function art(seed: number, initials: string) {
-  const a = (seed * 47) % 360, b = (a + 70 + (seed % 5) * 25) % 360;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${a} 62% 58%)"/><stop offset="1" stop-color="hsl(${b} 58% 34%)"/></linearGradient></defs><rect width="120" height="120" fill="url(#g)"/><circle cx="${30 + (seed * 13) % 60}" cy="${34 + (seed * 7) % 50}" r="${18 + (seed % 4) * 6}" fill="#ffffff22"/><text x="60" y="72" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="#ffffffd9">${initials}</text></svg>`;
-  return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
-}
+/** Public-domain (CC0) Nouns artwork bundled in public/assets/example-nfts, one per fictional NFT (see NOTICE). */
+const ART = [7, 18, 25, 40, 52, 64, 77, 91, 108, 123, 140, 166, 199, 233, 260, 301, 344].map((n) => `/assets/example-nfts/noun-${n}.png`);
 // [wallet, network, name, collection, floor usd]
 const NFTS: [W, string, string, string, number | null][] = [
   ["defi", "Ethereum", "Lunaria Imaginator", "Particle Packs", 62.1],
@@ -129,7 +125,7 @@ export function exampleNfts(): NftHolding[] {
     network,
     amount: "1",
     floorUsd: floor,
-    image: art(i + 3, collection.split(" ").map((x) => x[0]).join("").slice(0, 2).toUpperCase()),
+    image: ART[i % ART.length],
     accountId: EXAMPLE_WALLETS[w].address,
   }));
 }
