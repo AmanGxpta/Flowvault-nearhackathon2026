@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mapZerionPosition, mapZerionNft, readZerionWallet, clearZerionCache, networkName } from "../lib/flowvault/zerion.ts";
+import { mapZerionPosition, mapZerionNft, readZerionWallet, memoryZerionStore, networkName, POSITIONS_TTL_MS, STALE_MAX_MS } from "../lib/flowvault/zerion.ts";
 import { readProvenAccounts, EVM_COVERAGE_GAP } from "../lib/flowvault/account-reads.ts";
 import { applyAccountAction } from "../lib/flowvault/account-registry.ts";
 import { capitalView } from "../lib/flowvault/valuation.ts";
@@ -69,7 +69,7 @@ test("NFTs keep their floor and drop spam", () => {
 });
 
 test("the wallet read waits out indexing, authenticates with the key and caches briefly", async () => {
-  clearZerionCache();
+  let store = memoryZerionStore();
   const calls: { url: string; auth: string | null }[] = [];
   let first = true;
   const fetcher = async (url: string, init: RequestInit) => {
@@ -77,7 +77,7 @@ test("the wallet read waits out indexing, authenticates with the key and caches 
     if (url.includes("/positions/") && first) { first = false; return new Response("", { status: 202, headers: { "retry-after": "0" } }); }
     return Response.json({ data: url.includes("/nft-positions/") ? NFTS : ROWS });
   };
-  const r = await readZerionWallet(ADDR, { key: "zk_test", hyperliquid: true, fetcher, budgetMs: 5000 });
+  const r = await readZerionWallet(ADDR, { key: "zk_test", hyperliquid: true, fetcher, budgetMs: 5000, store });
   assert.equal(calls[0].auth, "Basic " + btoa("zk_test:"));
   assert.ok(calls.some((c) => c.url.includes(`/wallets/${addr}/positions/`) && c.url.includes("filter[trash]=only_non_trash") && c.url.includes("filter[positions]=no_filter")));
   assert.equal(r.positions.length, 5);
@@ -86,15 +86,15 @@ test("the wallet read waits out indexing, authenticates with the key and caches 
   // Zerion's own total: everything non-trash and priced, loans subtracted.
   assert.equal(r.totalUsd, 235.96 + 207.08 + 28.53 + 0.19 + 5 + 93.95 - 10 + 1);
   const n = calls.length;
-  await readZerionWallet(ADDR, { key: "zk_test", hyperliquid: true, fetcher });
-  assert.equal(calls.length, n, "a second read within a minute is served from cache");
+  await readZerionWallet(ADDR, { key: "zk_test", hyperliquid: true, fetcher, store });
+  assert.equal(calls.length, n, "a second read within five minutes is served from the shared cache");
 });
 
 test("a refused key or a failed NFT read is said plainly", async () => {
-  clearZerionCache();
-  await assert.rejects(readZerionWallet(ADDR, { key: "bad", hyperliquid: false, fetcher: async () => new Response("", { status: 401 }) }), /refused the API key/);
-  clearZerionCache();
-  const r = await readZerionWallet(ADDR, { key: "k", hyperliquid: false, fetcher: async (u) => (u.includes("nft") ? new Response("", { status: 500 }) : Response.json({ data: ROWS })) });
+  let store = memoryZerionStore();
+  await assert.rejects(readZerionWallet(ADDR, { key: "bad", hyperliquid: false, store, fetcher: async () => new Response("", { status: 401 }) }), /refused the API key/);
+  store = memoryZerionStore();
+  const r = await readZerionWallet(ADDR, { key: "k", hyperliquid: false, store, fetcher: async (u) => (u.includes("nft") ? new Response("", { status: 500 }) : Response.json({ data: ROWS })) });
   assert.ok(r.notes.some((x) => /NFTs couldn't be read/.test(x)));
 });
 
@@ -106,11 +106,11 @@ function workspace(): Workspace {
 const ethOnly = async (chain: "eth" | "base" | "arb", address: string) => [{ id: `${chain}-eth-${address}`, label: "ETH", asset: "ETH", amount: "0", rawAmount: "0", decimals: 18, kind: "wallet", chain, accountId: address.toLowerCase() } as Position];
 
 test("connected EVM wallets are read on every chain when Zerion is configured, and said to be partial when not", async () => {
-  clearZerionCache();
+  let store = memoryZerionStore();
   const w = workspace();
   const withZerion = await readProvenAccounts(w, {
     evm: ethOnly, solana: async () => [], near: async () => ({}) as Portfolio,
-    zerion: (a, o) => readZerionWallet(a, { key: "k", hyperliquid: o.hyperliquid, fetcher: async (u) => Response.json({ data: u.includes("nft") ? NFTS : ROWS }) }),
+    zerion: (a, o) => readZerionWallet(a, { key: "k", hyperliquid: o.hyperliquid, store, fetcher: async (u) => Response.json({ data: u.includes("nft") ? NFTS : ROWS }) }),
   });
   const all = withZerion.sections.find((s) => s.id.endsWith(":all"))!;
   assert.equal(all.status, "observed");
@@ -150,9 +150,9 @@ test("scam airdrop NFTs that Zerion doesn't flag are dropped; a rate limit is wa
   assert.ok(looksLikeAirdropScam("$340,000 reward"));
   assert.ok(!looksLikeAirdropScam("Lunaria Imaginator", "pARticle pack"));
   assert.ok(!looksLikeAirdropScam("Introducing World App 49085"));
-  clearZerionCache();
+  let store = memoryZerionStore();
   let hits = 0;
-  const r = await readZerionWallet(ADDR, { key: "k", hyperliquid: false, budgetMs: 6000, fetcher: async (u) => {
+  const r = await readZerionWallet(ADDR, { key: "k", hyperliquid: false, budgetMs: 6000, store, fetcher: async (u) => {
     if (u.includes("/positions/") && hits++ === 0) return new Response("", { status: 429, headers: { "retry-after": "0" } });
     return Response.json({ data: u.includes("nft") ? NFTS : ROWS });
   } });
@@ -160,4 +160,42 @@ test("scam airdrop NFTs that Zerion doesn't flag are dropped; a rate limit is wa
   assert.equal(r.positions.length, 6);
   assert.equal(hits, 2, "the 429 was retried once");
   assert.equal(networkName("xdai"), "Gnosis");
+});
+
+test("the cache survives reloads, the daily budget is never exceeded, and a fallback read says how old it is", async () => {
+  let t = Date.parse("2026-11-14T10:00:00Z");
+  const now = () => t;
+  const store = memoryZerionStore();
+  let calls = 0, down = false;
+  const fetcher = async (u: string) => { calls++; if (down) return new Response("", { status: 500 }); return Response.json({ data: u.includes("nft") ? NFTS : ROWS }); };
+  const read = (dailyLimit = 1800) => readZerionWallet(ADDR, { key: "k", hyperliquid: true, store, fetcher, now, dailyLimit, budgetMs: 2000 });
+  await read();
+  assert.equal(calls, 2, "tokens and NFTs");
+  // A user refreshing over and over within five minutes: no requests at all.
+  for (let i = 0; i < 50; i++) { t += 5000; await read(); }
+  assert.equal(calls, 2);
+  // Past five minutes only the tokens are re-read; NFTs keep for thirty.
+  t += POSITIONS_TTL_MS;
+  await read();
+  assert.equal(calls, 3);
+  // Budget spent: no request goes out; the last read is shown, with its time, and its values stay counted.
+  t += POSITIONS_TTL_MS;
+  const capped = await read(3);
+  assert.equal(calls, 3);
+  assert.match(capped.notes[0], /^Values from 10:\d\d UTC: today's Zerion request budget is used up/);
+  assert.ok(Date.parse(capped.positions[0].venueValuation!.freshUntil) > t);
+  // Zerion down: the last read is used up to six hours, then the read fails plainly.
+  down = true;
+  t += POSITIONS_TTL_MS;
+  assert.match((await read()).notes[0], /^Values from .*HTTP 500/);
+  t += STALE_MAX_MS;
+  await assert.rejects(read(), /HTTP 500/);
+});
+
+test("two loads at the same moment share one request", async () => {
+  const store = memoryZerionStore();
+  let calls = 0;
+  const fetcher = async (u: string) => { calls++; await new Promise((r) => setTimeout(r, 30)); return Response.json({ data: u.includes("nft") ? NFTS : ROWS }); };
+  await Promise.all([1, 2, 3].map(() => readZerionWallet(ADDR, { key: "k", hyperliquid: true, store, fetcher })));
+  assert.equal(calls, 2);
 });

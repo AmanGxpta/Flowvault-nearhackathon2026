@@ -40,11 +40,17 @@ export function usableBalances(
     ...(x.source && x.source !== p.source
       ? ["Mixed live/example position evidence."]
       : []),
-    ...(x.capturedAt &&
-    (!Number.isFinite(Date.parse(x.capturedAt)) ||
-      Math.abs(now - Date.parse(x.capturedAt)) > 180000)
-      ? [x.id + ": position is stale."]
-      : []),
+    // Rows priced by a venue or data provider (Zerion) carry their own validity; everything else is read live and
+    // goes stale after 3 minutes.
+    ...(x.venueValuation
+      ? !Number.isFinite(Date.parse(x.venueValuation.freshUntil)) || now > Date.parse(x.venueValuation.freshUntil)
+        ? [x.id + ": position is stale."]
+        : []
+      : x.capturedAt &&
+          (!Number.isFinite(Date.parse(x.capturedAt)) ||
+            Math.abs(now - Date.parse(x.capturedAt)) > 180000)
+        ? [x.id + ": position is stale."]
+        : []),
   ]);
   const usd = p.positions.filter((x) => x.asset === "USDC");
   const sum = (kind: string[]) =>

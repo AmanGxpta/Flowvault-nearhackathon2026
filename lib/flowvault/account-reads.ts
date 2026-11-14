@@ -9,7 +9,7 @@ import { proven, shortAddress } from "./account-registry.ts";
 import { base58Decode, base58Encode } from "./account-proof.ts";
 import { sha256 } from "@noble/hashes/sha2";
 import { ed25519 } from "@noble/curves/ed25519";
-import { readZerionWallet, zerionKey, type ZerionRead } from "./zerion.ts";
+import { readZerionWallet, zerionDailyLimit, zerionKey, type ZerionRead } from "./zerion.ts";
 import type { LinkedAccount, NftHolding, Portfolio, PortfolioSection, Position, Workspace } from "./types.ts";
 
 type Section = PortfolioSection;
@@ -20,7 +20,7 @@ export interface AccountReads {
 }
 /** Without a Zerion key only FlowVault's own reads run, so the EVM total is said to be partial, never complete. */
 export const EVM_COVERAGE_GAP =
-  "Only ETH and USDC on Ethereum, Base and Arbitrum are read. Other tokens, chains, DeFi positions and NFTs need the Zerion API (server setting ZERION_API_KEY).";
+  "Only ETH and USDC on Ethereum, Base and Arbitrum are read. Other tokens, chains, DeFi positions and NFTs need the Zerion API, which is switched off (server settings ZERION_ENABLED=true and ZERION_API_KEY).";
 const NET = ["netWorth"] as Section["affects"];
 const EVM_NETS = [
   ["ethereum", "eth", "Ethereum"],
@@ -184,7 +184,9 @@ async function readHyperliquid(address: string, accountId: string): Promise<Posi
 }
 async function readZerion(address: string, opts: { hyperliquid: boolean }) {
   const key = await zerionKey();
-  return key ? readZerionWallet(address, { key, hyperliquid: opts.hyperliquid, budgetMs: 7500 }) : null;
+  if (!key) return null;
+  const { d1ZerionStore } = await import("./zerion-store.ts");
+  return readZerionWallet(address, { key, hyperliquid: opts.hyperliquid, budgetMs: 7500, store: d1ZerionStore, dailyLimit: await zerionDailyLimit() });
 }
 const DEFAULT: Readers = { evm: readEvmNetwork, solana: readSolana, near: readPortfolio, hyperliquid: readHyperliquid, zerion: readZerion };
 

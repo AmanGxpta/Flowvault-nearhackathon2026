@@ -924,3 +924,4 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
   .fv-wallet-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 .fv-nft-media img[src*="/example-nfts/"]{image-rendering:pixelated}
+.fv-read-note{display:block;margin-top:4px}

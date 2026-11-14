@@ -155,55 +155,115 @@ async function zget(path: string, key: string, fetcher: Fetcher, deadline: numbe
   }
 }
 
-const cache = new Map<string, { at: number; read: ZerionRead }>();
-// A Zerion key allows 2,000 requests a day: one wallet refreshed at most every 5 minutes, NFTs every 30.
-const CACHE_MS = 5 * 60_000;
-const nftCache = new Map<string, { at: number; body: any }>();
-const NFT_CACHE_MS = 30 * 60_000;
+/**
+ * Where Zerion replies are kept between reads (D1 in the app, memory in tests), and the daily request budget.
+ * Every portfolio load, tab, browser and dev-server restart shares it, so refreshing over and over costs nothing.
+ */
+export interface ZerionStore {
+  get(address: string, kind: "positions" | "nfts"): Promise<{ at: number; body: any } | null>;
+  put(address: string, kind: "positions" | "nfts", at: number, body: any): Promise<void>;
+  /** Count one request against today's budget; false when the budget is spent (nothing is counted then). */
+  take(day: string, limit: number): Promise<boolean>;
+}
+/** Re-read a wallet's tokens at most this often, and its NFTs (floors move slowly) at most this often. */
+export const POSITIONS_TTL_MS = 5 * 60_000;
+export const NFTS_TTL_MS = 30 * 60_000;
+/** When Zerion can't be asked (budget spent, rate limited, down), a read this recent is shown instead, with its time. */
+export const STALE_MAX_MS = 6 * 60 * 60_000;
+/** A key allows 2,000 requests a day; FlowVault stops at 1,800 to leave room (server setting ZERION_DAILY_LIMIT). */
+export const DEFAULT_DAILY_LIMIT = 1800;
+
+export function memoryZerionStore(): ZerionStore {
+  const rows = new Map<string, { at: number; body: any }>(), used = new Map<string, number>();
+  return {
+    async get(a, k) { return rows.get(a + ":" + k) ?? null; },
+    async put(a, k, at, body) { rows.set(a + ":" + k, { at, body }); },
+    async take(day, limit) { const n = used.get(day) ?? 0; if (n >= limit) return false; used.set(day, n + 1); return true; },
+  };
+}
+
+// Reads already on their way are shared: two tabs (or the portfolio and a swap picker) loading at once make one request.
+const inflight = new Map<string, Promise<{ at: number; body: any; note?: string }>>();
+const hhmm = (t: number) => new Date(t).toISOString().slice(11, 16) + " UTC";
+
+async function cachedBody(
+  addr: string, kind: "positions" | "nfts", path: string, ttl: number,
+  o: { key: string; fetcher: Fetcher; deadline: number; store: ZerionStore; now: () => number; limit: number },
+): Promise<{ at: number; body: any; note?: string }> {
+  const hit = await o.store.get(addr, kind).catch(() => null);
+  if (hit && o.now() - hit.at < ttl) return hit;
+  const flightKey = addr + ":" + kind;
+  const running = inflight.get(flightKey);
+  if (running) return running;
+  const work = (async () => {
+    const stale = (why: string) => {
+      if (hit && o.now() - hit.at < STALE_MAX_MS) return { ...hit, note: `${kind === "nfts" ? "NFTs" : "Values"} from ${hhmm(hit.at)}: ${why}` };
+      throw new Error(why);
+    };
+    if (!(await o.store.take(new Date(o.now()).toISOString().slice(0, 10), o.limit).catch(() => false)))
+      return stale("today's Zerion request budget is used up, so refreshing is paused until tomorrow (UTC)");
+    try {
+      const body = await zget(path, o.key, o.fetcher, o.deadline);
+      const at = o.now();
+      await o.store.put(addr, kind, at, body).catch(() => undefined);
+      return { at, body };
+    } catch (e) {
+      return stale((e as Error).message);
+    }
+  })();
+  inflight.set(flightKey, work);
+  try { return await work; } finally { inflight.delete(flightKey); }
+}
 
 /** Every priced, non-spam position and NFT of one EVM address. Throws when the wallet itself can't be read. */
 export async function readZerionWallet(
   address: string,
-  opts: { key: string; hyperliquid: boolean; fetcher?: Fetcher; budgetMs?: number; now?: () => number },
+  opts: { key: string; hyperliquid: boolean; store: ZerionStore; fetcher?: Fetcher; budgetMs?: number; now?: () => number; dailyLimit?: number },
 ): Promise<ZerionRead> {
   const addr = address.toLowerCase();
   const now = opts.now ?? Date.now;
-  const hit = cache.get(addr + ":" + opts.hyperliquid);
-  if (hit && now() - hit.at < CACHE_MS) return hit.read;
-  const fetcher = opts.fetcher ?? ((u, i) => fetch(u, i));
-  const deadline = now() + (opts.budgetMs ?? 8000);
-  const at = new Date(now()).toISOString(), freshUntil = new Date(now() + 10 * 60_000).toISOString();
+  const o = { key: opts.key, fetcher: opts.fetcher ?? ((u: string, i: RequestInit) => fetch(u, i)), deadline: now() + (opts.budgetMs ?? 8000), store: opts.store, now, limit: opts.dailyLimit ?? DEFAULT_DAILY_LIMIT };
   const q = "currency=usd&filter[positions]=no_filter&filter[trash]=only_non_trash&sort=value";
-  const positions = await zget(`/wallets/${addr}/positions/?${q}`, opts.key, fetcher, deadline);
-  // NFT floors move slowly: a read from the last 30 minutes is reused, which also halves the requests per refresh.
-  const nftHit = nftCache.get(addr);
-  const nfts = nftHit && now() - nftHit.at < NFT_CACHE_MS
-    ? { ok: true as const, b: nftHit.body }
-    : await zget(`/wallets/${addr}/nft-positions/?currency=usd&sort=-floor_price&page[size]=100`, opts.key, fetcher, deadline).then(
-        (b) => { nftCache.set(addr, { at: now(), body: b }); return { ok: true as const, b }; },
-        (e: Error) => ({ ok: false as const, e }),
-      );
-  const out: ZerionRead = { positions: [], nfts: [], notes: [], totalUsd: null };
+  const positions = await cachedBody(addr, "positions", `/wallets/${addr}/positions/?${q}`, POSITIONS_TTL_MS, o);
+  const nfts = await cachedBody(addr, "nfts", `/wallets/${addr}/nft-positions/?currency=usd&sort=-floor_price&page[size]=100`, NFTS_TTL_MS, o).then(
+    (b) => ({ ok: true as const, ...b }),
+    (e: Error) => ({ ok: false as const, e }),
+  );
+  // Values carry the time Zerion priced them. A fresh read stays valid past its 5-minute reuse window; a fallback
+  // read (budget spent, Zerion unavailable) is shown up to 6 hours old, and the note says from when.
+  const at = new Date(positions.at).toISOString();
+  const freshUntil = new Date(positions.at + (positions.note ? STALE_MAX_MS : 15 * 60_000)).toISOString();
+  const out: ZerionRead = { positions: [], nfts: [], notes: positions.note ? [positions.note] : [], totalUsd: null };
   const skipped: Record<string, number> = {};
   let total = 0;
-  for (const row of positions?.data ?? []) {
+  for (const row of positions.body?.data ?? []) {
     const p = mapZerionPosition(row, addr, at, freshUntil, { hyperliquid: opts.hyperliquid });
     if ("skip" in p) { skipped[p.skip] = (skipped[p.skip] ?? 0) + 1; continue; }
     out.positions.push(p);
   }
-  for (const row of positions?.data ?? []) {
+  for (const row of positions.body?.data ?? []) {
     const a = row?.attributes ?? {};
     if (a.flags?.is_trash || typeof a.value !== "number") continue;
     total += a.position_type === "loan" ? -Math.abs(a.value) : a.value;
   }
   out.totalUsd = Math.round(total * 100) / 100;
   if (skipped.unpriced) out.notes.push(`${skipped.unpriced} token${skipped.unpriced === 1 ? " has" : "s have"} no market price and ${skipped.unpriced === 1 ? "isn't" : "aren't"} counted`);
-  if (nfts.ok) out.nfts = (nfts.b?.data ?? []).map((r: any) => mapZerionNft(r, addr)).filter(Boolean) as NftHolding[];
-  else out.notes.push("NFTs couldn't be read: " + nfts.e.message);
-  cache.set(addr + ":" + opts.hyperliquid, { at: now(), read: out });
+  if (nfts.ok) {
+    out.nfts = (nfts.body?.data ?? []).map((r: any) => mapZerionNft(r, addr)).filter(Boolean) as NftHolding[];
+    if (nfts.note) out.notes.push(nfts.note);
+  } else out.notes.push("NFTs couldn't be read: " + nfts.e.message);
   return out;
 }
 
-export const zerionKey = () => serverSetting("ZERION_API_KEY");
-/** Test seam: forget cached reads. */
-export const clearZerionCache = () => { cache.clear(); nftCache.clear(); };
+/**
+ * The Zerion key, only while whole-wallet reads are switched on (server setting ZERION_ENABLED=true). Off by
+ * default, so development reloads never spend the key's daily quota.
+ */
+export async function zerionKey() {
+  if ((await serverSetting("ZERION_ENABLED"))?.toLowerCase() !== "true") return null;
+  return serverSetting("ZERION_API_KEY");
+}
+export async function zerionDailyLimit() {
+  const n = Number(await serverSetting("ZERION_DAILY_LIMIT"));
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_DAILY_LIMIT;
+}

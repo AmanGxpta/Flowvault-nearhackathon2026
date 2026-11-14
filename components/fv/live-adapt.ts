@@ -939,6 +939,8 @@ export function liveConfigure(snap: LiveSnapshot, v: any, ctx: { self: any; s: a
   if (readErr.length)
     out.pfRows.push({ status: true, name: "Some reads failed", sub: readErr.join(" · "), chain: "—", value: "Unavailable", valColor: "#9A3F32", by: "Excluded", byColor: "#8A9285", path: "Nothing is assumed while a read fails", tag: "READ FAILED", tagBg: "#F6E3DE", tagColor: "#9A3F32", src: "", opacity: 1 });
   out.pfNfts = (pf as any)?.nfts ?? [];
+  // Read notes from sections that did read (a cached Zerion read and its time, unpriced tokens skipped, NFTs not read).
+  out.pfNotes = [...new Set(sections.filter((x) => x.status === "observed").flatMap((x) => x.reasons ?? []))];
   out.pfHas = out.pfRows.length > 0;
   out.pfEmpty = !out.pfHas;
   // Account registry (any chain, any number per chain). Accounts enter only through their wallet; rows show
