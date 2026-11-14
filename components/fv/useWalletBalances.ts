@@ -19,7 +19,7 @@ function exampleBalances(tokens: SwapToken[]) {
     balances[t.id] = { raw: raw.toString(), amount: decimal(raw, t.decimals), usd: h.usd, account: h.account, largestRaw: raw.toString() };
     addresses[h.network] ??= h.account;
   }
-  return { balances, addresses, covered: new Set(Object.keys(addresses)), state: "ready" as const, refresh: async () => {} };
+  return { balances, addresses, covered: new Set(Object.keys(addresses)), state: "ready" as const, loaded: tokens.length > 0, refresh: async () => {} };
 }
 
 const CHAIN_TO_NETWORK: Record<string, string> = { eth: "eth", base: "base", arb: "arb", solana: "sol" };
@@ -33,7 +33,7 @@ const NETWORK_BY_NAME: Record<string, string> = { Ethereum: "eth", Base: "base",
 export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enabled = true, example = false) {
   const near = useNearHoldings(enabled && !example ? nearAccount : "");
   const [evm, setEvm] = useState<{ balances: Record<string, Holding>; addresses: Record<string, string>; covered: string[] }>({ balances: {}, addresses: {}, covered: [] });
-  const [tick, setTick] = useState(0);
+  const [tick, setTick] = useState(0), [evmDone, setEvmDone] = useState(false);
   const read = useCallback(async () => {
     if (!enabled || example || !tokens.length) return;
     try {
@@ -91,6 +91,7 @@ export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enab
       }
       setEvm({ balances, addresses, covered: [...covered] });
     } catch { /* portfolio unavailable: EVM/Solana balances stay "not read" */ }
+    finally { setEvmDone(true); }
   }, [enabled, example, tokens]);
   useEffect(() => { const t = setTimeout(() => void read(), 0); return () => clearTimeout(t); }, [read, tick]);
   // Keep the form current after a swap: re-read when the tab regains focus and every 30 seconds while open.
@@ -109,6 +110,8 @@ export function useWalletBalances(nearAccount: string, tokens: SwapToken[], enab
     balances: { ...evm.balances, ...nearBalances },
     addresses: { ...evm.addresses, ...(nearAccount ? { near: nearAccount } : {}) } as Record<string, string>,
     covered, state: near.state,
+    /** Every read this hook makes has finished (successfully or not): safe to compute summaries without flicker. */
+    loaded: evmDone && (near.state === "ready" || near.state === "error" || !nearAccount),
     refresh: async () => { await near.refresh(); setTick(x => x + 1); },
   };
 }

@@ -5,6 +5,7 @@
 // to; a model message or a wallet response is never taken as proof of completion.
 import { useEffect, useRef, useState } from "react";
 import { checkAutomation, describe, template } from "@/lib/flowvault/automations";
+import { demoCreate } from "../hub/demo-automations";
 import { ArrowDownUp, ArrowUpRight, Check, CircleAlert, ExternalLink, RefreshCw, Settings2, ShieldAlert, Wallet, Zap } from "lucide-react";
 import type { Card, CardKind } from "@/lib/flowvault/chat-cards";
 import type { WalletAttempt } from "@/lib/flowvault/execution";
@@ -391,7 +392,7 @@ function AutomationChatCard({ card, env }: { card: Card<"automation">; env: Card
   async function turnOn() {
     setBusy(true); setError("");
     try {
-      if (env.example) { await env.edit(card, { createdId: "example" }); return; }
+      if (env.example) { const a = demoCreate(p.kind, draft.schedule, draft.params, "assistant"); await env.edit(card, { createdId: a.id }); return; }
       const r = await api("/api/automations", { op: "create", kind: p.kind, tzOffsetMin: draft.schedule.tzOffsetMin, schedule: draft.schedule, params: draft.params, by: "assistant" }) as { automation: { id: string } };
       await env.edit(card, { createdId: r.automation.id });
       window.dispatchEvent(new Event("fv:automations-refresh"));

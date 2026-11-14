@@ -7,6 +7,7 @@ import { displayQuantity } from "@/lib/flowvault/research";
 import { api, type LiveSnapshot, type Usable } from "./live";
 import { missingEntries, withEntries } from "@/lib/flowvault/plans-policy";
 import { startPlan, openPlan } from "./PlanDock";
+import { demoAutomationsReset } from "./hub/demo-automations";
 import { accountState, chainName as regChain, shortAddress } from "@/lib/flowvault/account-registry";
 import type { LinkedAccount } from "@/lib/flowvault/types";
 import { chainName, days, dlabel, f, hhmm, livePayoutSupported, LIVE_ROUTES_TEXT, money, num, short, usd, whenLabel, TODAY } from "./format";
@@ -553,7 +554,7 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
       if (s.resetting) return;
       self.setState({ resetting: true, payEval: null, polTest: null, creditRes: null, cmpRes: null, cmpAmount: null, stakeQuote: null, modal: null });
       self.props.actions.resetExample()
-        .then(() => { self.setState({ resetting: false }); self.toastMsg("Example workspace reset to its fictional seed, with dates relative to today."); })
+        .then(() => { demoAutomationsReset(); self.setState({ resetting: false }); self.toastMsg("Example workspace reset to its fictional seed, with dates relative to today."); })
         .catch((e: Error) => { self.setState({ resetting: false }); self.toastMsg(e.message); });
     };
     out.connectFirst = () => self.toastMsg("The example workspace has no wallet. Leave Demo Mode to connect yours.");

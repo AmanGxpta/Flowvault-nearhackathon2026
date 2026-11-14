@@ -1,11 +1,11 @@
 "use client";
 // Research & Strategies: the place to decide what to do next. It opens on a greeting, the Ask box and three quick
-// actions; below, four live counts (strategies earning, approvals waiting, automations running, money ready to
-// deploy), research and strategy ideas built from your holdings, your automations, and everything waiting for your
-// approval with its hazard scan. Every action opens an existing flow; nothing executes from this page. Demo Mode
-// shows the same page with the example workspace.
+// actions; below, four live counts, your brief, research and strategy ideas, your automations (with their next run,
+// last result and Run now) and everything waiting for your approval with its hazard scan. Data loads together, revisits
+// open on the last known state, and changes animate in place. Every action opens an existing flow; nothing executes
+// from this page. Demo Mode runs the same page on the example workspace.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, Bell, Bookmark, CalendarClock, Check, ChevronRight, Layers, MoreHorizontal, Plus, Repeat, Scale, Sparkles, Target, TrendingUp, Wallet, Zap } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Bookmark, CalendarClock, Check, ChevronRight, Layers, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, Target, Wallet, Zap } from "lucide-react";
 import { api } from "../live";
 import { ago } from "../swap-format";
 import { useTokenCatalog } from "../useTokenCatalog";
@@ -15,21 +15,35 @@ import { Community } from "../growth/Community";
 import { HazardScan } from "../approvals/HazardScan";
 import { VaultsCard } from "../Vaults";
 import { ResearchDesk } from "../WorkspaceViews";
-import { describe, template, type Automation, type AutomationEvent, type AutomationKind } from "@/lib/flowvault/automations";
-import { exampleChecks } from "@/lib/flowvault/demo-sim";
+import { AutomationBuilder, KIND_ICON } from "./AutomationBuilder";
+import { BriefCard, EventFeed, type Go } from "./AutomationFeed";
+import { cacheGet, cacheSet, until, useCountUp } from "./motion";
+import { DEMO_EVENT, demoAutomations, demoBriefNow, demoCreate, demoDelete, demoEvents, demoEventStatus, demoRun, demoUpdate } from "./demo-automations";
+import { describe, template, type Automation, type AutomationEvent } from "@/lib/flowvault/automations";
+import { isStableAsset } from "@/lib/flowvault/brief";
 import { EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
 
 type Auto = Automation & { title: string; sub: string; chip: string };
-interface Approval { id: string; title: string; sub: string; rows: [string, string][]; checks?: AutomationEvent["checks"]; open: () => void; decline?: () => void; source: string }
-const STABLE = /^(USDC|USDT|USDT\.E|USDC\.E|DAI|USDE|FRAX|PYUSD)$/i;
-const money = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const KIND_ICON: Record<AutomationKind, typeof Bell> = { brief: CalendarClock, sweep: Repeat, idle_alert: Bell, allocation_alert: Scale, price_alert: TrendingUp };
+type Rate = { token: string; symbol: string; supplyApy: number | null };
+type Flow = { flow: { id: string; symbol?: string; venue?: string; source?: { amount: string; fromSymbol: string } }; status: string; done: number; total: number };
+interface Cached { rates: Rate[]; stakeApy: number | null; earning: number | null; idle: number | null; near: number | null; autos: Auto[]; events: AutomationEvent[]; flows: { supply: Flow[]; stake: Flow[] } }
+interface Approval { id: string; source: string; title: string; sub: string; rows: [string, string][]; checks?: AutomationEvent["checks"]; open: () => void; decline?: () => void }
 const tz = () => -new Date().getTimezoneOffset();
-const demoAuto = (id: string, kind: AutomationKind, params?: Automation["params"], enabled = true): Auto => { const t = template(kind, tz()); const a: Automation = { id, ...t, params: { ...t.params, ...params }, enabled, createdAt: new Date().toISOString(), createdBy: "you", lastRunAt: null, nextRunAt: null }; return { ...a, ...describe(a) }; };
-const DEMO_AUTOS: Auto[] = [demoAuto("d-brief", "brief"), demoAuto("d-sweep", "sweep"), demoAuto("d-idle", "idle_alert"), demoAuto("d-alloc", "allocation_alert")];
+const rateList = (rates: Rate[]) => rates.map((r) => ({ tokenId: r.token, symbol: r.symbol, supplyApy: r.supplyApy }));
+const money = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescript-eslint/no-explicit-any -- design view model
   const example = !!v.judge, owner: string = example ? EXAMPLE_NEAR_ACCOUNT : v.acc ?? "", signedIn = !!v.acc && !example;
+  const key = "hub:" + (example ? "example" : owner || "guest");
+  // Every read and write names this view's workspace: on a switch the Shell sets the global scope after this mounts,
+  // so relying on it would read the other workspace and cache it under this one.
+  const call = useCallback((path: string, body?: unknown, method = "POST") => api(path, body, method, example ? "example" : "personal"), [example]);
+  const [c, setC] = useState<Cached>(() => cacheGet<Cached>(key) ?? { rates: [], stakeApy: null, earning: null, idle: null, near: null, autos: [], events: [], flows: { supply: [], stake: [] } });
+  const patch = useCallback((p: Partial<Cached>) => setC((x) => { const n = { ...x, ...p }; cacheSet(key, n); return n; }), [key]);
+  const [loaded, setLoaded] = useState({ core: false, autos: false });
+  const [note, setNote] = useState("");
+  useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(""), 6000); return () => clearTimeout(t); }, [note]);
+
   const go = useCallback((screen: string, params: Record<string, string> = {}) => {
     const url = new URL(window.location.href);
     for (const k of ["supply", "amount", "swap", "tab", "sflow", "flow", "buy"]) url.searchParams.delete(k);
@@ -37,70 +51,130 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
     history.replaceState(null, "", url); v.navigate(screen);
     if (screen === "swap") window.dispatchEvent(new Event("fv-prefill"));
   }, [v]);
+  const goAction: Go = useCallback((a) => {
+    if (a.kind === "supply") go("earn", { tab: "supply", supply: a.tokenId, ...(a.amount ? { amount: a.amount } : {}) });
+    else if (a.kind === "swap") go("swap", { swap: [a.from, a.to, a.amount ?? ""].join("|") });
+    else go(a.screen === "markets" ? "research" : a.screen, a.tab ? { tab: a.tab } : {});
+  }, [go]);
 
-  // ── data ──
+  // ── reads: everything in parallel; the cache keeps the last state on screen meanwhile ──
   const { tokens } = useTokenCatalog();
   const holdings = useWalletBalances(owner, tokens, !!owner, example);
-  const [rates, setRates] = useState<{ token: string; symbol: string; supplyApy: number | null }[]>([]), [stakeApy, setStakeApy] = useState<number | null>(null);
-  const [positions, setPositions] = useState<{ kind: string; venue?: string; asset: string; amount: string }[]>([]);
-  const [autos, setAutos] = useState<Auto[]>(example ? DEMO_AUTOS : []), [events, setEvents] = useState<AutomationEvent[]>([]);
-  const [flows, setFlows] = useState<{ supply: { flow: { id: string; symbol: string; source: { amount: string; fromSymbol: string } }; status: string; done: number; total: number }[]; stake: { flow: { id: string; venue: string }; status: string; done: number; total: number }[] }>({ supply: [], stake: [] });
-  const [note, setNote] = useState("");
-  useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(""), 6000); return () => clearTimeout(t); }, [note]);
-  const loadAutos = useCallback(() => { if (!example) api("/api/automations", undefined, "GET").then((r: { automations?: Auto[]; events?: AutomationEvent[] }) => { setAutos(r.automations ?? []); setEvents(r.events ?? []); }).catch(() => {}); }, [example]);
-  useEffect(() => { const r = () => loadAutos(); window.addEventListener("fv:automations-refresh", r); window.addEventListener("focus", r); return () => { window.removeEventListener("fv:automations-refresh", r); window.removeEventListener("focus", r); }; }, [loadAutos]);
+  const loadAutos = useCallback(async () => {
+    if (example) { patch({ autos: demoAutomations(), events: demoEvents() }); setLoaded((l) => ({ ...l, autos: true })); return; }
+    if (!signedIn) { setLoaded((l) => ({ ...l, autos: true })); return; }
+    const r = await call("/api/automations", undefined, "GET").catch(() => null) as { automations?: Auto[]; events?: AutomationEvent[]; ran?: string[] } | null;
+    if (r) { patch({ autos: r.automations ?? [], events: r.events ?? [] }); if (r.ran?.length) setNote(`${r.ran.length} automation${r.ran.length === 1 ? "" : "s"} that came due while you were away just ran.`); }
+    setLoaded((l) => ({ ...l, autos: true }));
+  }, [example, signedIn, patch, call]);
   useEffect(() => {
     let live = true;
-    fetch("/api/rates").then((r) => r.json() as Promise<{ rows?: { token: string; symbol: string; supplyApy: number | null; canSupply?: boolean }[] }>).then((b) => { if (live) setRates((b.rows ?? []).filter((r) => r.canSupply !== false)); }).catch(() => {});
-    fetch("/api/staking/options").then((r) => r.json() as Promise<{ options?: { id: string; aprPercent?: string | null }[] }>).then((b) => { const a = b.options?.find((o) => o.id === "linear")?.aprPercent; if (live && a) setStakeApy(Number(a)); }).catch(() => {});
-    api("/api/portfolio", undefined, "GET").then((r: { portfolio?: { positions?: typeof positions }; positions?: typeof positions }) => { if (live) setPositions((r.portfolio ?? r).positions ?? []); }).catch(() => {});
-    const t = setTimeout(() => loadAutos(), 0);
-    if (!example) Promise.all([api("/api/lend/flows", undefined, "GET").catch(() => ({})), api("/api/staking/flows", undefined, "GET").catch(() => ({}))]).then(([a, b]: { flows?: never[] }[]) => { if (live) setFlows({ supply: a.flows ?? [], stake: b.flows ?? [] }); });
+    Promise.all([
+      fetch("/api/rates").then((r) => r.json() as Promise<{ rows?: (Rate & { canSupply?: boolean })[] }>).then((b) => (b.rows ?? []).filter((r) => r.canSupply !== false)).catch(() => null),
+      fetch("/api/staking/options").then((r) => r.json() as Promise<{ options?: { id: string; aprPercent?: string | null }[] }>).then((b) => { const a = b.options?.find((o) => o.id === "linear")?.aprPercent; return a ? Number(a) : null; }).catch(() => null),
+      call("/api/portfolio", undefined, "GET").then((r: { portfolio?: { positions?: { kind: string; venue?: string; asset: string; amount: string }[] }; positions?: { kind: string; venue?: string; asset: string; amount: string }[] }) => (r.portfolio ?? r).positions ?? []).catch(() => null),
+      example ? Promise.resolve(null) : Promise.all([call("/api/lend/flows", undefined, "GET").catch(() => ({})), call("/api/staking/flows", undefined, "GET").catch(() => ({}))]).then(([a, b]: { flows?: Flow[] }[]) => ({ supply: a.flows ?? [], stake: b.flows ?? [] })),
+    ]).then(([rates, stakeApy, positions, flows]) => {
+      if (!live) return;
+      patch({ ...(rates ? { rates } : {}), ...(stakeApy !== null ? { stakeApy } : {}), ...(positions ? { earning: new Set(positions.filter((p) => ["supplied", "staking", "collateral"].includes(p.kind) && Number(p.amount) > 0).map((p) => (p.venue ?? "") + ":" + p.asset)).size } : {}), ...(flows ? { flows } : {}) });
+      setLoaded((l) => ({ ...l, core: true }));
+    });
+    const t = setTimeout(() => void loadAutos(), 0);
     return () => { live = false; clearTimeout(t); };
-  }, [example, owner, loadAutos]);
-
-  const wallet = useMemo(() => Object.entries(holdings.balances).flatMap(([id, b]) => { const t = tokens.find((x) => x.id === id); return t ? [{ id, symbol: t.symbol, network: t.network, amount: Number(b.amount), usd: b.usd !== null ? Number(b.usd) : 0 }] : []; }), [holdings.balances, tokens]);
-  const idle = wallet.filter((w) => STABLE.test(w.symbol)).reduce((n, w) => n + w.usd, 0);
-  const near = wallet.find((w) => w.id === "near:native")?.amount ?? 0;
-  const bestStable = [...rates].filter((r) => /^USD[CT]/i.test(r.symbol) && r.supplyApy !== null).sort((a, b) => b.supplyApy! - a.supplyApy!)[0];
-  const earning = new Set(positions.filter((p) => ["supplied", "staking", "collateral"].includes(p.kind) && Number(p.amount) > 0).map((p) => (p.venue ?? "") + ":" + p.asset)).size;
-
-  // ── approvals: automation proposals, and flows waiting for your next signature ──
-  const decline = async (id: string) => { await api("/api/automations", { op: "event", id, status: "dismissed" }).catch(() => null); loadAutos(); };
-  const approvals: Approval[] = example
-    ? [{ id: "demo-sweep", source: "Weekly sweep", title: "Supply $2,690 surplus USDC to Rhea", sub: "USDC above your reserve and the payments in your planning window, from the example workspace.", rows: [["From", "USDC · NEAR account (surplus)"], ["To", "Rhea Lending · USDC"], ["Expected yield", bestStable ? `≈ ${bestStable.supplyApy!.toFixed(2)}% APY, variable` : "variable"]], checks: exampleChecks(2690, [{ id: "health", label: "No debt: nothing can be liquidated", ok: true }]), open: () => go("earn", { tab: "supply", supply: "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", amount: "2690" }) }]
-    : [
-      ...events.filter((e) => e.kind === "approval" && (e.status === "new" || e.status === "seen")).map((e): Approval => ({ id: e.id, source: "Weekly sweep", title: e.title, sub: e.lines[0] ?? "", rows: [["From", "USDC · your NEAR account (surplus)"], ["To", "Rhea Lending · USDC"], ["Expected yield", bestStable && /USDC/i.test(bestStable.symbol) ? `≈ ${bestStable.supplyApy!.toFixed(2)}% APY, variable` : rates.find((r) => r.symbol === "USDC")?.supplyApy ? `≈ ${rates.find((r) => r.symbol === "USDC")!.supplyApy!.toFixed(2)}% APY, variable` : "variable"]], checks: e.checks, open: () => { void api("/api/automations", { op: "event", id: e.id, status: "seen" }).catch(() => null); go("earn", e.action?.kind === "supply" ? { tab: "supply", supply: e.action.tokenId, ...(e.action.amount ? { amount: e.action.amount } : {}) } : {}); }, decline: () => void decline(e.id) })),
-      ...flows.supply.filter((f) => f.status === "your_turn").map((f): Approval => ({ id: f.flow.id, source: "Swap and supply", title: `Supply ${f.flow.symbol} from ${f.flow.source.amount} ${f.flow.source.fromSymbol}`, sub: `Step ${Math.min(f.done + 1, f.total)} of ${f.total} needs your signature.`, rows: [], open: () => go("earn", { tab: "supply", sflow: f.flow.id }) })),
-      ...flows.stake.filter((f) => f.status === "your_turn").map((f): Approval => ({ id: f.flow.id, source: "Staking", title: `Stake into ${f.flow.venue === "rnear" ? "rNEAR" : "LiNEAR"}`, sub: `Step ${Math.min(f.done + 1, f.total)} of ${f.total} needs your signature.`, rows: [], open: () => go("earn", { tab: "stake", flow: f.flow.id }) })),
-    ];
-  const running = autos.filter((a) => a.enabled).length;
+  }, [example, owner, loadAutos, patch, call]);
+  useEffect(() => { const r = () => void loadAutos(); window.addEventListener(DEMO_EVENT, r); window.addEventListener("focus", r); return () => { window.removeEventListener(DEMO_EVENT, r); window.removeEventListener("focus", r); }; }, [loadAutos]);
+  // Wallet figures, once every balance read has answered (no half-read totals).
+  useEffect(() => {
+    if (!holdings.loaded) return;
+    let idle = 0, near = 0;
+    for (const [id, b] of Object.entries(holdings.balances)) { const t = tokens.find((x) => x.id === id); if (!t) continue; if (isStableAsset(t.symbol)) idle += Number(b.usd ?? 0); if (id === "near:native") near = Number(b.amount); }
+    const t = setTimeout(() => patch({ idle, near }), 0); return () => clearTimeout(t);
+  }, [holdings.loaded, holdings.balances, tokens, patch]);
+  // Demo Mode: the example sweep has proposed something, as it would have on a Friday.
 
   // ── automations ──
-  const autosRef = useRef<HTMLDivElement>(null), approvalsRef = useRef<HTMLDivElement>(null), researchRef = useRef<HTMLDivElement>(null);
-  const [tab, setTab] = useState<"Research" | "Strategies" | "Vaults" | "Watchlist">("Research"), [adding, setAdding] = useState(false);
-  async function create(kind: AutomationKind) {
-    setNote("");
-    if (example) { setAutos((xs) => [...xs, demoAuto("d-" + Date.now(), kind)]); setNote(`${describe(template(kind, tz())).title}: added to the example workspace.`); return; }
-    if (!signedIn) { setNote("Sign in with your NEAR wallet to set up automations."); return; }
-    if (autos.some((a) => a.kind === kind && kind !== "price_alert" && kind !== "allocation_alert")) { setNote(`${describe(template(kind, tz())).title} is already set up below.`); autosRef.current?.scrollIntoView({ behavior: "smooth" }); return; }
-    try { await api("/api/automations", { op: "create", kind, tzOffsetMin: tz() }); setNote(`${describe(template(kind, tz())).title}: on.`); loadAutos(); autosRef.current?.scrollIntoView({ behavior: "smooth" }); }
-    catch (e) { setNote((e as Error).message); }
+  const [builder, setBuilder] = useState<{ editing: Auto | null } | null>(null);
+  const [running, setRunning] = useState<Set<string>>(new Set()), [flash, setFlash] = useState<string | null>(null), [leaving, setLeaving] = useState<Set<string>>(new Set());
+  const [briefBusy, setBriefBusy] = useState(false), [briefDone, setBriefDone] = useState<"idle" | "done" | "exists">("idle");
+  const autosRef = useRef<HTMLDivElement>(null), approvalsRef = useRef<HTMLDivElement>(null), researchRef = useRef<HTMLDivElement>(null), briefRef = useRef<HTMLDivElement>(null);
+  const focus = (el: HTMLElement | null) => { if (!el) return; el.scrollIntoView({ behavior: "smooth", block: "start" }); el.classList.remove("fv-pulse"); void el.offsetWidth; el.classList.add("fv-pulse"); };
+  async function save(draft: Pick<Automation, "kind" | "schedule" | "params">, id?: string) {
+    if (!example && !signedIn) throw new Error("Sign in with your NEAR wallet to set up automations.");
+    if (example) { if (id) demoUpdate(id, draft); else demoCreate(draft.kind, draft.schedule, draft.params); }
+    else if (id) await call("/api/automations", { op: "update", id, schedule: draft.schedule, params: draft.params });
+    else await call("/api/automations", { op: "create", kind: draft.kind, tzOffsetMin: tz(), schedule: draft.schedule, params: draft.params });
+    await loadAutos();
+    setNote(`${describe(draft).title}: ${id ? "saved" : "on"}.`);
+    setTimeout(() => focus(autosRef.current), 50);
+  }
+  async function run(a: Auto) {
+    setRunning((s) => new Set(s).add(a.id));
+    try {
+      let ev: AutomationEvent | null;
+      if (example) { await new Promise((r) => setTimeout(r, 900)); ev = demoRun(a, rateList(c.rates)); }
+      else ev = (await call("/api/automations", { op: "run", id: a.id }) as { event: AutomationEvent | null }).event;
+      await loadAutos();
+      setFlash(a.id); setTimeout(() => setFlash(null), 1600);
+      if (!ev) setNote(`${a.title}: nothing to report right now.`);
+      else if (ev.kind === "brief") focus(briefRef.current);
+      else if (ev.kind === "approval") focus(approvalsRef.current);
+    } catch (e) { setNote((e as Error).message); }
+    finally { setRunning((s) => { const n = new Set(s); n.delete(a.id); return n; }); }
   }
   async function toggle(a: Auto) {
-    if (example) { setAutos((xs) => xs.map((x) => x.id === a.id ? { ...x, enabled: !x.enabled } : x)); return; }
-    await api("/api/automations", { op: "update", id: a.id, enabled: !a.enabled }).catch((e) => setNote((e as Error).message)); loadAutos();
+    patch({ autos: c.autos.map((x) => x.id === a.id ? { ...x, enabled: !x.enabled } : x) });
+    if (example) demoUpdate(a.id, { enabled: !a.enabled }); else await call("/api/automations", { op: "update", id: a.id, enabled: !a.enabled }).catch((e) => setNote((e as Error).message));
+    void loadAutos();
   }
-  async function act(a: Auto, op: "run" | "delete") {
-    if (example) { if (op === "delete") setAutos((xs) => xs.filter((x) => x.id !== a.id)); else setNote("Example workspace: runs are simulated. In your own workspace this writes a brief, alert or proposal below."); return; }
-    await api("/api/automations", { op, id: a.id }).catch((e) => setNote((e as Error).message)); loadAutos();
+  async function remove(a: Auto) {
+    setLeaving((s) => new Set(s).add(a.id));
+    await new Promise((r) => setTimeout(r, 320));
+    if (example) demoDelete(a.id); else await call("/api/automations", { op: "delete", id: a.id }).catch((e) => setNote((e as Error).message));
+    await loadAutos();
   }
+  async function briefNow() {
+    if (!example && !signedIn) { setNote("Sign in with your NEAR wallet to get your brief."); return; }
+    setBriefBusy(true); focus(briefRef.current);
+    try { if (example) { await new Promise((r) => setTimeout(r, 900)); demoBriefNow(rateList(c.rates)); } else await call("/api/automations", { op: "brief_now", tzOffsetMin: tz() }); await loadAutos(); }
+    catch (e) { setNote((e as Error).message); } finally { setBriefBusy(false); }
+  }
+  async function scheduleBrief() {
+    if (c.autos.some((a) => a.kind === "brief")) { setBriefDone("exists"); focus(autosRef.current); setTimeout(() => setBriefDone("idle"), 3000); return; }
+    try { await save(template("brief", tz())); setBriefDone("done"); setTimeout(() => setBriefDone("idle"), 3500); } catch (e) { setNote((e as Error).message); }
+  }
+  const dismiss = async (id: string) => { if (example) demoEventStatus(id, "dismissed"); else await call("/api/automations", { op: "event", id, status: "dismissed" }).catch(() => null); await loadAutos(); };
 
+  // ── approvals and a preview of this week's sweep ──
+  const sweep = c.autos.find((a) => a.kind === "sweep" && a.enabled);
+  const [preview, setPreview] = useState<{ title: string; lines: string[] } | null>(null);
+  const usdcApy = c.rates.find((r) => r.symbol === "USDC")?.supplyApy ?? null;
+  const approvals: Approval[] = [
+    ...c.events.filter((e) => e.kind === "approval" && (e.status === "new" || e.status === "seen")).map((e): Approval => ({ id: e.id, source: "Weekly sweep", title: e.title, sub: e.lines[0] ?? "", rows: [["From", "USDC · your NEAR account (surplus)"], ["To", "Rhea Lending · USDC"], ["Expected yield", usdcApy ? `≈ ${usdcApy.toFixed(2)}% APY, variable` : "variable"]], checks: e.checks, open: () => { if (e.action) goAction(e.action); }, decline: () => void dismiss(e.id) })),
+    ...c.flows.supply.filter((f) => f.status === "your_turn").map((f): Approval => ({ id: f.flow.id, source: "Swap and supply", title: `Supply ${f.flow.symbol} from ${f.flow.source?.amount} ${f.flow.source?.fromSymbol}`, sub: `Step ${Math.min(f.done + 1, f.total)} of ${f.total} needs your signature.`, rows: [], open: () => go("earn", { tab: "supply", sflow: f.flow.id }) })),
+    ...c.flows.stake.filter((f) => f.status === "your_turn").map((f): Approval => ({ id: f.flow.id, source: "Staking", title: `Stake into ${f.flow.venue === "rnear" ? "rNEAR" : "LiNEAR"}`, sub: `Step ${Math.min(f.done + 1, f.total)} of ${f.total} needs your signature.`, rows: [], open: () => go("earn", { tab: "stake", flow: f.flow.id }) })),
+  ];
+  useEffect(() => {
+    if (example || !signedIn || !sweep || approvals.length) return;
+    let live = true;
+    call("/api/automations", { op: "preview", kind: "sweep", tzOffsetMin: tz() }).then((r: { preview?: { title: string; lines: string[] } | null }) => { if (live && r.preview) setPreview(r.preview); }).catch(() => {});
+    return () => { live = false; };
+  }, [example, signedIn, sweep?.id, approvals.length]); // eslint-disable-line react-hooks/exhaustive-deps -- re-preview when the sweep or queue changes
+
+  // ── figures ──
+  const brief = c.events.find((e) => e.kind === "brief" && e.status !== "dismissed") ?? null;
+  const feed = c.events.filter((e) => e.kind !== "approval" && e.kind !== "brief" && e.status !== "dismissed").slice(0, 5);
+  const runningCount = c.autos.filter((a) => a.enabled).length;
+  const autosKnown = loaded.autos || c.autos.length > 0;
+  const nEarning = useCountUp(c.earning), nApprovals = useCountUp(autosKnown ? approvals.length : null), nRunning = useCountUp(autosKnown ? runningCount : null), nIdle = useCountUp(c.idle);
+  const lastFor = useMemo(() => { const m = new Map<string, AutomationEvent>(); for (const e of c.events) if (!m.has(e.automationId)) m.set(e.automationId, e); return m; }, [c.events]);
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30_000); return () => clearInterval(t); }, []);
+  const [tab, setTab] = useState<"Research" | "Strategies" | "Vaults" | "Watchlist">("Research");
   const [ask, setAsk] = useState("");
   const hour = new Date().getHours(), greeting = hour < 5 ? "Good evening." : hour < 12 ? "Good morning." : hour < 17 ? "Good afternoon." : "Good evening.";
-  const latest = events.filter((e) => e.kind !== "approval" && e.status !== "dismissed").slice(0, 3);
+  const bestStable = [...c.rates].filter((r) => /^USD[CT]/i.test(r.symbol) && r.supplyApy !== null).sort((a, b) => b.supplyApy! - a.supplyApy!)[0];
 
-  return <div className="fv-hub">
+  return <div className="fv-hub fv-fadein">
     <section className="fv-hub-hero">
       <div className="fv-hub-hello"><small>RESEARCH &amp; STRATEGIES</small><h1>{greeting}</h1><p>Discover opportunities, automate your capital, and review what&apos;s next.</p></div>
       <div className="fv-hub-ask">
@@ -109,74 +183,91 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
           <button type="submit" aria-label="Ask"><ArrowRight size={16} /></button>
         </form>
         <div className="fv-hub-quick">
-          <button type="button" onClick={() => void create("brief")}><CalendarClock size={16} /><span>Brief me at 8 AM</span><ChevronRight size={15} /></button>
-          <button type="button" onClick={() => { setAdding(true); autosRef.current?.scrollIntoView({ behavior: "smooth" }); }}><Zap size={16} /><span>Create automation</span><ChevronRight size={15} /></button>
-          <button type="button" onClick={() => { setTab("Strategies"); researchRef.current?.scrollIntoView({ behavior: "smooth" }); }}><Layers size={16} /><span>Find a strategy</span><ChevronRight size={15} /></button>
+          <button type="button" className={briefDone !== "idle" ? "is-done" : ""} onClick={() => void scheduleBrief()}>{briefDone === "idle" ? <CalendarClock size={16} /> : <Check size={16} />}<span key={briefDone} className="fv-fadein">{briefDone === "done" ? "Brief scheduled · 8:00 AM" : briefDone === "exists" ? "Already scheduled" : "Brief me at 8 AM"}</span><ChevronRight size={15} /></button>
+          <button type="button" onClick={() => setBuilder({ editing: null })}><Zap size={16} /><span>Create automation</span><ChevronRight size={15} /></button>
+          <button type="button" onClick={() => { setTab("Strategies"); focus(researchRef.current); }}><Layers size={16} /><span>Find a strategy</span><ChevronRight size={15} /></button>
         </div>
       </div>
     </section>
-    {note && <p className="fv-notice fv-hub-note" role="status">{note}</p>}
+    {note && <p className="fv-notice fv-hub-note fv-rise" role="status">{note}</p>}
 
     <div className="fv-hub-stats">
-      <Stat icon={<Layers size={16} />} label="Active strategies" value={String(earning)} sub={earning ? "earning now" : "nothing earning yet"} onClick={() => v.navigate("portfolio")} />
-      <Stat icon={<Check size={16} />} label="Pending approvals" value={String(approvals.length)} sub={approvals.length ? "need your review" : "all clear"} onClick={() => approvalsRef.current?.scrollIntoView({ behavior: "smooth" })} />
-      <Stat icon={<Zap size={16} />} label="Automations running" value={String(running)} sub={running ? "on schedule" : "none yet"} onClick={() => autosRef.current?.scrollIntoView({ behavior: "smooth" })} />
-      <Stat icon={<Wallet size={16} />} label="Deployable capital" value={money(idle)} sub="idle stablecoins" badge={idle >= 1 ? "Ready to deploy" : undefined} onClick={() => { setTab("Strategies"); researchRef.current?.scrollIntoView({ behavior: "smooth" }); }} />
+      <Stat i={0} icon={<Layers size={16} />} label="Active strategies" value={nEarning === null ? null : String(Math.round(nEarning))} sub={c.earning ? "earning now" : "nothing earning yet"} onClick={() => v.navigate("portfolio")} />
+      <Stat i={1} icon={<Check size={16} />} label="Pending approvals" value={nApprovals === null ? null : String(Math.round(nApprovals))} sub={approvals.length ? "need your review" : "all clear"} onClick={() => focus(approvalsRef.current)} />
+      <Stat i={2} icon={<Zap size={16} />} label="Automations running" value={nRunning === null ? null : String(Math.round(nRunning))} sub={runningCount ? "on schedule" : "none yet"} live={runningCount > 0} onClick={() => focus(autosRef.current)} />
+      <Stat i={3} icon={<Wallet size={16} />} label="Deployable capital" value={nIdle === null ? null : money(nIdle)} sub="idle stablecoins" badge={(c.idle ?? 0) >= 1 ? "Ready to deploy" : undefined} onClick={() => { setTab("Strategies"); focus(researchRef.current); }} />
     </div>
+
+    <div ref={briefRef} className="fv-brief-wrap"><BriefCard event={brief} go={goAction} refresh={() => void briefNow()} busy={briefBusy} example={example} /></div>
 
     <section className="fv-hub-research" ref={researchRef}>
       <div className="fv-hub-section-head"><div><h2>Research &amp; Opportunities</h2><p>Ideas built from your holdings, today&apos;s rates and market moves. Rates are variable; nothing runs without your review.</p></div><button type="button" className="fv-text-button" onClick={() => v.navigate("research")}>Markets <ArrowUpRight size={13} /></button></div>
       <div className="fv-hub-tabs" role="tablist">{(["Research", "Strategies", "Vaults", "Watchlist"] as const).map((t) => <button type="button" role="tab" key={t} aria-selected={tab === t} onClick={() => setTab(t)}>{t}</button>)}</div>
-      {tab === "Research" && <><TodayCards key={String(example)} owner={v.acc ?? ""} example={example} navigate={v.navigate} /><Community key={"c" + String(example)} example={example} signedIn={signedIn} navigate={v.navigate} /></>}
-      {tab === "Strategies" && <div className="fv-strategy-grid">
-        <Strategy art="coins" title="Stablecoin income" body="Earn a steady, variable yield on stablecoins by lending them on Rhea, with no price exposure." yieldText={bestStable ? `≈ ${bestStable.supplyApy!.toFixed(1)}% APY` : "Reading rates…"} risk="Low"
-          why={idle >= 1 ? `You hold ${money(idle)} in stablecoins earning nothing.` : "Useful whenever you hold USDC or USDT you won't spend soon."} cta="Review opportunity" onClick={() => bestStable && go("earn", { tab: "supply", supply: bestStable.token })} />
-        <Strategy art="steps" title="Weekly surplus sweep" body="Every week FlowVault proposes supplying only the USDC above your reserve and upcoming payments, so cash stays ready." yieldText={rates.find((r) => r.symbol === "USDC")?.supplyApy ? `≈ ${rates.find((r) => r.symbol === "USDC")!.supplyApy!.toFixed(1)}% APY` : "Variable"} risk="Low"
-          why="Your reserve and dated payments are never touched; each sweep waits for your approval." cta={autos.some((a) => a.kind === "sweep") ? "See your sweep" : "Build strategy"} onClick={() => autos.some((a) => a.kind === "sweep") ? autosRef.current?.scrollIntoView({ behavior: "smooth" }) : void create("sweep")} />
-        <Strategy art="arc" title="Liquid staking" body="Stake NEAR as LiNEAR: it earns staking rewards and stays liquid, swappable when liquidity allows." yieldText={stakeApy ? `≈ ${stakeApy.toFixed(1)}% APY` : "Reading rate…"} risk="Low–Medium"
-          why={near >= 1 ? `You hold ${near.toLocaleString("en-US", { maximumFractionDigits: 2 })} NEAR.` : "For NEAR you plan to hold; unstaking takes about 2–3 days."} cta="Review strategy" onClick={() => go("earn", { tab: "stake" })} />
-      </div>}
-      {tab === "Vaults" && <VaultsCard scope={v.lendingScope} />}
-      {tab === "Watchlist" && <ResearchDesk v={v} />}
+      <div className="fv-tabpanel fv-hub-tabpanel" key={tab}>
+        {tab === "Research" && <><TodayCards key={String(example)} owner={v.acc ?? ""} example={example} navigate={v.navigate} /><Community key={"c" + String(example)} example={example} signedIn={signedIn} navigate={v.navigate} /></>}
+        {tab === "Strategies" && <div className="fv-strategy-grid">
+          <Strategy i={0} art="coins" title="Stablecoin income" body="Earn a steady, variable yield on stablecoins by lending them on Rhea, with no price exposure." yieldText={bestStable ? `≈ ${bestStable.supplyApy!.toFixed(1)}% APY` : "Reading rates…"} risk="Low"
+            why={(c.idle ?? 0) >= 1 ? `You hold ${money(c.idle!)} in stablecoins earning nothing.` : "Useful whenever you hold USDC or USDT you won't spend soon."} cta="Review opportunity" onClick={() => bestStable && go("earn", { tab: "supply", supply: bestStable.token })} />
+          <Strategy i={1} art="steps" title="Weekly surplus sweep" body="Every week FlowVault proposes supplying only the USDC above your reserve and upcoming payments, so cash stays ready." yieldText={usdcApy ? `≈ ${usdcApy.toFixed(1)}% APY` : "Variable"} risk="Low"
+            why="Your reserve and dated payments are never touched; each sweep waits for your approval." cta={sweep ? "See your sweep" : "Build strategy"} onClick={() => sweep ? focus(autosRef.current) : void save(template("sweep", tz())).catch((e) => setNote((e as Error).message))} />
+          <Strategy i={2} art="arc" title="Liquid staking" body="Stake NEAR as LiNEAR: it earns staking rewards and stays liquid, swappable when liquidity allows." yieldText={c.stakeApy ? `≈ ${c.stakeApy.toFixed(1)}% APY` : "Reading rate…"} risk="Low–Medium"
+            why={(c.near ?? 0) >= 1 ? `You hold ${c.near!.toLocaleString("en-US", { maximumFractionDigits: 2 })} NEAR.` : "For NEAR you plan to hold; unstaking takes about 2–3 days."} cta="Review strategy" onClick={() => go("earn", { tab: "stake" })} />
+        </div>}
+        {tab === "Vaults" && <VaultsCard scope={v.lendingScope} />}
+        {tab === "Watchlist" && <ResearchDesk v={v} />}
+      </div>
     </section>
 
     <div className="fv-hub-bottom">
       <section className="fv-panel fv-hub-autos" ref={autosRef}>
-        <div className="fv-hub-section-head"><div><h2>Automations &amp; Mandates</h2><p>Briefs, alerts and sweeps on a schedule. They never sign or move funds.</p></div><button type="button" className="fv-button" onClick={() => setAdding(!adding)}><Plus size={14} /> New</button></div>
-        {adding && <div className="fv-auto-picker">{(["brief", "sweep", "idle_alert", "allocation_alert", "price_alert"] as AutomationKind[]).map((k) => { const d = describe(template(k, tz())); const Icon = KIND_ICON[k]; return <button type="button" key={k} onClick={() => { setAdding(false); void create(k); }}><Icon size={15} /><span><strong>{d.title}</strong><small>{d.sub}</small></span></button>; })}<small className="fv-muted">Need a different time, amount or asset? Ask FlowVault, e.g. &quot;brief me at 7:30&quot; or &quot;alert me if NEAR moves 8%&quot;.</small></div>}
-        <ul className="fv-auto-list">{autos.map((a) => { const Icon = KIND_ICON[a.kind]; return <li key={a.id} className={a.enabled ? "" : "is-off"}>
-          <span className="fv-auto-icon"><Icon size={16} /></span>
-          <div className="fv-auto-main"><strong>{a.title}</strong><small>{a.sub}{a.lastRunAt ? ` · last ran ${ago(a.lastRunAt)}` : ""}</small></div>
-          <span className="fv-auto-chip">{a.chip}</span>
-          <button type="button" role="switch" aria-checked={a.enabled} aria-label={(a.enabled ? "Pause " : "Turn on ") + a.title} className="fv-auto-switch" onClick={() => void toggle(a)}><i /></button>
-          <AutoMenu run={() => void act(a, "run")} remove={() => void act(a, "delete")} />
-        </li>; })}{!autos.length && <li className="fv-auto-empty">No automations yet. Start with a daily brief, or ask FlowVault for one.</li>}</ul>
-        {latest.length > 0 && <div className="fv-auto-inbox"><h3>Latest from your automations</h3>{latest.map((e) => <details key={e.id}><summary><span className={"fv-auto-dot is-" + e.kind} />{e.title}<small>{ago(e.createdAt)}</small></summary><ul>{e.lines.map((l, i) => <li key={i}>{l}</li>)}</ul></details>)}</div>}
-        <div className="fv-auto-tip"><Sparkles size={15} /><span>Create automations by chatting with the agent, like &quot;Sweep surplus on Fridays&quot; or &quot;Alert me if ETH is over 40%&quot;.</span><button type="button" className="fv-button" onClick={() => v.askQuestion?.("Set up an automation for me")}>Ask FlowVault</button></div>
+        <div className="fv-hub-section-head"><div><h2>Automations &amp; Mandates</h2><p>Briefs, alerts and sweeps on a schedule. They never sign or move funds.</p></div><button type="button" className="fv-button fv-primary" onClick={() => setBuilder({ editing: null })}><Plus size={14} /> New</button></div>
+        <ul className="fv-auto-list">
+          {!autosKnown && [0, 1].map((i) => <li key={i}><div className="fv-skel" style={{ width: 34, height: 34 }} /><div style={{ flex: 1 }}><div className="fv-skel fv-skel-line" style={{ width: "55%", height: 12 }} /><div className="fv-skel fv-skel-line" style={{ width: "80%" }} /></div></li>)}
+          {c.autos.map((a, i) => { const Icon = KIND_ICON[a.kind]; const last = lastFor.get(a.id), busy = running.has(a.id); return <li key={a.id} className={"fv-rise" + (a.enabled ? "" : " is-off") + (flash === a.id ? " fv-pulse" : "") + (leaving.has(a.id) ? " fv-leave" : "")} style={{ ["--i" as string]: i, maxHeight: 160 }}>
+            <span className="fv-auto-icon"><Icon size={16} /></span>
+            <div className="fv-auto-main"><strong>{a.title}</strong>
+              <small>{!a.enabled ? "Paused" : a.schedule.every === "always" ? <><span className="fv-live-dot" /> Watching · checked every 30 min</> : <>Next run {until(a.nextRunAt) ?? "soon"}</>}{last ? <> · last: {last.title.toLowerCase()} {ago(last.createdAt)}</> : a.lastRunAt ? ` · last ran ${ago(a.lastRunAt)}` : ""}</small></div>
+            <span className="fv-auto-chip">{a.chip}</span>
+            <button type="button" className="fv-button fv-auto-run" disabled={busy || !a.enabled} onClick={() => void run(a)} aria-label={"Run " + a.title + " now"}>{busy ? <RefreshCw size={13} className="fv-spin" /> : <Play size={13} />} {busy ? "Running" : "Run"}</button>
+            <button type="button" role="switch" aria-checked={a.enabled} aria-label={(a.enabled ? "Pause " : "Turn on ") + a.title} className="fv-auto-switch" onClick={() => void toggle(a)}><i /></button>
+            <AutoMenu edit={() => setBuilder({ editing: a })} remove={() => void remove(a)} />
+          </li>; })}
+          {loaded.autos && !c.autos.length && <li className="fv-auto-empty fv-rise"><span>{signedIn || example ? "No automations yet." : "Sign in to set up automations."}</span><button type="button" className="fv-button" onClick={() => setBuilder({ editing: null })}><Plus size={14} /> Create your first</button></li>}
+        </ul>
+        <EventFeed events={feed} go={goAction} dismiss={(id) => void dismiss(id)} />
+        <div className="fv-auto-tip"><Sparkles size={15} /><span>Or just say it: &quot;Sweep surplus on Fridays&quot;, &quot;Alert me if ETH is over 40%&quot;, &quot;Brief me at 7:30&quot;.</span><button type="button" className="fv-button" onClick={() => v.askQuestion?.("Set up an automation for me")}>Ask FlowVault</button></div>
       </section>
 
       <section className="fv-panel fv-hub-approvals" ref={approvalsRef}>
         <div className="fv-hub-section-head"><div><h2>Approvals</h2><p>Proposals and next steps waiting for you, each with its hazard scan. Your wallet signs; FlowVault never does.</p></div>{approvals.length > 1 && <span className="fv-muted">{approvals.length} waiting</span>}</div>
-        {!approvals.length && <div className="fv-approval-empty"><Target size={22} /><p>Nothing waiting for you. Sweeps, swap-and-supply steps and staking steps appear here when they need your signature.</p></div>}
-        {approvals.map((ap, i) => <article key={ap.id} className={"fv-approval" + (i === 0 ? " is-open" : "")}>
+        {!approvals.length && <div className="fv-approval-empty fv-rise"><Target size={22} /><div><p>Nothing waiting for you.</p>
+          {sweep ? <small>Your sweep runs {until(sweep.nextRunAt) ?? "soon"}.{preview ? <> If it ran now: <b>{preview.title}</b>.</> : null}</small>
+            : <small>Turn on a weekly sweep and its proposals appear here. <button type="button" className="fv-link" onClick={() => void save(template("sweep", tz())).catch((e) => setNote((e as Error).message))}>Set one up</button></small>}</div></div>}
+        {approvals.map((ap, i) => <article key={ap.id} className={"fv-approval fv-rise" + (i === 0 ? " is-open" : "")} style={{ ["--i" as string]: i }}>
           <div className="fv-approval-main">
             <span className="fv-approval-icon"><Layers size={18} /></span>
             <div><small>{ap.source}</small><h3>{ap.title}</h3><p>{ap.sub}</p>
               {i === 0 && ap.rows.length > 0 && <dl>{ap.rows.map(([k, val]) => <div key={k}><dt>{k}</dt><dd>{val}</dd></div>)}</dl>}</div>
           </div>
           {i === 0 && ap.checks && <HazardScan checks={ap.checks} compact />}
-          <div className="fv-approval-actions">{ap.decline && <button type="button" className="fv-button" onClick={ap.decline}>Decline</button>}{example && i === 0 && <button type="button" className="fv-button" onClick={() => setNote("Example workspace: declining only hides it here.")}>Decline</button>}<button type="button" className="fv-button fv-primary" onClick={ap.open}>Review approval <ArrowRight size={14} /></button></div>
+          <div className="fv-approval-actions">{ap.decline && <button type="button" className="fv-button" onClick={ap.decline}>Decline</button>}<button type="button" className="fv-button fv-primary" onClick={ap.open}>Review approval <ArrowRight size={14} /></button></div>
         </article>)}
       </section>
     </div>
+    {builder && <AutomationBuilder editing={builder.editing} assets={Object.keys(holdings.balances).map((id) => tokens.find((t) => t.id === id)?.symbol ?? "").filter(Boolean)} close={() => setBuilder(null)} save={save} />}
   </div>;
 }
 
-function Stat({ icon, label, value, sub, badge, onClick }: { icon: React.ReactNode; label: string; value: string; sub: string; badge?: string; onClick: () => void }) {
-  return <button type="button" className="fv-hub-stat" onClick={onClick}><span className="fv-hub-stat-icon">{icon}</span><span className="fv-hub-stat-body"><span>{label}</span><strong>{value}</strong><small>{badge ? <em>{badge}</em> : sub}</small></span><ChevronRight size={16} /></button>;
+function Stat({ i, icon, label, value, sub, badge, live, onClick }: { i: number; icon: React.ReactNode; label: string; value: string | null; sub: string; badge?: string; live?: boolean; onClick: () => void }) {
+  return <button type="button" className="fv-hub-stat fv-rise" style={{ ["--i" as string]: i }} onClick={onClick}><span className="fv-hub-stat-icon">{icon}</span><span className="fv-hub-stat-body"><span>{label}</span>{value === null ? <span className="fv-skel" style={{ width: 70, height: 26, margin: "3px 0" }} /> : <strong>{value}</strong>}<small>{badge ? <em>{badge}</em> : <>{live && <span className="fv-live-dot" />} {sub}</>}</small></span><ChevronRight size={16} /></button>;
 }
-function Strategy({ art, title, body, yieldText, risk, why, cta, onClick }: { art: "coins" | "steps" | "arc"; title: string; body: string; yieldText: string; risk: string; why: string; cta: string; onClick: () => void }) {
-  return <article className="fv-strategy">
+function AutoMenu({ edit, remove }: { edit: () => void; remove: () => void }) {
+  const [open, setOpen] = useState(false);
+  return <span className="fv-auto-menu"><button type="button" className="fv-icon-button" aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}><MoreHorizontal size={16} /></button>
+    {open && <span className="fv-auto-menu-list fv-pop" role="menu"><button type="button" role="menuitem" onClick={() => { setOpen(false); edit(); }}>Edit</button><button type="button" role="menuitem" onClick={() => { setOpen(false); remove(); }}>Delete</button></span>}</span>;
+}
+function Strategy({ i, art, title, body, yieldText, risk, why, cta, onClick }: { i: number; art: "coins" | "steps" | "arc"; title: string; body: string; yieldText: string; risk: string; why: string; cta: string; onClick: () => void }) {
+  return <article className="fv-strategy fv-rise" style={{ ["--i" as string]: i }}>
     <div className="fv-strategy-top"><StrategyArt kind={art} /><div><div className="fv-strategy-title"><h3>{title}</h3><Bookmark size={15} aria-hidden /></div><p>{body}</p>
       <div className="fv-strategy-figures"><div><small>Expected yield</small><strong>{yieldText}</strong></div><div><small>Risk</small><em>{risk}</em></div></div></div></div>
     <div className="fv-strategy-why"><Target size={15} /><span><b>Why it matches you:</b> {why}</span></div>
@@ -186,13 +277,8 @@ function Strategy({ art, title, body, yieldText, risk, why, cta, onClick }: { ar
 function StrategyArt({ kind }: { kind: "coins" | "steps" | "arc" }) {
   return <svg className="fv-strategy-art" viewBox="0 0 120 120" aria-hidden>
     <rect width="120" height="120" rx="14" className="bg" />
-    {kind === "coins" && [0, 1, 2].map((c) => [0, 1, 2, 3, 4].slice(0, 5 - c).map((i) => <ellipse key={c + ":" + i} cx={34 + c * 26} cy={96 - i * 11} rx="14" ry="5.5" className={i % 2 ? "a" : "b"} />))}
+    {kind === "coins" && [0, 1, 2].map((col) => [0, 1, 2, 3, 4].slice(0, 5 - col).map((i) => <ellipse key={col + ":" + i} cx={34 + col * 26} cy={96 - i * 11} rx="14" ry="5.5" className={i % 2 ? "a" : "b"} />))}
     {kind === "steps" && [0, 1, 2, 3].map((i) => <rect key={i} x={18 + i * 21} y={92 - i * 18} width="22" height={12 + i * 18} rx="2" className={i % 2 ? "a" : "b"} />)}
     {kind === "arc" && <><path d="M18 104 C 30 40, 80 20, 104 18" className="stroke" /><path d="M30 104 C 42 56, 82 36, 104 34" className="stroke thin" /><circle cx="104" cy="18" r="6" className="b" /></>}
   </svg>;
-}
-function AutoMenu({ run, remove }: { run: () => void; remove: () => void }) {
-  const [open, setOpen] = useState(false);
-  return <span className="fv-auto-menu"><button type="button" className="fv-icon-button" aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}><MoreHorizontal size={16} /></button>
-    {open && <span className="fv-auto-menu-list" role="menu"><button type="button" role="menuitem" onClick={() => { setOpen(false); run(); }}>Run now</button><button type="button" role="menuitem" onClick={() => { setOpen(false); remove(); }}>Delete</button></span>}</span>;
 }
