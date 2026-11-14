@@ -292,7 +292,7 @@ Fee revenue, user NAV, partner incentives and any future token rewards are accou
 | **AI** | Ask FlowVault drafts cards from engine figures, on NEAR AI Cloud |
 | **Safety** | Caps, reserve, calendar, protected assets, allowlists, revisions, hazard scan, fail-closed on unknowns |
 | **Contracts** | Policy (14 tests) and strategy vault (42 tests), built, not yet deployed |
-| **Tests** | 615 app tests; wallet-free `pitch-story` passes all 9 story beats |
+| **Tests** | 641 app tests; wallet-free `pitch-story` passes all 9 story beats |
 | **Custody** | None. The owner's wallet signs every step |
 | **Revenue** | Proposed: 15% performance fee with high-water mark, premium automation, execution services |
 
@@ -301,7 +301,7 @@ Fee revenue, user NAV, partner incentives and any future token rewards are accou
 | Stage | Milestones |
 | --- | --- |
 | **Now (this build)** | Capital account, dated obligations, policy, payments, collect & send, Rhea earn/borrow, staking, swaps, markets, LI.FI trading, perps under mandate, Ask FlowVault, automations, monitoring, Demo Mode, policy and vault contracts |
-| **Next** | Hosted deployment; owner-funded runs of supply → withdraw → exact-output payout on video; move the chat to NEAR AI Cloud with attestation verification; deploy the policy contract and show an on-chain rule; USDC-paid gas through an ERC-7677 wallet |
+| **Next** | Hosted deployment; owner-funded runs of supply → withdraw → exact-output payout on video; verify NEAR AI Cloud's TEE attestation and response signatures; deploy the policy contract and show an on-chain rule; USDC-paid gas through an ERC-7677 wallet |
 | **Then** | Deploy and audit the strategy vault; curator publishing flow; capital partner program; more venues and chains |
 | **Later** | Exchange account integrations, partner-issued card spending, treasury and API distribution |
 
@@ -331,13 +331,12 @@ All accounts, prices and amounts in Demo Mode are fictional. Dates roll forward 
 | Look at **Plan to action** | **2,690 USDC** of surplus to supply to Rhea; the higher-rate seven-day vault is ruled out because it misses the first bill's exit window |
 | In **Borrow**, run the stress example | 2,000 of collateral at −90% → **200**; 70% cap → **140**; 80% liquidation threshold at 1.5 health → **106.67** of capacity. Read-only |
 | Ask **"can I pay 1,000 USDT on BNB by Nov 23 without touching my ETH"** | A source comparison with ETH and the reserve protected, using engine figures only |
-| Open **Replays** | All five outcomes (success, refunded, partial, failed, deadline passed) for supply, withdraw and pay, each labelled **SIMULATED** |
 
 ## 17. Implementation evidence
 
 | Check | Result |
 | --- | --- |
-| `npm test` | **615 passed**, 0 failed (runs with no API keys set) |
+| `npm test` | **641 passed**, 0 failed (runs with no API keys set) |
 | `npm run typecheck` / `npm run build` | Pass |
 | `cargo test` on `contracts/vault` | **42 passed** |
 | `cargo test` on `contracts/policy` | **14 passed** |
@@ -388,7 +387,7 @@ cargo build --locked --manifest-path contracts/policy/Cargo.toml --target wasm32
 
 - **No funded track record yet.** Every money-moving path is implemented and tested, and the owner's funded rehearsal is pending. FlowVault never signs, holds keys or moves funds on its own.
 - **Contracts aren't deployed or audited.** The policy and vault contracts are built and tested locally; pooled deposits need an independent security review first.
-- **AI provider.** Ask FlowVault currently sends what its tools read (for example balances, limits, scheduled payments or a quote) to Anthropic, and names what it shared. The move to NEAR AI Cloud is planned; TEE attestation and response signatures aren't verified yet.
+- **AI provider.** Ask FlowVault runs on NEAR AI Cloud and sends it what its tools read (for example balances, limits, scheduled payments or a quote), naming what it shared on each turn. TEE attestation and response signatures aren't verified yet.
 - **Cross-chain legs aren't atomic.** Each leg settles on its own chain; FlowVault shows where every leg's money is and how to recover it.
 - **Public settlement.** Payments use public routes, so a source deposit and its payout can be linked by amount and timing.
 - **Session model.** Local D1 sessions isolate development workspaces; they are not production authentication.
