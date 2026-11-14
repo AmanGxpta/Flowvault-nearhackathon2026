@@ -26,7 +26,6 @@
     "validate:diagrams": "node scripts/validate-mermaid.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.8.0",
     "@anywalletkit/protocol-staking-liquid-near": "0.1.1",
     "@anywalletkit/protocol-staking-native-near": "0.2.0",
     "@base-ui/react": "^1.7.0",

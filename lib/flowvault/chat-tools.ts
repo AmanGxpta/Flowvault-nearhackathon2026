@@ -408,8 +408,8 @@ export type ToolName = (typeof TOOLS)[number]["name"];
 export const toolByName = new Map<string, (typeof TOOLS)[number]>(TOOLS.map((t) => [t.name, t]));
 export const EXAMPLE_SAFE = new Set<string>(TOOLS.map((t) => t.name));
 
-/** Anthropic tool definitions from the registry (JSON Schema from zod; strict inputs). */
-export function anthropicTools() {
+/** Tool definitions from the registry (JSON Schema from zod; strict inputs). The NEAR AI adapter wraps them as functions. */
+export function modelTools() {
   return TOOLS.map((t) => {
     const schema = z.toJSONSchema(t.input, { target: "draft-7" }) as Record<string, unknown>;
     delete schema.$schema;

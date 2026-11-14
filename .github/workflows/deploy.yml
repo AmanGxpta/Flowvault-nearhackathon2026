@@ -8,7 +8,7 @@
 #   FLOWVAULT_WORKER_NAME     optional, defaults to flowvault-app
 #   FLOWVAULT_DOMAIN          optional, e.g. app.flowvault.live; set it only once the zone is active on Cloudflare
 #
-# Worker secrets (ANTHROPIC_API_KEY and the rest) live in Cloudflare and survive deploys; they are never set here.
+# Worker secrets (NEARAI_API_KEY and the rest) live in Cloudflare and survive deploys; they are never set here.
 # Until the three repository secrets exist, the workflow still runs the tests and skips the deploy step.
 
 name: Deploy app

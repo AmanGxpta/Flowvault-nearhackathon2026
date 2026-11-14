@@ -84,7 +84,7 @@ flowchart LR
         SOL["Solana RPC"]
         EXT["Aave v3, Hyperliquid, LI.FI, market data"]
     end
-    LLM["Claude via Anthropic API today; NEAR AI Cloud next"]
+    LLM["NEAR AI Cloud (Claude Haiku 5.5 by default)"]
     CONTRACTS["Rust NEAR contracts: policy and strategy vault (built, not yet deployed)"]
 
     UI --> API
@@ -212,7 +212,7 @@ Each mechanism below goes from the intuition to the implementation, with its sta
 - A trade's contract address must be one you typed in the chat, or one from FlowVault's token list.
 - Text from other people's wallets or trending lists reaches the model as bounded, markup-free data and is never treated as instructions.
 
-The chat runs on **Claude through the Anthropic API today and moves to NEAR AI Cloud next.** The intent parser can already run on NEAR AI Cloud. Each turn shows what it shared.
+The chat and the intent parser run on **NEAR AI Cloud** (OpenAI-compatible API, Claude Haiku 5.5 by default; any tool-capable model in its catalog can be set). Each turn shows what it shared.
 
 **It keeps watching.** "What you can do today" suggestions come from your holdings and the market (idle stablecoins, NEAR to stake, big moves), each with its numbers and one action. **Automations** cover a daily brief, a weekly surplus sweep proposal, idle-cash, allocation and price alerts. **Monitoring** on the cron proposes responses to changes. Everything ends at a proposal you approve.
 
@@ -289,7 +289,7 @@ Fee revenue, user NAV, partner incentives and any future token rewards are accou
 | **Chains read** | NEAR, Ethereum, Base, Arbitrum, BNB, Polygon, Solana (plus more through Zerion when enabled) |
 | **Execution** | Owner-signed: Rhea, Ref, NEAR Intents, native/LiNEAR/rNEAR staking, Aave v3, LI.FI, Hyperliquid |
 | **Payments** | Exact-output NEAR Intents to Base, Arbitrum, BNB and Ethereum; "paid" needs destination proof |
-| **AI** | Ask FlowVault drafts cards from engine figures; Claude today, NEAR AI Cloud next |
+| **AI** | Ask FlowVault drafts cards from engine figures, on NEAR AI Cloud |
 | **Safety** | Caps, reserve, calendar, protected assets, allowlists, revisions, hazard scan, fail-closed on unknowns |
 | **Contracts** | Policy (14 tests) and strategy vault (42 tests), built, not yet deployed |
 | **Tests** | 615 app tests; wallet-free `pitch-story` passes all 9 story beats |
@@ -376,8 +376,7 @@ cargo build --locked --manifest-path contracts/policy/Cargo.toml --target wasm32
 
 | Setting | Purpose |
 | --- | --- |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Ask FlowVault chat (Claude Haiku 5.5 by default). Without a key, a built-in parser handles swaps, balances and wallet lookups |
-| `NEARAI_API_KEY`, `NEARAI_MODEL`, `NEARAI_BASE_URL` | NEAR AI Cloud intent parser |
+| `NEARAI_API_KEY`, `NEARAI_MODEL`, `NEARAI_BASE_URL` | Ask FlowVault chat and intent parser on NEAR AI Cloud (`anthropic/claude-haiku-5-5` by default; the model must support tools). Without a key, a built-in parser handles swaps, balances and wallet lookups |
 | `ZERION_ENABLED`, `ZERION_API_KEY` | Whole-wallet EVM portfolio reads (off by default) |
 | `SOLANA_RPC_URL` | Custom Solana RPC |
 | `FLOWVAULT_AGENT_KEY_SECRET` | Seals Hyperliquid agent keys |

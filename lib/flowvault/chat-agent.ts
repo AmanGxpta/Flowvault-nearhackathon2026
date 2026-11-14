@@ -1,11 +1,13 @@
-// Ask FlowVault conversation loop. Claude (Haiku by default) streams the answer and calls FlowVault's typed tools;
+// Ask FlowVault conversation loop. A NEAR AI Cloud model (Claude Haiku 5.5 by default) streams the answer and calls
+// FlowVault's typed tools;
 // tools read evidence or create/edit non-executable cards. The loop is bounded (tool rounds, output tokens,
-// history), cancellable, and never escalates to another model. If Claude is unavailable, the turn says so and a
+// history), cancellable, and never escalates to another model. If the model is unavailable, the turn says so and a
 // small built-in parser still handles the most common requests with the same tools (clearly labeled, no AI text).
 import type { Card } from "./chat-cards.ts";
-import { runTool, anthropicTools, cardsContext, toolByName, type ToolContext } from "./chat-tools.ts";
+import { runTool, modelTools, cardsContext, toolByName, type ToolContext } from "./chat-tools.ts";
 
-export const CHAT_DEFAULT_MODEL = "claude-haiku-5-5";
+/** NEAR AI Cloud model id; NEARAI_MODEL overrides it. No silent escalation to another model. */
+export const CHAT_DEFAULT_MODEL = "anthropic/claude-haiku-5-5";
 export const MAX_TOOL_ROUNDS = 5;
 export const MAX_OUTPUT_TOKENS = 1200;
 export const HISTORY_TURNS = 12;
@@ -18,7 +20,7 @@ export type ChatEvent =
 
 export interface Turn { role: "user" | "assistant"; text: string; cardIds?: string[] }
 
-/** The minimal Anthropic client surface the loop uses (the SDK in production, a mock in tests). */
+/** The minimal client surface the loop uses (the NEAR AI Cloud adapter in production, a mock in tests). */
 export interface ChatClient {
   messages: {
     stream(body: Record<string, unknown>, options?: { signal?: AbortSignal }): {
@@ -57,7 +59,7 @@ Reading is free and safe: call read tools right away, never ask permission to lo
 
 Style: don't announce what you're about to do; call the tools, then answer. Short, plain answers (1 to 4 sentences) for people who know DeFi; the card shows the details. No headings. Bullets only for comparisons. Cards appear below your text, so refer to "the card below". Don't repeat what a card shows. Don't mention tool names, ids, schemas or internal states. At most two optional next steps.`;
 
-/** Plain-language names for what each tool shares with Claude (shown to the owner). */
+/** Plain-language names for what each tool shares with the model (shown to the owner). */
 export const SHARED: Record<string, string> = {
   get_holdings: "your balances", get_limits: "your limits and scheduled payments", check_limits: "your limits", find_token: "token listings",
   draft_swap: "your balance of the sending token and a live quote", edit_card: "the draft's details", quote_swap: "a live quote and your balance",
@@ -86,7 +88,7 @@ function historyMessages(history: Turn[], cards: Map<string, Card>) {
 
 export interface RunResult { text: string; cardIds: string[]; status: "complete" | "stopped" | "error"; error?: string; model: string | null; usedModel: boolean; shared: string[] }
 
-/** One assistant turn with Claude. Emits text deltas, tool progress and cards as they happen. */
+/** One assistant turn with the model. Emits text deltas, tool progress and cards as they happen. */
 export async function runChat(o: {
   client: ChatClient; model: string; history: Turn[]; userText: string; ctx: ToolContext;
   emit: (e: ChatEvent) => void; signal?: AbortSignal; now?: number;
@@ -110,7 +112,7 @@ export async function runChat(o: {
   const last = messages.at(-1);
   if (last?.role === "user") messages.push({ role: "assistant", content: "[no answer]" });
   messages.push({ role: "user", content: userBlocks });
-  const tools = anthropicTools();
+  const tools = modelTools();
   const cardIds: string[] = [];
   let text = "", model: string | null = null, roundText = "";
   // Narration before a tool call ("I'll check…") streams as progress; the saved answer is the final round's text.
@@ -121,8 +123,6 @@ export async function runChat(o: {
     let sawText = false;
     const stream = o.client.messages.stream({
       model: o.model, max_tokens: MAX_OUTPUT_TOKENS, system: SYSTEM, tools, messages,
-      // Fast chat: no extended thinking (keeps history append-only safe and latency low). Default effort.
-      thinking: { type: "disabled" },
     }, { signal: o.signal });
     stream.on("text", (d: string) => {
       if (!sawText && text && !text.endsWith("\n")) { text += "\n\n"; emit({ type: "text", delta: "\n\n" }); }
@@ -136,7 +136,7 @@ export async function runChat(o: {
     }
     model = final.model;
     if (final.stop_reason === "refusal") {
-      emit({ type: "error", message: "Claude declined to answer this. Nothing was prepared.", retryable: false });
+      emit({ type: "error", message: "The model declined to answer this. Nothing was prepared.", retryable: false });
       return { text, cardIds, status: "error", error: "refusal", model, usedModel: true, shared: [...shared] };
     }
     const calls = final.content.filter((b): b is { type: "tool_use"; id: string; name: string; input: unknown } => b.type === "tool_use");
@@ -162,7 +162,7 @@ export async function runChat(o: {
   return { text, cardIds, status: "complete", model, usedModel: true, shared: [...shared] };
 }
 
-/* ───────────── Built-in parser: used only when Claude is unavailable (no AI prose) ───────────── */
+/* ───────────── Built-in parser: used only when the model is unavailable (no AI prose) ───────────── */
 
 const SWAP = /\b(?:swap|sell|convert|trade|exchange|bridge)\s+\$?([\d.]+|half|all)?\s*(\$)?\s*(?:of\s+)?(?:my\s+)?\$?([a-z][a-z0-9.]{1,11})\s+(?:to|for|into)\s+\$?([a-z][a-z0-9.]{1,11})(?:\s+on\s+([a-z]+))?/i;
 const DOLLAR_SWAP = /\b(?:swap|sell|convert|trade|exchange|bridge)\s+\$([\d.]+)\s+(?:of|worth of)\s+(?:my\s+)?([a-z][a-z0-9.]{1,11})\s+(?:to|for|into)\s+([a-z][a-z0-9.]{1,11})/i;
@@ -193,7 +193,7 @@ export async function fallbackTurn(userText: string, baseCtx: ToolContext, emit:
     emit({ type: "status", label: "Checking your balances" });
     await run("get_holdings", { show: true });
     text += "Here are your balances.";
-  } else text += "Without Claude I can only set up swaps, show your balances or read a public wallet. Your cards and the rest of FlowVault still work.";
+  } else text += "Without the AI model I can only set up swaps, show your balances or read a public wallet. Your cards and the rest of FlowVault still work.";
   emit({ type: "text", delta: text });
   return { text, cardIds: cards, status: "complete", model: null, usedModel: false, shared };
 }

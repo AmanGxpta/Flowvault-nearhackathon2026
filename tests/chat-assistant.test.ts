@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveAsset, usdToTokenAmount, editCard, newCard, remainingAfter, isLocked, type Card } from "../lib/flowvault/chat-cards.ts";
-import { runTool, anthropicTools, ownerTyped, externalData, type ChatReads, type ToolContext } from "../lib/flowvault/chat-tools.ts";
+import { runTool, modelTools, ownerTyped, externalData, type ChatReads, type ToolContext } from "../lib/flowvault/chat-tools.ts";
 import { runChat, fallbackTurn, MAX_TOOL_ROUNDS, type ChatClient, type ChatEvent } from "../lib/flowvault/chat-agent.ts";
 
 const T = (network: string, contract: string, symbol: string, decimals: number, price?: string) => ({ id: `${network}:${contract}`, network, contract, symbol, name: symbol, decimals, price });
@@ -103,7 +103,7 @@ test("tools reject malformed arguments and unknown capabilities without side eff
     assert.equal(r.ok, false); assert.equal(r.result.error, "Unknown tool.");
   }
   assert.equal(ctx.cards.size, 0);
-  const names = anthropicTools().map((t) => t.name);
+  const names = modelTools().map((t) => t.name);
   assert.ok(!names.some((n) => /sign|authori[sz]e|approve|policy_set|send_tx|retry|schedule/.test(n)), "no mutation tools are exposed: " + names.join(","));
 });
 

@@ -224,7 +224,7 @@ export function AskPanel({ v }: { v: any }) { // eslint-disable-line @typescript
           <h2>What would you like to do?</h2>
           <p>Ask about your funds, compare options, or set up a swap, deposit or withdrawal. You review every operation here and approve it in your own wallet.</p>
           {!locked && <div className="fv-ask-examples">{(example ? EXAMPLES_DEMO : EXAMPLES_LIVE).map((q) => <button type="button" key={q} onClick={() => void send(q)}>{q}</button>)}</div>}
-          {data && !data.ai.available && <p className="fv-muted fv-chat-small">Claude isn’t configured on this server. A built-in parser handles swaps, balances and wallet research.</p>}
+          {data && !data.ai.available && <p className="fv-muted fv-chat-small">NEAR AI Cloud isn’t configured on this server. A built-in parser handles swaps, balances and wallet research.</p>}
         </div>}
         {messages.map((m, i) => m.role === "user"
           ? editing?.id === m.id
@@ -247,8 +247,8 @@ export function AskPanel({ v }: { v: any }) { // eslint-disable-line @typescript
             {m.cardIds.map((id) => { const c = data?.chat.cards[id]; if (!c) return null; return lastMention.get(id) === i ? <ChatCard key={id} card={c} env={{ ...env, answered: i < messages.length - 1 }} /> : <div key={id} className="fv-chat-moved">{c.kind === "choice" ? "" : "Updated below"}</div>; })}
             {(m.text || m.shared?.length || m.provider) && <div className="fv-ask-ai-foot">
               {m.text && <CopyButton text={m.text} label="Copy response" />}
-              {(m.shared?.length || m.provider) && <details className="fv-ask-meta"><summary><Info size={12} /> {m.provider?.usedModel ? "Answered by " + (m.provider.model ?? "Claude") : "No AI used"}{m.progress?.length ? " · checked " + m.progress.length : ""}</summary>
-                {m.provider?.usedModel ? <p>Shared with Claude: {(m.shared ?? []).join(", ") || "your question"}. Never shared: keys, signatures, other workspaces.</p> : <p>FlowVault’s built-in parser answered; nothing was sent to a model.</p>}
+              {(m.shared?.length || m.provider) && <details className="fv-ask-meta"><summary><Info size={12} /> {m.provider?.usedModel ? "Answered by " + (m.provider.model ?? "NEAR AI Cloud") : "No AI used"}{m.progress?.length ? " · checked " + m.progress.length : ""}</summary>
+                {m.provider?.usedModel ? <p>Shared with NEAR AI Cloud: {(m.shared ?? []).join(", ") || "your question"}. Never shared: keys, signatures, other workspaces.</p> : <p>FlowVault’s built-in parser answered; nothing was sent to a model.</p>}
                 {!!m.progress?.length && <p>Checked: {m.progress.join(" · ")}</p>}
               </details>}
             </div>}

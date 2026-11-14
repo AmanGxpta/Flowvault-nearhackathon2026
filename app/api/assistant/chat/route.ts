@@ -5,13 +5,13 @@
 // this workspace's conversations (optionally searched). A send with `replaces` edits an earlier question: the turn
 // restarts from there. Without a connected wallet a workspace gets one question; the server enforces it.
 // The session decides ownership; nothing the client or the model sends is trusted for it.
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod/v4";
 import { env } from "cloudflare:workers";
 import { session, mutation, json, failure, type SessionInfo } from "@/lib/flowvault/store";
 import { chatLatest, chatGet, chatCreate, chatSave, chatUpdate, chatList, chatQuestionCount, type Chat, type StoredMessage } from "@/lib/flowvault/chat-store";
 import { runChat, fallbackTurn, suggestionsFor, CHAT_DEFAULT_MODEL, type ChatEvent, type ChatClient } from "@/lib/flowvault/chat-agent";
 import { liveReads } from "@/lib/flowvault/chat-reads";
+import { nearAiChatClient, NearAiError } from "@/lib/flowvault/nearai-chat";
 import { editCard, newCard, PARAMS, CARD_KINDS, HANDED_OFF, type Card } from "@/lib/flowvault/chat-cards";
 import { readAttempt } from "@/lib/flowvault/attempts";
 import { planGet } from "@/lib/flowvault/plans-store";
@@ -21,7 +21,7 @@ function setting(name: string) {
   const binding = (env as unknown as Record<string, unknown>)[name];
   return typeof binding === "string" && binding ? binding : process.env[name] || undefined;
 }
-const modelName = () => setting("ANTHROPIC_MODEL") || CHAT_DEFAULT_MODEL;
+const modelName = () => setting("NEARAI_MODEL") || CHAT_DEFAULT_MODEL;
 const TURN_TIMEOUT_MS = 90_000;
 
 function scoped(s: SessionInfo, c: Chat) {
@@ -77,7 +77,7 @@ function editable(chat: Chat, index: number) {
   return chat.messages.slice(index).every((m) => m.cardIds.every((id) => !chat.cards[id]?.link));
 }
 async function view(s: SessionInfo, chat: Chat) {
-  return { gate: await gate(s), addresses: ownAddresses(s), chat: { id: chat.id, messages: chat.messages, cards: chat.cards, pending: !!chat.pending && Date.now() - chat.pending.at < TURN_TIMEOUT_MS }, scope: s.slot, account: s.account, example: s.workspace.mode === "demo", ai: { available: !!setting("ANTHROPIC_API_KEY"), model: modelName() } };
+  return { gate: await gate(s), addresses: ownAddresses(s), chat: { id: chat.id, messages: chat.messages, cards: chat.cards, pending: !!chat.pending && Date.now() - chat.pending.at < TURN_TIMEOUT_MS }, scope: s.slot, account: s.account, example: s.workspace.mode === "demo", ai: { available: !!setting("NEARAI_API_KEY"), provider: "NEAR AI Cloud", model: modelName() } };
 }
 
 export async function GET(r: Request) {
@@ -220,12 +220,12 @@ async function send(r: Request, s: SessionInfo, b: z.infer<typeof sendSchema>) {
       const write = (o: unknown) => { try { controller.enqueue(encoder.encode(JSON.stringify(o) + "\n")); } catch { /* client went away */ } };
       const emit = (e: ChatEvent) => { if (e.type === "status") progress.push(e.label); write(e); };
       write({ type: "start", chatId: chat.id, user });
-      const key = setting("ANTHROPIC_API_KEY");
+      const key = setting("NEARAI_API_KEY");
       let result;
       try {
-        if (!key) result = await fallbackTurn(b.text, ctx, emit, "Claude isn't configured on this server, so this answer comes from FlowVault's built-in parser.");
+        if (!key) result = await fallbackTurn(b.text, ctx, emit, "NEAR AI Cloud isn't configured on this server, so this answer comes from FlowVault's built-in parser.");
         else {
-          const client = new Anthropic({ apiKey: key, maxRetries: 1, timeout: 60_000 }) as unknown as ChatClient;
+          const client: ChatClient = nearAiChatClient({ key, baseUrl: setting("NEARAI_BASE_URL"), timeoutMs: 60_000 });
           result = await runChat({ client, model: modelName(), history, userText: b.text, ctx, emit, signal: abort.signal });
         }
       } catch (e) {
@@ -272,11 +272,13 @@ function ndjson(body: ReadableStream | unknown[], cookie?: string) {
 
 /** Provider failures are explained, never shown as an AI answer. */
 function providerError(e: unknown) {
-  if (e instanceof Anthropic.AuthenticationError) return "Claude rejected this server's API key, so there's no AI answer. Cards and balances still work.";
-  if (e instanceof Anthropic.RateLimitError) return "Claude is rate limited right now. Try again in a moment.";
-  if (e instanceof Anthropic.NotFoundError) return `The configured model (${modelName()}) isn't available to this API key.`;
-  if (e instanceof Anthropic.BadRequestError) return "Claude refused the request format. Nothing was prepared.";
-  if (e instanceof Anthropic.APIConnectionTimeoutError) return "Claude took too long to answer. Try again.";
-  if (e instanceof Anthropic.APIError && (e.status ?? 0) >= 500) return "Claude is temporarily unavailable. Try again shortly.";
-  return "Claude was unavailable: " + String((e as Error)?.message ?? e).slice(0, 160);
+  const status = e instanceof NearAiError ? e.status : null;
+  if (status === 401 || status === 403) return "NEAR AI Cloud rejected this server's API key, so there's no AI answer. Cards and balances still work.";
+  if (status === 402) return "The NEAR AI Cloud account is out of credits, so there's no AI answer. Cards and balances still work.";
+  if (status === 429) return "NEAR AI Cloud is rate limited right now. Try again in a moment.";
+  if (status === 404) return `The configured model (${modelName()}) isn't available on NEAR AI Cloud.`;
+  if (status === 400 || status === 422) return "NEAR AI Cloud refused the request format. Nothing was prepared.";
+  if (status === -1) return "NEAR AI Cloud took too long to answer. Try again.";
+  if (status !== null && status >= 500) return "NEAR AI Cloud is temporarily unavailable. Try again shortly.";
+  return "NEAR AI Cloud was unavailable: " + String((e as Error)?.message ?? e).slice(0, 160);
 }

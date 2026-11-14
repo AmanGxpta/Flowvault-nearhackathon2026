@@ -1,4 +1,3 @@
-import { anthropicIntent } from "@/lib/flowvault/assistant-anthropic";
 import { workspaceLedger } from "@/lib/flowvault/policy-context";
 import { env } from "cloudflare:workers";
 import { z } from "zod";
@@ -19,7 +18,7 @@ function setting(name: string) {
   return typeof binding === "string" ? binding : process.env[name];
 }
 const STAGES = [
-  { id: "understand", label: "Understand", by: "Claude, NEAR AI Cloud or the built-in parser (intent fields only)" },
+  { id: "understand", label: "Understand", by: "NEAR AI Cloud or the built-in parser (intent fields only)" },
   { id: "evaluate", label: "Evaluate alternatives", by: "FlowVault engines" },
   { id: "review", label: "Review", by: "You, in FlowVault" },
   { id: "authorize", label: "Authorize", by: "Your policy, checked again at preparation and wallet handoff" },
@@ -82,21 +81,12 @@ export async function POST(r: Request) {
     const s = await session(r);
     const evidence = await withCapitalEvidence(s.workspace);
     const now = Date.now();
-    // Claude (ANTHROPIC_API_KEY) when configured, else NEAR AI (NEARAI_API_KEY), else the deterministic parser.
-    const anthropicKey = b.useModel ? setting("ANTHROPIC_API_KEY") : undefined;
-    const intent = anthropicKey
-      ? await anthropicIntent(b.question, { key: anthropicKey, model: setting("ANTHROPIC_MODEL") }, now)
-      : await assistantIntent(
-          b.question,
-          b.useModel
-            ? {
-                key: setting("NEARAI_API_KEY"),
-                baseUrl: setting("NEARAI_BASE_URL"),
-                model: setting("NEARAI_MODEL"),
-              }
-            : {},
-          now,
-        );
+    // NEAR AI Cloud (NEARAI_API_KEY) when configured, else the deterministic parser.
+    const intent = await assistantIntent(
+      b.question,
+      b.useModel ? { key: setting("NEARAI_API_KEY"), baseUrl: setting("NEARAI_BASE_URL"), model: setting("NEARAI_MODEL") } : {},
+      now,
+    );
     const [{ portfolio }, market, ledger] = await Promise.all([
       workspacePortfolio(s.workspace),
       s.workspace.mode === "demo" ? demoMarket(now) : liveMarket(),
