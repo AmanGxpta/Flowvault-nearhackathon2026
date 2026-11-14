@@ -561,6 +561,11 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
   }
   out.planLabel = "Plan v" + s.version;
 
+  // A reserve floor above everything read makes every amount "not spendable"; say that plainly instead of "below your plan".
+  const reserveFloor = f(snap.workspace?.mandate.reserve) ?? 0;
+  const heldUsd = f(u?.netWorth?.amount ?? u?.netWorth?.knownSubtotal) ?? null;
+  const reserveOverHoldings = !example && heldUsd !== null && reserveFloor > 0 && reserveFloor > heldUsd;
+  out.heldUsd = example ? null : heldUsd;
   // Plan to action: the engine's recommendation from /api/plan.
   const a = snap.plan?.action;
   if (a) {
@@ -572,7 +577,9 @@ export function liveVals(snap: LiveSnapshot, v: any, ctx: { self: any; s: any; e
         : a.kind === "withdraw"
           ? { tag: "RESTORE", title: a.title, body, cta: "Withdraw USDC", onClick: () => self.openOp("withdraw", a.amount) }
           : /below your plan/i.test(a.title) && acct
-            ? { tag: "FUND", title: a.title, body, cta: "Review reserve & payments", onClick: () => self.setState({screen:"calendar",planningOpen:true}) }
+            ? reserveOverHoldings
+              ? { tag: "FUND", title: "Your reserve floor is more than you hold", body: `The reserve floor is ${money(String(reserveFloor))}, but everything read in your wallets comes to ${money(String(heldUsd))}, so nothing counts as spendable. Lower the reserve to the USDC you want to keep in your NEAR wallet.`, cta: "Change the reserve", onClick: () => self.setState({screen:"calendar",planningOpen:true}) }
+              : { tag: "FUND", title: a.title, body, cta: "Review reserve & payments", onClick: () => self.setState({screen:"calendar",planningOpen:true}) }
             : a.kind === "none"
               ? { tag: "NO STEP", title: a.title, body, cta: "Read balances again", onClick: () => self.liveCall(() => self.props.actions.refresh(), "Balances read again.") }
               : { tag: "PLAN", title: a.title, body, cta: "Open your calendar", onClick: () => self.go("calendar") };

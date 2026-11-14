@@ -925,3 +925,5 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 }
 .fv-nft-media img[src*="/example-nfts/"]{image-rendering:pixelated}
 .fv-read-note{display:block;margin-top:4px}
+
+.fv-field-warn{display:block;margin-top:6px;font-size:12.5px;line-height:1.4;color:var(--fvc-8A5F25);font-weight:400}

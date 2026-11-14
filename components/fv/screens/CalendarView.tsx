@@ -346,6 +346,11 @@ export function CalendarView({ v }: { v: any }) {
                 />
                 <span style={{ fontSize: "12px", color: "var(--fvc-8A9285)" }}>USDC</span>
               </div>
+              {v.heldUsd != null && Number(v.planDraft.reserve) > v.heldUsd ? (
+                <span role="note" style={{ fontSize: "12.5px", color: "var(--fvc-8A5F25)" }}>
+                  That&apos;s more than everything read in your wallets (${Number(v.heldUsd).toLocaleString("en-US", { maximumFractionDigits: 2 })}), so nothing would count as spendable.
+                </span>
+              ) : null}
             </label>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <label
