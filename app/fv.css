@@ -459,7 +459,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 /* ---- Trade: chart + order ticket ---- */
 .fv-trade-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;align-items:start}
-.fv-trade-layout>.fv-market-panel{margin:0;min-width:0}
+.fv-trade-layout>.fv-market-panel{margin:0;min-width:0}.fv-trade-layout>.fv-ticket{margin-top:0}
 .fv-ticket{display:grid;gap:12px;padding:18px!important;position:sticky;top:16px}
 .fv-ticket-side{display:grid!important;grid-template-columns:1fr 1fr}
 .fv-ticket-side button{justify-content:center;font-weight:600;padding:10px}
@@ -940,7 +940,6 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-fund-offer>small{font-size:12px}
 .fv-fund-more{margin-top:10px;text-align:left}
 .fv-fund-more>summary{cursor:pointer;font-size:13px;color:var(--fvc-3F6B3C);padding:6px 0}
-.fv-demo-note{margin:0 0 10px;padding:8px 12px;border-radius:10px;background:var(--fvb-F6EBDD);color:var(--fvc-6E4A1A);font-size:12.5px}
 .fv-demo-hash{display:block;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--fvc-8A9285)}
 /* Collect & send */
 .fv-collect{display:flex;flex-direction:column;gap:14px}
@@ -1291,7 +1290,13 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-locked-row>i{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:700;font-size:12px;background:var(--fvb-E2EAD6);color:var(--fvc-2F552D);flex:0 0 auto}
 .fv-locked-row>span{flex:1;display:flex;flex-direction:column}.fv-locked-row small{color:var(--fvc-6F786B);font-size:12px}.fv-locked-row b{font-variant-numeric:tabular-nums}
 .fv-tab-lock{margin-right:5px;vertical-align:-1px;opacity:.7}
-.fv-demo-note{margin:10px 0 0;padding:9px 12px;border-radius:10px;background:var(--fvb-FBF6EE);border:1px solid var(--fvb-EBD9BF);color:var(--fvc-7A521E);font-size:12.5px;line-height:1.45}
+.fv-demo-note{margin:12px 0;padding:9px 12px;border-radius:10px;background:var(--fvb-FBF6EE);border:1px solid var(--fvb-EBD9BF);color:var(--fvc-7A521E);font-size:12.5px;line-height:1.45}
+.fv-demo-note:last-child{margin-bottom:0}
+/* In flex columns the gap already spaces the note; margins would add to it on one side only. */
+.fv-chat-card>.fv-demo-note,.fv-demo-perps>.fv-demo-note,.fv-stake-flow>.fv-demo-note,.fv-stake-summary>.fv-demo-note{margin:0}
+/* Page-level banner: the same space above and below. */
+.fv-page-heading:has(+.fv-demo-note),.fv-borrow-toolbar:has(+.fv-demo-note){margin-bottom:20px}
+.fv-page-heading+.fv-demo-note,.fv-borrow-toolbar+.fv-demo-note{margin:0 0 20px}
 .fv-demo-unstake{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}.fv-demo-unstake input{flex:0 1 200px;padding:9px 12px;border-radius:10px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-FFFFFF);color:var(--fvc-1E2A22);font-size:14px}
 .fv-demo-perps{margin-top:16px;padding:20px;border-radius:18px;display:flex;flex-direction:column;gap:12px}
 .fv-demo-perps h3{margin:0;font-size:16px}
