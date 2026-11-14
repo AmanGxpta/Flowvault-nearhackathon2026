@@ -84,7 +84,7 @@ export const policySchema = z.object({
 export type Policy = z.infer<typeof policySchema>;
 export interface PolicyAction {
   id?: string;
-  chain?: "near" | "base" | "arb" | "bnb" | "eth";
+  chain?: "near" | "base" | "arb" | "bnb" | "eth" | "pol";
   kind: string;
   asset: string;
   amount: string;
