@@ -259,6 +259,29 @@ export const TOOLS = [
     },
   }),
   def({
+    name: "get_opportunities", label: "Looking at today's opportunities",
+    description: "What the owner could do today: the highest Rhea supply rates right now, the LiNEAR staking rate, tokens trending on DexScreener (liquid ones only, display data, not recommendations), and suggestions built from the owner's holdings (idle stablecoins, NEAR to stake). Use for 'highest yield', 'what are people farming', 'what's trending', 'what should I do today'.",
+    input: z.object({}).strict(),
+    async run(ctx) {
+      const [m, st, h, trend] = await Promise.all([
+        ctx.reads.markets().catch(() => null), ctx.reads.staking().catch(() => null), ctx.reads.holdings().catch(() => null),
+        fetch("https://api.dexscreener.com/token-boosts/top/v1", { signal: AbortSignal.timeout(6000) }).then((r) => r.json()).catch(() => null),
+      ]);
+      const topRates = (m?.rows ?? []).filter((r) => r.canSupply && r.supplyApy !== null).sort((a, b) => (b.supplyApy ?? 0) - (a.supplyApy ?? 0)).slice(0, 6).map((r) => ({ symbol: r.symbol, supplyApy: r.supplyApy, utilization: r.utilization, venue: "Rhea Lending (NEAR)" }));
+      const linear = st?.options.find((o) => o.venue === "linear")?.apy ?? null;
+      const boosted = Array.isArray(trend) ? (trend as { chainId?: string; tokenAddress?: string; description?: string }[]).slice(0, 12).map((t) => ({ chain: String(t.chainId ?? ""), address: String(t.tokenAddress ?? "") })) : [];
+      const { todayCards } = await import("./today.ts");
+      const held = (h?.rows ?? []).filter((r) => r.kind === "wallet" && r.catalogId).map((r) => ({ tokenId: r.catalogId!, symbol: r.asset, network: r.network, amount: Number(r.amount), usd: r.usd !== null ? Number(r.usd) : null }));
+      const cards = todayCards({ holdings: held, rates: (m?.rows ?? []).map((r) => ({ tokenId: r.tokenId, symbol: r.symbol, supplyApy: r.supplyApy })), stakeApy: linear !== null ? Number(linear) : null, held24h: {}, trending: [] });
+      return { result: {
+        ratesAreVariable: true, capturedAt: m?.capturedAt ?? null, topSupplyRates: topRates, linearStakingApy: linear,
+        trendingOnDexScreener: { tokens: boosted, note: "Promoted ('boosted') tokens on DexScreener. Popularity, not safety or a recommendation; FlowVault can't see what other people are farming." },
+        forYou: cards.map((c) => ({ title: c.title, detail: c.body, action: c.cta })),
+        coverage: "Yields cover Rhea Lending and LiNEAR staking that FlowVault can execute. Other chains' protocols are not read yet.",
+      }, cards: [] };
+    },
+  }),
+  def({
     name: "get_staking", label: "Reading staking options",
     description: "Supported NEAR staking (LiNEAR liquid staking, native validators): APY, exit timing, and the owner's staking positions, including amounts that are unstaking or ready to claim.",
     input: z.object({}).strict(),

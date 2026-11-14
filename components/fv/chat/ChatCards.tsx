@@ -228,7 +228,8 @@ function LendChatCard({ card, env }: { card: Card<"lend">; env: CardEnv }) {
       draftKey={card.id + ":" + assistantVersion} close={() => void env.refresh()} onSettled={env.onSettled}
       onDraft={(d) => { if (d.action !== p.action || (d.amount || null) !== p.amount) void env.edit(card, { action: d.action, amount: d.amount && /^\d+(\.\d+)?$/.test(d.amount) ? d.amount : null }); }}
       onAttempt={(a) => void env.link(card, { attemptId: a.id })}
-      disabledReason={env.example ? "Example workspace: nothing can be signed. Switch to Personal to use Rhea." : !env.owner ? "Connect your NEAR wallet to review this." : null} />
+      disabledReason={env.example ? "Example workspace: nothing can be signed. Switch to Personal to use Rhea." : !env.owner ? "Connect your NEAR wallet to review this." : null}
+      fund={p.action === "supply" ? { owner: env.owner, example: env.example, connect: env.connect, onFlow: (id) => { const u = new URL(window.location.href); u.searchParams.set("tab", "supply"); u.searchParams.set("sflow", id); history.replaceState(null, "", u); env.navigate("earn"); } } : undefined} />
   </div>;
 }
 

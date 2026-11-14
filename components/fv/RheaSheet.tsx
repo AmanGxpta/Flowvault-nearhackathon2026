@@ -80,7 +80,7 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
   const fraction = (n: bigint) => { if (!max || !pos) return; try { const raw = units(max, pos.decimals) * n / 100n; const s = raw.toString().padStart(pos.decimals + 1, "0"); const v = (s.slice(0, -pos.decimals) + "." + s.slice(-pos.decimals)).replace(/\.?0+$/, ""); setAmount(v || "0"); } catch { /* unreadable balance */ } };
   const hasMax = !!max && Number(max) > 0;
   // Supplying a token you don't hold: offer the swap instead of an amount you can't fund.
-  const offerFund = !!fund && !inline && mode === "earn" && action === "supply" && tokenId !== WRAP;
+  const offerFund = !!fund && mode === "earn" && action === "supply" && tokenId !== WRAP;
   const emptyWallet = (fund?.example && !pos) || !!pos && (() => { try { return units(pos.wallet || "0", pos.decimals) === 0n; } catch { return !(Number(pos.wallet) > 0); } })();
   const valid = (() => { try { return !!pos && units(amount, pos.decimals) > 0n; } catch { return false; } })();
 
