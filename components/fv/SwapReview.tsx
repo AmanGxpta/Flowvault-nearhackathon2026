@@ -26,7 +26,9 @@ const explorerFor = (network: string, h: string) => h.startsWith("0x") ? (EXPLOR
 const short = (a?: string) => !a ? "" : a.length > 18 ? a.slice(0, 8) + "…" + a.slice(-6) : a;
 const NET: Record<string, string> = { near: "NEAR", eth: "Ethereum", base: "Base", arb: "Arbitrum", sol: "Solana", bsc: "BNB Chain" };
 
-export function SwapReview({ from, to, amount, slippage, close, onSettled, route = "ref", sender, recipient, inline, onAttempt, resumeId, journey }: { from: SwapToken; to: SwapToken; amount: string; slippage: number; close: () => void; onSettled: () => void; route?: "ref" | "intents"; sender?: string; recipient?: string; inline?: boolean; onAttempt?: (a: WalletAttempt) => Promise<void> | void; resumeId?: string; journey?: "stake" }) {
+export function SwapReview({ from, to, amount, slippage, close, onSettled, route = "ref", sender, recipient, inline, onAttempt, resumeId, journey, payTo }: { from: SwapToken; to: SwapToken; amount: string; slippage: number; close: () => void; onSettled: () => void; route?: "ref" | "intents"; sender?: string; recipient?: string; inline?: boolean; onAttempt?: (a: WalletAttempt) => Promise<void> | void; resumeId?: string; journey?: "stake";
+  /** Deliver to someone else's address (collect and send); the recipient is checked against your permissions. */
+  payTo?: boolean }) {
   const intents = route === "intents";
   const explorer = (h: string) => explorerFor(from.network, h);
   const [phase, setPhase] = useState<Phase>("preparing");
@@ -55,7 +57,7 @@ export function SwapReview({ from, to, amount, slippage, close, onSettled, route
     try {
       const restore = initialResumeId.current && !restored.current;
       restored.current = true;
-      const r = await api("/api/swap/execute", restore ? {action:"resume",id:initialResumeId.current} : { action: "prepare", route, from: from.id, to: to.id, amount, slippage, ...(intents ? { sender, recipient } : {}) }) as Prepared;
+      const r = await api("/api/swap/execute", restore ? {action:"resume",id:initialResumeId.current} : { action: "prepare", route, from: from.id, to: to.id, amount, slippage, ...(intents ? { sender, recipient, ...(payTo ? { payTo: true } : {}) } : {}) }) as Prepared;
       if (!alive.current) return;
       if (!restore) await onAttemptRef.current?.(r.attempt);
       if (!alive.current) return;

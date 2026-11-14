@@ -50,14 +50,20 @@ export const GAS_USD: Record<string, number> = { near: 0.002, sol: 0.002, base: 
 const pow = (d: number) => 10 ** d;
 const toNumber = (raw: string, decimals: number) => Number(raw) / pow(decimals);
 const toRaw = (amount: number, decimals: number) => {
-  const d = Math.min(decimals, 9), scaled = Math.floor(amount * pow(d));
+  const d = Math.min(decimals, 6), scaled = Math.floor(amount * pow(d));
   return (BigInt(scaled) * 10n ** BigInt(decimals - d)).toString();
 };
 
-/** What a source can contribute at most, in base units (native coins keep gas back). */
+/** Swaps take at most 6 decimal places: amounts are rounded down to that. */
+export function floor6(raw: bigint, decimals: number) {
+  if (decimals <= 6) return raw;
+  const step = 10n ** BigInt(decimals - 6);
+  return (raw / step) * step;
+}
+/** What a source can contribute at most, in base units (native coins keep gas back), at 6 decimal places. */
 export function spendableRaw(s: CollectSource) {
   const b = BigInt(s.balanceRaw);
-  return s.native ? (b * BigInt(10_000 - NATIVE_KEEP_BPS)) / 10_000n : b;
+  return floor6(s.native ? (b * BigInt(10_000 - NATIVE_KEEP_BPS)) / 10_000n : b, s.decimals);
 }
 export const usdOf = (s: CollectSource, raw: string) => (s.price === null ? 0 : toNumber(raw, s.decimals) * s.price);
 const netUsd = (inUsd: number) => inUsd * (1 - ROUTE_COST_BPS / 10_000);

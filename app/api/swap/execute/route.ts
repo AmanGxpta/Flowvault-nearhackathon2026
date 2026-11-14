@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     mutation(request);
     const s = await session(request);
     const b = z.discriminatedUnion("action", [
-      z.object({ action: z.literal("prepare"), route: z.enum(["ref", "intents"]).default("ref"), from: z.string().max(200), to: z.string().max(200), amount: z.string().max(80), slippage: z.number().int(), sender: z.string().max(120).optional(), recipient: z.string().max(120).optional() }),
+      z.object({ action: z.literal("prepare"), route: z.enum(["ref", "intents"]).default("ref"), from: z.string().max(200), to: z.string().max(200), amount: z.string().max(80), slippage: z.number().int(), sender: z.string().max(120).optional(), recipient: z.string().max(120).optional(), payTo: z.boolean().optional() }),
       z.object({ action: z.literal("resume"), id: z.string().uuid() }),
       z.object({ action: z.literal("allow"), id: z.string().uuid(), revision: z.number().int() }),
     ]).parse(await request.json());

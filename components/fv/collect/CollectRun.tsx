@@ -82,7 +82,7 @@ export function CollectRun({ legs, dest, recipient, target, owner, example, back
         <div><span>Arrives as</span><strong>{v.deliveredUsd !== null ? fmtAmount(String(v.deliveredUsd / Number(dest.price ?? 1)), 4) : "≈ " + fmtAmount(String(l.outUsd / Number(dest.price ?? 1)), 4)} {dest.symbol}{v.destHash ? <> · <HashText h={v.destHash} network={dest.network} example={example} /></> : null}</strong></div>
       </div>}
       {!example && i === active && v.state === "signing" && t && <div className="fv-collect-sign">
-        <SwapReview inline from={t} to={dest} amount={decimal(BigInt(l.amountRaw), l.source.decimals)} slippage={100} route="intents" sender={l.source.account} recipient={recipient}
+        <SwapReview inline from={t} to={dest} amount={decimal(BigInt(l.amountRaw), l.source.decimals)} slippage={100} route="intents" payTo sender={l.source.account} recipient={recipient}
           close={() => undefined} onSettled={() => setActive((n) => n + 1)} onAttempt={(a) => { setAttempts((m) => ({ ...m, [l.key]: a.id })); }} />
       </div>}
     </li>; })}</ol>

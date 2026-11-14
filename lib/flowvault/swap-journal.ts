@@ -222,16 +222,27 @@ function ownWallet(w: import("./types.ts").Workspace, network: string, address: 
   return null;
 }
 
-export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], body: { from?: string; to?: string; amount?: string; slippage?: number; sender?: string; recipient?: string }) {
+/** A third-party address on a network, for paying someone directly (collect and send). */
+function payeeAddress(network: string, address: string | undefined) {
+  const a = (address ?? "").trim();
+  if (["eth", "base", "arb", "bsc", "pol", "op", "avax", "gnosis"].includes(network)) return /^0x[0-9a-fA-F]{40}$/.test(a) ? a : null;
+  if (network === "near") return /^(?=.{2,64}$)[a-z\d]+(?:[._-][a-z\d]+)*$/.test(a) || /^[0-9a-f]{64}$/.test(a) ? a : null;
+  if (network === "sol") return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a) ? a : null;
+  return null;
+}
+
+export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], body: { from?: string; to?: string; amount?: string; slippage?: number; sender?: string; recipient?: string; payTo?: boolean }) {
   const s = await session(request);
   if (s.workspace.mode !== "live" || !s.workspace.accountId || s.slot !== "personal" || s.account !== s.workspace.accountId)
     throw new Error("Connect and sign in with your NEAR wallet to swap inside FlowVault.");
   const from = tokens.find(t => t.id === body.from), to = tokens.find(t => t.id === body.to);
   if (!from?.assetId || !to?.assetId || from.id === to.id) throw new Error("NEAR Intents doesn't list this pair.");
   if (!INTENTS_ORIGINS.includes(from.network)) throw new Error("In-app NEAR Intents swaps start from NEAR, Ethereum, Base or Arbitrum.");
-  const sender = ownWallet(s.workspace, from.network, body.sender), recipient = ownWallet(s.workspace, to.network, body.recipient);
+  // Paying someone directly (collect and send) delivers to their address; the recipient is then checked against
+  // the policy's recipient allowlist below, like any payment. Otherwise swaps deliver only to your own wallets.
+  const sender = ownWallet(s.workspace, from.network, body.sender), recipient = body.payTo ? payeeAddress(to.network, body.recipient) : ownWallet(s.workspace, to.network, body.recipient);
   if (!sender) throw new Error(`Connect and prove the ${from.network} wallet that holds ${from.symbol} first.`);
-  if (!recipient) throw new Error(`Connect and prove a wallet on ${to.network} to receive ${to.symbol}. FlowVault only delivers to your own wallets.`);
+  if (!recipient) throw new Error(body.payTo ? `That isn't a valid ${to.network} address to pay.` : `Connect and prove a wallet on ${to.network} to receive ${to.symbol}. FlowVault only delivers to your own wallets.`);
   const amountRaw = swapAmount(String(body.amount ?? ""), from);
   const bps = Number(body.slippage);
   if (!Number.isInteger(bps) || bps < 10 || bps > 500) throw new Error("Slippage must be between 0.1% and 5%.");
@@ -278,6 +289,7 @@ export async function prepareIntentsSwap(request: Request, tokens: SwapToken[], 
   };
   preparation.policyAction = intentsPolicyAction(preparation, gasUsd6, gasNear);
   const policy = s.workspace.policy ?? defaultPolicy();
+  if (body.payTo) preparation.policyAction.recipient = policy.recipients.find((r) => r.toLowerCase() === recipient.toLowerCase()) ?? recipient;
   const check = evaluatePolicy(preparation.policyAction, policy, await readLedger(s.id), now);
   const missing = intentsPolicyEntries(preparation).filter(e => e.type === "venue" ? !policy.venues.includes(e.venue) : !policy.methods.some(m => m.receiver === e.receiver && m.method === e.method));
   const earlierOpen = await closedButWatched(s.id, sender);

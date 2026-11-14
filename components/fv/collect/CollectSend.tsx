@@ -10,7 +10,7 @@ import { coreIdentity, useTokenCatalog } from "../useTokenCatalog";
 import { useWalletBalances } from "../useWalletBalances";
 import { fmtAmount, fmtUsd } from "../swap-format";
 import { decimal, units } from "@/lib/flowvault/money";
-import { autoPick, amountForUsd, GAS_USD, spendableRaw, summarize, usdOf, type CollectPick, type CollectSource } from "@/lib/flowvault/collect";
+import { autoPick, amountForUsd, floor6, GAS_USD, spendableRaw, summarize, usdOf, type CollectPick, type CollectSource } from "@/lib/flowvault/collect";
 import { EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 import { CollectRun, type RunLeg } from "./CollectRun";
@@ -61,7 +61,7 @@ export function CollectSend({ owner: liveOwner, example, connect }: { owner: str
     edit([...picks, { key: s.key, amountRaw: amountForUsd(s, need) }]);
   };
   const move = (key: string, d: -1 | 1) => { const i = picks.findIndex((p) => p.key === key), j = i + d; if (i < 0 || j < 0 || j >= picks.length) return; const next = [...picks]; [next[i], next[j]] = [next[j], next[i]]; edit(next); };
-  const setAmountFor = (s: CollectSource, v: string) => { let raw = "0"; try { raw = units(v || "0", s.decimals).toString(); } catch { return; } const cap = spendableRaw(s); edit(picks.map((p) => p.key === s.key ? { ...p, amountRaw: (BigInt(raw) > cap ? cap : BigInt(raw)).toString() } : p)); };
+  const setAmountFor = (s: CollectSource, v: string) => { let raw = "0"; try { raw = units(v || "0", s.decimals).toString(); } catch { return; } const cap = spendableRaw(s), v6 = floor6(BigInt(raw), s.decimals); edit(picks.map((p) => p.key === s.key ? { ...p, amountRaw: (v6 > cap ? cap : v6).toString() } : p)); };
 
   const recipientOk = destToken ? validRecipient(destToken.network, recipient.trim()) : false;
   const destName = DESTINATIONS[dest].symbol + " on " + NET_NAME[DESTINATIONS[dest].network];
