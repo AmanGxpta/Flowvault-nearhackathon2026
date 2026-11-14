@@ -5,7 +5,7 @@
 // open on the last known state, and changes animate in place. Every action opens an existing flow; nothing executes
 // from this page. Demo Mode runs the same page on the example workspace.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, Bookmark, CalendarClock, Check, ChevronRight, Layers, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, Target, Wallet, Zap } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Bookmark, Check, ChevronRight, Layers, MoreHorizontal, Play, Plus, RefreshCw, Sparkles, Target, Wallet, Zap } from "lucide-react";
 import { api } from "../live";
 import { ago } from "../swap-format";
 import { useTokenCatalog } from "../useTokenCatalog";
@@ -16,6 +16,7 @@ import { HazardScan } from "../approvals/HazardScan";
 import { YieldsTable, type YieldRate } from "./YieldsTable";
 import { WatchlistCompact } from "./WatchlistCompact";
 import { Sparkline } from "./Sparkline";
+import { QuickPrompts } from "./QuickPrompts";
 import { LockedResearch, PublicResearch } from "./PublicResearch";
 import { AutomationBuilder, KIND_ICON } from "./AutomationBuilder";
 import { BriefCard, EventFeed, type Go } from "./AutomationFeed";
@@ -97,7 +98,7 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
   // ── automations ──
   const [builder, setBuilder] = useState<{ editing: Auto | null } | null>(null);
   const [running, setRunning] = useState<Set<string>>(new Set()), [flash, setFlash] = useState<string | null>(null), [leaving, setLeaving] = useState<Set<string>>(new Set());
-  const [briefBusy, setBriefBusy] = useState(false), [briefDone, setBriefDone] = useState<"idle" | "done" | "exists">("idle");
+  const [briefBusy, setBriefBusy] = useState(false);
   const autosRef = useRef<HTMLDivElement>(null), approvalsRef = useRef<HTMLDivElement>(null), researchRef = useRef<HTMLDivElement>(null), briefRef = useRef<HTMLDivElement>(null);
   const focus = (el: HTMLElement | null) => { if (!el) return; el.scrollIntoView({ behavior: "smooth", block: "start" }); el.classList.remove("fv-pulse"); void el.offsetWidth; el.classList.add("fv-pulse"); };
   async function save(draft: Pick<Automation, "kind" | "schedule" | "params">, id?: string) {
@@ -139,10 +140,6 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
     setBriefBusy(true); focus(briefRef.current);
     try { if (example) { await new Promise((r) => setTimeout(r, 900)); demoBriefNow(rateList(c.rates)); } else await call("/api/automations", { op: "brief_now", tzOffsetMin: tz() }); await loadAutos(); }
     catch (e) { setNote((e as Error).message); } finally { setBriefBusy(false); }
-  }
-  async function scheduleBrief() {
-    if (c.autos.some((a) => a.kind === "brief")) { setBriefDone("exists"); focus(autosRef.current); setTimeout(() => setBriefDone("idle"), 3000); return; }
-    try { await save(template("brief", tz())); setBriefDone("done"); setTimeout(() => setBriefDone("idle"), 3500); } catch (e) { setNote((e as Error).message); }
   }
   const dismiss = async (id: string) => { if (example) demoEventStatus(id, "dismissed"); else await call("/api/automations", { op: "event", id, status: "dismissed" }).catch(() => null); await loadAutos(); };
 
@@ -196,11 +193,7 @@ export function ResearchHub({ v }: { v: any }) { // eslint-disable-line @typescr
           <Sparkles size={17} /><input value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="Ask FlowVault anything about your capital, markets, automations, or next moves" aria-label="Ask FlowVault" />
           <button type="submit" aria-label="Ask"><ArrowRight size={16} /></button>
         </form>
-        <div className="fv-hub-quick">
-          <button type="button" className={briefDone !== "idle" ? "is-done" : ""} onClick={() => (locked ? connect() : void scheduleBrief())}>{briefDone === "idle" ? <CalendarClock size={16} /> : <Check size={16} />}<span key={briefDone} className="fv-fadein">{briefDone === "done" ? "Brief scheduled · 8:00 AM" : briefDone === "exists" ? "Already scheduled" : "Brief me at 8 AM"}</span><ChevronRight size={15} /></button>
-          <button type="button" onClick={() => (locked ? connect() : setBuilder({ editing: null }))}><Zap size={16} /><span>Create automation</span><ChevronRight size={15} /></button>
-          <button type="button" onClick={() => (locked ? connect() : (setTab("Strategies"), focus(researchRef.current)))}><Layers size={16} /><span>Find a strategy</span><ChevronRight size={15} /></button>
-        </div>
+        <QuickPrompts ask={(text) => v.askQuestion?.(text)} />
       </div>
     </section>;
   if (locked) return <div className="fv-hub fv-fadein">
@@ -285,7 +278,15 @@ function Stat({ i, icon, label, value, sub, badge, live, trend, onClick }: { i: 
 }
 function AutoMenu({ edit, remove }: { edit: () => void; remove: () => void }) {
   const [open, setOpen] = useState(false);
-  return <span className="fv-auto-menu"><button type="button" className="fv-icon-button" aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}><MoreHorizontal size={16} /></button>
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", away); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return <span className="fv-auto-menu" ref={ref}><button type="button" className="fv-icon-button" aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}><MoreHorizontal size={16} /></button>
     {open && <span className="fv-auto-menu-list fv-pop" role="menu"><button type="button" role="menuitem" onClick={() => { setOpen(false); edit(); }}>Edit</button><button type="button" role="menuitem" onClick={() => { setOpen(false); remove(); }}>Delete</button></span>}</span>;
 }
 function Strategy({ i, art, title, body, yieldText, risk, why, cta, onClick }: { i: number; art: "coins" | "steps" | "arc"; title: string; body: string; yieldText: string; risk: string; why: string; cta: string; onClick: () => void }) {
