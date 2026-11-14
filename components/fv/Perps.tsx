@@ -34,7 +34,7 @@ const btn: React.CSSProperties = { padding: "7px 12px", borderRadius: "9px", bor
 const muted: React.CSSProperties = { color: "var(--fvc-5B6458)", fontSize: "12.5px", lineHeight: 1.45 };
 const input: React.CSSProperties = { padding: "6px 8px", borderRadius: "8px", border: "1px solid var(--fvb-E3E6DB)", background: "var(--fvb-FFFFFF)", color: "var(--fvc-1E2A22)", fontSize: "12.5px", minWidth: 0 };
 
-export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onNavigate }: { scope: Scope; onNavigate?: (view: string) => void; selectedMarket?: string; onMarket?: (coin: string) => void; onShare?: (value: { title: string; subtitle: string; lines: string[]; amount?: string }) => void; draft?: { coin: string; side: string; size: string; leverage: string; kind: string; price: string; n: number } | null }) {
+export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onNavigate, connect }: { scope: Scope; connect?: () => void; onNavigate?: (view: string) => void; selectedMarket?: string; onMarket?: (coin: string) => void; onShare?: (value: { title: string; subtitle: string; lines: string[]; amount?: string }) => void; draft?: { coin: string; side: string; size: string; leverage: string; kind: string; price: string; n: number } | null }) {
   const [st, setSt] = useState<State | null>(null);
   const [mandates, setMandates] = useState<MandateLite[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -153,7 +153,7 @@ export function PerpsCard({ scope, onShare, selectedMarket, onMarket, draft, onN
       </p>
       {err ? <p role="alert" style={muted}>Couldn’t read perpetuals: {err}</p> : null}
       {note ? <p role="status" style={{ ...muted, color: "var(--fvc-1E2A22)" }}>{note}</p> : null}
-      {st && !st.accounts.length ? <p style={muted}>Connect and prove an Ethereum wallet to see its Hyperliquid account.</p> : null}
+      {st && !st.accounts.length ? <p style={muted}>Connect and prove an Ethereum wallet to see its Hyperliquid account.{connect ? <> <button type="button" className="fv-button fv-primary" style={{ marginLeft: 8 }} onClick={connect}>Connect wallet</button></> : null}</p> : null}
       {st && !st.agentsAvailable ? <p style={{ ...muted, color: "var(--fvc-8A5F25)" }}>Trading setup is incomplete for this installation. Position reads remain available; withdrawals require your connected wallet and an eligible balance.</p> : null}
       {st?.accounts.map((a) => {
         const s = a.snapshot;

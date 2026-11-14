@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Check, Circle, ShieldCheck } from "lucide-react";
+import { Check, Circle, ShieldCheck, Wallet } from "lucide-react";
 import { api, type Scope } from "./live";
 import { useLiveMarket } from "./useLiveMarket";
 import { fmtUsd } from "./swap-format";
@@ -11,21 +11,22 @@ const PRESETS = ["25", "50", "100", "250"];
 
 /** Always-visible perps ticket. Live notional, margin and an estimated liquidation price from the Hyperliquid mid.
  * Execution stays with the owner-configured agent flow: the button walks the setup steps, and once trading is
- * ready it hands a draft to the existing review (mandate limits, fresh checks) below. Nothing is sent from here. */
-export function OrderTicket({ coin, scope, onDraft, example }: { coin: string; scope: Scope; onDraft: (d: OrderDraft) => void; example: boolean }) {
+ * ready it hands a draft to the existing review (mandate limits, fresh checks) below. Nothing is sent from here.
+ * Without a connected wallet (`connect` given) there are no setup steps: one Connect wallet button opens the modal. */
+export function OrderTicket({ coin, scope, onDraft, example, connect }: { coin: string; scope: Scope; onDraft: (d: OrderDraft) => void; example: boolean; connect?: () => void }) {
   const { data } = useLiveMarket(coin, "15m", 0);
   const mid = data?.mid ? Number(data.mid) : null;
   const [side, setSide] = useState<"buy" | "sell">("buy"), [usd, setUsd] = useState("50"), [lev, setLev] = useState(5), [margin, setMargin] = useState<"cross" | "isolated">("isolated");
   const [kind, setKind] = useState<"market" | "limit">("market"), [price, setPrice] = useState(""), [tp, setTp] = useState(""), [sl, setSl] = useState("");
   const [ready, setReady] = useState<{ key: boolean; wallet: boolean; funded: boolean; linked: boolean; mandate: boolean } | null>(null);
   useEffect(() => {
-    if (example) return;
+    if (example || connect) return;
     Promise.all([api("/api/perps", undefined, "GET", scope), api("/api/mandates", undefined, "GET", scope)]).then(([p, m]) => {
       const accts = (p.accounts ?? []) as { master: string; funded?: boolean; link?: { status: string } | null }[];
       const mands = ((m.mandates ?? []) as { state: string; frozen?: boolean; authority: { kind: string } }[]).filter(x => x.authority?.kind === "hyperliquid_agent");
       setReady({ key: !!p.agentsAvailable, wallet: accts.length > 0, funded: accts.some(a => a.funded), linked: accts.some(a => a.link?.status === "verified"), mandate: mands.some(x => x.state === "active" && !x.frozen) });
     }).catch(() => setReady({ key: false, wallet: false, funded: false, linked: false, mandate: false }));
-  }, [scope, example]);
+  }, [scope, example, connect]);
   const max = MAX_LEV[coin] ?? 10;
   const leverage = Math.min(lev, max);
   const entry = kind === "limit" && Number(price) > 0 ? Number(price) : mid;
@@ -66,9 +67,10 @@ export function OrderTicket({ coin, scope, onDraft, example }: { coin: string; s
       {sl && entry && <div><span>SL loss (est.)</span><strong className="fv-down">{fmtUsd((Number(sl) - entry) * size * (side === "buy" ? 1 : -1))}</strong></div>}
     </div>
     {example ? <button type="button" className={"fv-button fv-wide-button fv-ticket-go " + (side === "buy" ? "is-long" : "is-short")} disabled>Example mode can’t trade</button>
+      : connect ? <button type="button" className="fv-button fv-primary fv-wide-button fv-ticket-go" onClick={connect}><Wallet size={15} /> Connect wallet</button>
       : allReady ? <button type="button" className={"fv-button fv-primary fv-wide-button fv-ticket-go " + (side === "buy" ? "is-long" : "is-short")} disabled={!valid} onClick={submit}>Review {side === "buy" ? "long" : "short"} {coin}</button>
       : <button type="button" className="fv-button fv-wide-button" onClick={() => document.getElementById("fv-perps-review")?.scrollIntoView({ behavior: "smooth" })} disabled={!ready}>{ready ? `Finish setup to trade · ${steps.filter(x => !x.done).length} of ${steps.length} left` : "Checking setup…"}</button>}
-    {ready && !allReady && !example && <ol className="fv-ticket-steps">{steps.map(s => <li key={s.label} className={s.done ? "is-done" : ""}>{s.done ? <Check size={13} /> : <Circle size={13} />}<span>{s.label}{!s.done && <small>{s.hint}</small>}</span></li>)}</ol>}
+    {ready && !allReady && !example && !connect && <ol className="fv-ticket-steps">{steps.map(s => <li key={s.label} className={s.done ? "is-done" : ""}>{s.done ? <Check size={13} /> : <Circle size={13} />}<span>{s.label}{!s.done && <small>{s.hint}</small>}</span></li>)}</ol>}
     <p className="fv-ticket-note"><ShieldCheck size={13} /> Orders run through your signed mandate limits. FlowVault’s agent can trade but never withdraw.</p>
   </section>;
 }
