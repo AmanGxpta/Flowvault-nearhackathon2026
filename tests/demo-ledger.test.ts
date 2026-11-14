@@ -125,3 +125,15 @@ test("Aave: collateral within what the wallet holds, borrowing capped by stresse
   l = applyAave(l, key, "repay", { id: "usdc", symbol: "USDC", price: 1 }, 1000, assets, 900);
   assert.equal(l.aave![key].debt, 0);
 });
+
+test("approved sales: quote within limits and holdings, then the sale delivers exactly the net USDC", async () => {
+  const { applySalePermission, saleQuote, applySale } = await import("../lib/flowvault/demo-ledger.ts");
+  const perm = { asset: WNEAR_ID, symbol: "wNEAR", maxQty: 20, maxValue: 100, slippageBps: 100, priority: "P2" };
+  const l = applySalePermission(seedLedger(), perm);
+  const q = saleQuote(l, perm, 3.2, 30);
+  assert.ok(q.ok);
+  assert.ok(q.ok && Math.abs(q.qty - 30 / 0.997 / (3.2 * 0.99)) < 1e-9);
+  assert.equal(saleQuote(l, perm, 3.2, 200).ok, false);
+  const after = applySale(l, perm, q.ok ? q.qty : 0, 30);
+  assert.equal(after.wallet[USDC_ID], 34);
+});

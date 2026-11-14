@@ -7,6 +7,7 @@ import {AAVE_MARKETS,type AaveChain} from "@/lib/flowvault/aave-markets";
 import {units} from "@/lib/flowvault/money";
 import {api,type Scope} from "./live";
 import {openPlan} from "./PlanDock";
+import {DemoSales} from "./demo/DemoSales";
 const NEAR:VenueAsset[]=[{id:"wrap.near",symbol:"wNEAR",decimals:24,chain:"near"},{id:"linear-protocol.near",symbol:"LiNEAR",decimals:24,chain:"near"},{id:"lst.rhealab.near",symbol:"rNEAR",decimals:24,chain:"near"},{id:"usdt.tether-token.near",symbol:"USDT",decimals:6,chain:"near"}];
 /** Explicit asset policy approval. No sale is authorized by opening or saving this form. */
 export function ApprovedAssetSales({scope,accounts}:{scope:Scope;accounts:LinkedAccount[]}){
@@ -31,7 +32,7 @@ export function ApprovedAssetSales({scope,accounts}:{scope:Scope;accounts:Linked
   return <section aria-label="Approved asset sale funding" style={{marginTop:20,padding:16,border:"1px solid var(--fvb-E3E6DB)",borderRadius:12,background:"var(--fvb-FFFFFF)",color:"var(--fvc-1E2A22)"}}>
     <h3>Approved asset sales</h3>
     <p>Sell only explicitly approved assets for a net USDC amount. Unsupported or illiquid routes remain unavailable. Acquisition history missing: realized PnL is not computed.</p>
-    {scope==="example"?<p>Example mode cannot create live sale permissions or transactions.</p>:<>
+    {scope==="example"?<DemoSales/>:<>
       {!canSave&&<p>Connect and sign in to your workspace’s NEAR account before saving sale permissions.</p>}
       <fieldset disabled={busy||!canSave}>
         <legend>Approve a sale limit</legend>

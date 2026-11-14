@@ -30,6 +30,8 @@ export interface DemoLedger {
   vaults?: Record<string, { shares: number; requests: DemoVaultRequest[]; pps?: number }>;
   /** Aave v3 per "chain:account": collateral by asset id, USDC debt, and USDC borrowed into (or repaid from) the wallet. */
   aave?: Record<string, { collateral: Record<string, number>; debt: number; usdcWallet: number }>;
+  /** Approved-asset sale limits saved in the example's policy this session. */
+  sales?: DemoSalePermission[];
   activity: { at: number; text: string }[];
 }
 /** What a market looks like right now (from the public Rhea read): USD price, volatility ratio 0–1, rates, liquidity. */
@@ -438,4 +440,36 @@ export function demoAaveSnapshot(l: DemoLedger, key: string, market: { collatera
     liquidation: { exposed: p.debt > 0, thresholdHealth: "1", reasons: [] as string[] },
     exit: { instant: true, reasons: [] as string[] }, reasons: [] as string[],
   };
+}
+
+export interface DemoSalePermission { asset: string; symbol: string; maxQty: number; maxValue: number; slippageBps: number; priority: string }
+/** Sale routing cost in the demo (1Click / Ref): taken from the proceeds, so the sale sells a little more. */
+export const SALE_FEE = 0.003;
+export function applySalePermission(l: DemoLedger, p: DemoSalePermission, now = Date.now()): DemoLedger {
+  if (!(p.maxQty > 0) || !(p.maxValue > 0)) throw new Error("Choose a maximum quantity and a maximum USDC value.");
+  const n = clone(l);
+  n.sales = [...(n.sales ?? []).filter((x) => x.asset !== p.asset), p];
+  n.activity.unshift({ at: now, text: `Allowed selling up to ${fmt(p.maxQty)} ${p.symbol} (≤ $${fmt(p.maxValue)}, ${p.slippageBps / 100}% slippage) in the policy` });
+  return n;
+}
+/** How much of an asset the example holds for a sale (NEAR keeps its fee reserve). */
+export function saleHeld(l: DemoLedger, asset: string) {
+  return asset === WNEAR_ID ? Math.max(0, (l.wallet[WNEAR_ID] ?? 0) - GAS_RESERVE_NEAR) : asset === "linear-protocol.near" ? l.staking.linear : asset === "lst.rhealab.near" ? l.staking.rnear : l.wallet[asset] ?? 0;
+}
+/** What it takes to receive exactly `net` USDC by selling one approved asset, or why it can't. */
+export function saleQuote(l: DemoLedger, p: DemoSalePermission, price: number | null, net: number) {
+  if (!price) return { ok: false as const, why: "No price right now" };
+  const worst = price * (1 - p.slippageBps / 10_000), qty = net / (1 - SALE_FEE) / worst, value = qty * price, held = saleHeld(l, p.asset);
+  const why = qty > held + 1e-9 ? `Needs ${fmt(qty)} ${p.symbol}; the example holds ${fmt(held)}` : qty > p.maxQty + 1e-9 ? `Above your ${fmt(p.maxQty)} ${p.symbol} limit` : value > p.maxValue + 1e-9 ? `Above your $${fmt(p.maxValue)} limit` : null;
+  return why ? { ok: false as const, why } : { ok: true as const, qty, value, cost: value - net };
+}
+export function applySale(l: DemoLedger, p: DemoSalePermission, qty: number, net: number, now = Date.now()): DemoLedger {
+  const n = clone(l);
+  if (p.asset === WNEAR_ID) n.wallet[WNEAR_ID] = round((n.wallet[WNEAR_ID] ?? 0) - qty);
+  else if (p.asset === "linear-protocol.near") n.staking.linear = round(n.staking.linear - qty);
+  else if (p.asset === "lst.rhealab.near") n.staking.rnear = round(n.staking.rnear - qty);
+  else n.wallet[p.asset] = round((n.wallet[p.asset] ?? 0) - qty);
+  n.wallet[USDC_ID] = round((n.wallet[USDC_ID] ?? 0) + net);
+  n.activity.unshift({ at: now, text: `Sold ${fmt(qty)} ${p.symbol} for exactly ${fmt(net)} USDC` });
+  return n;
 }

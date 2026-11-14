@@ -163,7 +163,9 @@ function overlay(p: Plan, sim: Sim): Plan {
 
 export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
   const [planRaw, setPlan] = useState<Plan | null>(null);
-  const [sim, setSim] = useState<Sim>({});
+  // Kept in this tab, so a settled example plan stays settled (and its pill gone) after a reload.
+  const [sim, setSim] = useState<Sim>(() => { try { return JSON.parse(sessionStorage.getItem("fv-demo-plan-sim") ?? "{}") as Sim; } catch { return {}; } });
+  useEffect(() => { try { sessionStorage.setItem("fv-demo-plan-sim", JSON.stringify(sim)); } catch { /* lives for this page */ } }, [sim]);
   const plan = planRaw && planRaw.source === "demo" ? overlay(planRaw, sim) : planRaw;
   const [active, setActive] = useState<Plan[]>([]);
   const [open, setOpen] = useState(false);
@@ -213,6 +215,7 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
       setOpen(true);
       if (d.plan) setPlan(d.plan);
       const id = d.planId ?? d.plan?.id;
+      if (id) setSim((m) => (m[id + ":__opened"] ? m : { ...m, [id + ":__opened"]: { state: "opened", message: "" } }));
       if (id) void refresh(id).catch((x) => setError(x instanceof Error ? x.message : String(x)));
       void loadActive();
       setTimeout(() => panel.current?.focus(), 30);
@@ -345,7 +348,9 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
   };
 
   if (!open) {
-    const live = active.filter((p) => !["completed", "cancelled", "expired", "superseded", "blocked", "failed"].includes(p.state) || p.steps.some((s) => IN_FLIGHT.includes(s.state)));
+    // Example plans count as finished once their simulated steps are done.
+    // An example plan only nags while it was opened in this tab and isn't finished.
+    const live = active.filter((p) => p.source !== "demo" || !!sim[p.id + ":__opened"]).map((p) => (p.source === "demo" ? overlay(p, sim) : p)).filter((p) => !["completed", "cancelled", "expired", "superseded", "blocked", "failed"].includes(p.state) || p.steps.some((s) => IN_FLIGHT.includes(s.state)));
     if (!live.length) return null;
     const p = live[0];
     return (
