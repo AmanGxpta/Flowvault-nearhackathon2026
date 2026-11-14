@@ -12,6 +12,7 @@ import { signRhea } from "@/lib/flowvault/wallet";
 import type { WalletAttempt } from "@/lib/flowvault/execution";
 import type { RheaPreparation } from "@/lib/flowvault/rhea-markets-live";
 import { units } from "@/lib/flowvault/money";
+import { SupplyFundOffer } from "./earn/SupplyFundOffer";
 
 type Action = "supply" | "withdraw" | "collateral_add" | "collateral_release" | "borrow" | "repay";
 interface Position { symbol: string; decimals: number; priced: boolean; wallet: string; nativeNear: string; supplied: string; collateral: string; borrowed: string; available: string; canDeposit: boolean; canWithdraw: boolean; canCollateral: boolean; canBorrow: boolean; health: string; otherPositions: string[] }
@@ -31,7 +32,11 @@ const TAB: Record<Action, string> = { supply: "Supply", withdraw: "Withdraw", co
 const SOURCE: Record<Action, string> = { supply: "From your wallet", collateral_add: "From your wallet", repay: "From your wallet", withdraw: "From your Rhea supply", collateral_release: "From your Rhea collateral", borrow: "Paid to your wallet" };
 
 export type RheaAction = Action;
-export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, onSettled, inline, initialAmount, draftKey, onDraft, onAttempt, disabledReason }: { tokenId: string; symbol: string; icon?: string | null; mode: "earn" | "borrow"; initial?: Action; rates?: { supply: number | null; borrow: number | null }; close: () => void; onSettled?: () => void;
+export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, onSettled, inline, initialAmount, draftKey, onDraft, onAttempt, disabledReason, lockAction, fund }: { tokenId: string; symbol: string; icon?: string | null; mode: "earn" | "borrow"; initial?: Action; rates?: { supply: number | null; borrow: number | null }; close: () => void; onSettled?: () => void;
+  /** Show only the initial action (a flow step), without the action tabs. */
+  lockAction?: boolean;
+  /** Earn: offer to swap something you hold into this token and supply it, as a resumable flow. */
+  fund?: { owner: string; example: boolean; onFlow: (id: string) => void; connect?: () => void };
   /** Ask FlowVault: render inside a chat card, start from the card's draft, report the owner's edits and the prepared attempt. */
   inline?: boolean; initialAmount?: string | null; draftKey?: string; onDraft?: (d: { action: Action; amount: string }) => void; onAttempt?: (a: WalletAttempt) => void; disabledReason?: string | null }) {
   const actions: Action[] = mode === "earn" ? ["supply", "withdraw"] : ["borrow", "repay", "collateral_add", "collateral_release"];
@@ -74,6 +79,9 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
     : action === "withdraw" ? pos.supplied : action === "collateral_release" ? pos.collateral : action === "repay" ? pos.borrowed : null;
   const fraction = (n: bigint) => { if (!max || !pos) return; try { const raw = units(max, pos.decimals) * n / 100n; const s = raw.toString().padStart(pos.decimals + 1, "0"); const v = (s.slice(0, -pos.decimals) + "." + s.slice(-pos.decimals)).replace(/\.?0+$/, ""); setAmount(v || "0"); } catch { /* unreadable balance */ } };
   const hasMax = !!max && Number(max) > 0;
+  // Supplying a token you don't hold: offer the swap instead of an amount you can't fund.
+  const offerFund = !!fund && !inline && mode === "earn" && action === "supply" && tokenId !== WRAP;
+  const emptyWallet = !!pos && (() => { try { return units(pos.wallet || "0", pos.decimals) === 0n; } catch { return !(Number(pos.wallet) > 0); } })();
   const valid = (() => { try { return !!pos && units(amount, pos.decimals) > 0n; } catch { return false; } })();
 
   async function prepare() {
@@ -137,14 +145,15 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
       <p className="fv-confirm-sub">{phase === "form" ? `Supply APY ${pct(rates?.supply)} · Borrow APY ${pct(rates?.borrow)} · variable` : phase === "preparing" ? "Fresh balances, prices, health, liquidity and your limits." : phase === "wallet" ? "Approve the transactions in your wallet. This card stays until NEAR finalizes them." : phase === "settling" ? "Waiting for final receipts." : phase === "done" || phase === "failed" ? attempt?.message : phase === "error" ? error : "Exact transactions, checked against your limits before your wallet opens."}</p>
 
       {phase === "form" && <>
-        <div className={"fv-rhea-tabs" + (actions.length > 2 ? " is-grid" : "")} role="tablist">{actions.map(a => <button type="button" role="tab" key={a} aria-selected={action === a} disabled={disabledAction(a)} onClick={() => { setAction(a); setAmount(""); }}>{TAB[a]}</button>)}</div>
+        {!lockAction && <div className={"fv-rhea-tabs" + (actions.length > 2 ? " is-grid" : "")} role="tablist">{actions.map(a => <button type="button" role="tab" key={a} aria-selected={action === a} disabled={disabledAction(a)} onClick={() => { setAction(a); setAmount(""); }}>{TAB[a]}</button>)}</div>}
         {posError && <p role="alert" className="fv-notice">{posError}</p>}
-        <div className="fv-swap-amount fv-rhea-amount">
+        {offerFund && emptyWallet && <SupplyFundOffer tokenId={tokenId} symbol={symbol} apy={rates?.supply ?? null} owner={fund!.owner} example={fund!.example} held={pos?.wallet ?? null} onFlow={fund!.onFlow} connect={fund!.connect} />}
+        {!(offerFund && emptyWallet) && <div className="fv-swap-amount fv-rhea-amount">
           <div className="fv-swap-box-head"><label htmlFor="rhea-amount">{SOURCE[action]}</label>
             {max !== null ? <span className="fv-swap-balance"><Wallet size={13} /> {fmtAmount(max)} {action === "repay" ? "owed" : shown}{hasMax && [25n, 50n, 100n].map(p => <button type="button" key={String(p)} onClick={() => fraction(p)}>{p === 100n ? "Max" : p + "%"}</button>)}</span>
               : action === "borrow" && pos ? <span className="fv-swap-balance">{fmtAmount(pos.available)} {unit} available</span> : null}</div>
           <div className="fv-swap-line"><input id="rhea-amount" inputMode="decimal" autoComplete="off" value={amount} onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" aria-label={"Amount in " + shown} /><span className="fv-rhea-unit"><TokenIcon symbol={symbol} image={icon ?? undefined} network="near" size={22} />{shown}</span></div>
-        </div>
+        </div>}
         <div className="fv-confirm-table">
           {mode === "earn" ? <>
             <div><span>Supplied on Rhea</span><strong>{pos ? `${fmtAmount(pos.supplied)} ${unit}` : "…"}</strong></div>
@@ -159,7 +168,8 @@ export function RheaSheet({ tokenId, symbol, icon, mode, initial, rates, close, 
         {tokenId === WRAP && <label className="fv-rhea-check"><input type="checkbox" checked={native} onChange={e => setNative(e.target.checked)} /><span>{action === "repay" ? "Repay from native NEAR" : "Use native NEAR"}<small>{action === "supply" || action === "collateral_add" || action === "repay" ? "Wraps it to wNEAR in the same transaction." : "Unwraps the wNEAR Rhea pays out."}</small></span></label>}
         {action === "borrow" && <label className="fv-rhea-check is-warn"><input type="checkbox" checked={debtOk} onChange={e => setDebtOk(e.target.checked)} /><span>I’m taking on new debt<small>It accrues variable interest, and your collateral can be liquidated if prices fall.</small></span></label>}
         {disabledReason && <p role="status" className="fv-notice">{disabledReason}</p>}
-        <div className="fv-confirm-actions"><button type="button" className="fv-button fv-primary fv-wide-button" disabled={!valid || (action === "borrow" && !debtOk) || (pos !== null && !pos.priced) || !!disabledReason} onClick={() => void prepare()}>{!valid ? "Enter an amount" : action === "borrow" && !debtOk ? "Confirm the new debt above" : `Review ${TAB[action].toLowerCase()}`}</button></div>
+        {!(offerFund && emptyWallet) && <div className="fv-confirm-actions"><button type="button" className="fv-button fv-primary fv-wide-button" disabled={!valid || (action === "borrow" && !debtOk) || (pos !== null && !pos.priced) || !!disabledReason} onClick={() => void prepare()}>{!valid ? "Enter an amount" : action === "borrow" && !debtOk ? "Confirm the new debt above" : `Review ${TAB[action].toLowerCase()}`}</button></div>}
+        {offerFund && !emptyWallet && <details className="fv-fund-more"><summary>Need more {symbol}? Swap into it and supply</summary><SupplyFundOffer tokenId={tokenId} symbol={symbol} apy={rates?.supply ?? null} owner={fund!.owner} example={fund!.example} held={pos?.wallet ?? null} onFlow={fund!.onFlow} connect={fund!.connect} /></details>}
       </>}
 
       {review && !["form", "error"].includes(phase) && <div className="fv-confirm-table">

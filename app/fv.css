@@ -929,3 +929,14 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-rates-explainer{margin:0 0 14px;font-size:13px;line-height:1.5;color:var(--fvc-5B6458);max-width:760px}
 .fv-rates-explainer strong{color:var(--fvc-1E2A22);font-weight:600}
 .fv-field-warn{display:block;margin-top:6px;font-size:12.5px;line-height:1.4;color:var(--fvc-8A5F25);font-weight:400}
+.fv-fund-offer{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--fvb-DCE4D0);border-radius:14px;background:var(--fvb-F4F7EE);text-align:left;margin:4px 0 12px}
+.fv-fund-offer>strong{font-size:14px;color:var(--fvc-1E2A22)}
+.fv-fund-offer p{margin:0;font-size:13px;line-height:1.5;color:var(--fvc-4A5349)}
+.fv-fund-offer .fv-fund-ask{font-size:14.5px;color:var(--fvc-1E2A22)}
+.fv-fund-offer .fv-fund-ask b{font-weight:600}
+.fv-fund-box{background:var(--fvb-FFFFFF)}
+.fv-fund-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--fvc-5B6458)}
+.fv-fund-steps li{display:flex;align-items:center;gap:6px}
+.fv-fund-offer>small{font-size:12px}
+.fv-fund-more{margin-top:10px;text-align:left}
+.fv-fund-more>summary{cursor:pointer;font-size:13px;color:var(--fvc-3F6B3C);padding:6px 0}

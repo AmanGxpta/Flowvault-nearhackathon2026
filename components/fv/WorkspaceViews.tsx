@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- presentation adapters consume the existing view model */
 import { StakeHome } from "./stake/StakeHome";
 import { OpenStakeFlows } from "./stake/OpenStakeFlows";
+import { OpenSupplyFlows } from "./earn/OpenSupplyFlows";
 import { PairPicker, type Pair } from "./PairPicker";
 import { SpotDesk } from "./SpotDesk";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
@@ -28,6 +29,7 @@ import { SwapExplorer } from "./SwapExplorer";
 import { useTokenCatalog, coreIdentity } from "./useTokenCatalog";
 import { WalletHistory } from "./WalletHistory";
 import { RatesTable } from "./RatesTable";
+import { SupplyFlowView } from "./earn/SupplyFlowView";
 import { OrderTicket, type OrderDraft } from "./OrderTicket";
 
 export const destinations = [
@@ -136,9 +138,11 @@ export function ResearchDesk({ v }: { v: any }) {
 }
 
 export function EarnDesk({ v }: { v: any }) {
+  const [supplyFlow, setSupplyFlow] = useState<string | null>(() => typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("sflow"));
+  const openSupplyFlow = (id: string | null) => { const url = new URL(window.location.href); if (id) { url.searchParams.set("sflow", id); url.searchParams.set("tab", "supply"); } else url.searchParams.delete("sflow"); history.replaceState(null, "", url); setSupplyFlow(id); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const [tab, setTab] = useState(() => { const q = typeof window === "undefined" ? null : new URL(window.location.href).searchParams; return q && (q.get("flow") || q.get("tab") === "stake") ? "Stake" : q?.get("tab") === "vaults" ? "Vaults" : "Supply"; });
-  return <><PageHeading title="Earn" description="Put available funds to work, with an exit plan you understand." /><Tabs values={["Supply", "Stake", "Vaults"]} value={tab} set={next => { setTab(next); const url = new URL(window.location.href); url.searchParams.set("tab", next.toLowerCase()); if(next !== "Stake") url.searchParams.delete("flow"); history.replaceState(null,"",url); }} />{tab === "Vaults" ? <VaultsCard scope={v.lendingScope} /> : tab === "Stake" ? <StakeDesk v={v}/> : <>
-    <RatesTable mode="earn" usdcNote={v.walletSurplusF ? "Available after your plan: " + v.walletSurplusF : undefined} onUsdc={() => document.getElementById("fv-earn-plan")?.scrollIntoView({ behavior: "smooth" })} />
+  return <><PageHeading title="Earn" description="Put available funds to work, with an exit plan you understand." /><Tabs values={["Supply", "Stake", "Vaults"]} value={tab} set={next => { setTab(next); const url = new URL(window.location.href); url.searchParams.set("tab", next.toLowerCase()); if(next !== "Stake") url.searchParams.delete("flow"); history.replaceState(null,"",url); }} />{tab === "Vaults" ? <VaultsCard scope={v.lendingScope} /> : tab === "Stake" ? <StakeDesk v={v}/> : supplyFlow ? <SupplyFlowView id={supplyFlow} owner={v.acc ?? ""} connect={() => (v.openConnect ?? v.connectFirst)?.()} back={() => openSupplyFlow(null)} /> : <>
+    <RatesTable mode="earn" usdcNote={v.walletSurplusF ? "Available after your plan: " + v.walletSurplusF : undefined} onUsdc={() => document.getElementById("fv-earn-plan")?.scrollIntoView({ behavior: "smooth" })} fund={{ owner: v.acc ?? "", example: !!v.judge, onFlow: openSupplyFlow, connect: () => (v.openConnect ?? v.connectFirst)?.() }} />
     <h2 className="fv-subhead" id="fv-earn-plan">For your plan</h2>
     <div className="fv-earn-context"><div><small>Available after your plan</small><strong>{v.walletSurplusF}</strong><p>USDC in your NEAR funding account above the reserve and scheduled payments.</p></div><label>Compare amount (USDC)<input inputMode="decimal" value={v.cmpAmount ?? ""} onChange={v.onCmpAmount} placeholder="0.00" /></label></div>
     {(v.strategies ?? []).filter((s:any) => !s.disabled).map((s: any) => <article className="fv-panel fv-opportunity" key={s.key}><div className="fv-section-head"><div className="fv-asset-cell"><TokenIcon symbol={s.key?.includes("linear") ? "NEAR" : "USDC"} core /><div><h2>{s.name}</h2><small>{s.kind}</small></div></div><span className="fv-chip">{s.disabled ? "Needs review" : "Available"}</span></div><div className="fv-opportunity-body"><div><small>Estimated net by {v.cmpDue}</small><strong>{s.net}</strong><p>{s.netSub?.split(" · ")[0]}</p></div><Button primary={!s.disabled} disabled={s.disabled} onClick={s.onClick}>{s.disabled ? "Unavailable for this plan" : "Review supply"}</Button></div><details><summary>Rates, exit timing and availability</summary>{s.rows?.map((r: any, i: number) => <div key={i} className="fv-list-row"><span>{r.k}</span><strong>{r.v}</strong></div>)}<p>{s.netSub}</p>{s.notes?.map((n: any, i: number) => <p key={i}>{n.text}</p>)}</details></article>)}
@@ -258,5 +262,5 @@ export function ActivityDesk({ v }: { v: any }) {
   const [tab,setTab] = useState('Transactions');
   const [filter,setFilter] = useState('All');
   const ops = [...(v.ops ?? [])].filter((o: any) => filter === 'All' || (filter === 'Needs attention' ? ['stuck','failed','failedtx','unknown','partial'].includes(o.status) : ['progress','paying','awaiting','submitted','prepared'].includes(o.status)));
-  return <><PageHeading title="Activity" description="Track what is happening and see what actually changed."/>{!v.judge && <OpenStakeFlows key={v.lendingScope + ":" + v.acc} navigate={v.navigate}/>}<Tabs values={['Transactions','Plans','Statements']} value={tab} set={setTab}/>{tab === 'Plans' ? <section className="fv-panel fv-history-panel"><PlanHistory scope={v.lendingScope}/></section> : tab === 'Statements' ? <StatementPanel key={v.lendingScope} scope={v.lendingScope}/> : <><div className="fv-activity-filters">{['All','In progress','Needs attention'].map(x => <button key={x} className="fv-button" aria-pressed={filter === x} onClick={() => setFilter(x)}>{x}</button>)}</div><ActivityView v={{...v,embedded:true,ops,noOps:!ops.length,actTimeline:true,actStatement:false,legend:[]}}/>{!v.judge && v.acc && <WalletHistory account={v.acc}/>}</>}</>;
+  return <><PageHeading title="Activity" description="Track what is happening and see what actually changed."/>{!v.judge && <OpenStakeFlows key={v.lendingScope + ":" + v.acc} navigate={v.navigate}/>}{!v.judge && <OpenSupplyFlows key={"s:" + v.lendingScope + ":" + v.acc} navigate={v.navigate}/>}<Tabs values={['Transactions','Plans','Statements']} value={tab} set={setTab}/>{tab === 'Plans' ? <section className="fv-panel fv-history-panel"><PlanHistory scope={v.lendingScope}/></section> : tab === 'Statements' ? <StatementPanel key={v.lendingScope} scope={v.lendingScope}/> : <><div className="fv-activity-filters">{['All','In progress','Needs attention'].map(x => <button key={x} className="fv-button" aria-pressed={filter === x} onClick={() => setFilter(x)}>{x}</button>)}</div><ActivityView v={{...v,embedded:true,ops,noOps:!ops.length,actTimeline:true,actStatement:false,legend:[]}}/>{!v.judge && v.acc && <WalletHistory account={v.acc}/>}</>}</>;
 }

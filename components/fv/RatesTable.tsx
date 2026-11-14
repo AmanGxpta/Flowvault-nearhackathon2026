@@ -11,7 +11,9 @@ const STABLE = /^(USDC|USDT|USDT\.E|USDC\.E|DAI|FRAX|USDt)$/i;
 
 /** Live Rhea markets, shown first on Earn and Borrow. Every market is actionable in-app: USDC through FlowVault's
  * plan-aware supply/credit flow (`onUsdc`), every other market through the Rhea action sheet. */
-export function RatesTable({ mode, onUsdc, usdcNote }: { mode: "earn" | "borrow"; onUsdc?: () => void; usdcNote?: string }) {
+export function RatesTable({ mode, onUsdc, usdcNote, fund }: { mode: "earn" | "borrow"; onUsdc?: () => void; usdcNote?: string;
+  /** Earn: lets a market you don't hold offer "swap into it and supply" (see SupplyFundOffer). */
+  fund?: { owner: string; example: boolean; onFlow: (id: string) => void; connect?: () => void } }) {
   const [rows, setRows] = useState<Rate[] | null>(null), [at, setAt] = useState<string | null>(null), [error, setError] = useState("");
   const [open, setOpen] = useState<Rate | null>(null);
   const [filter, setFilter] = useState<"all" | "stable" | "other">("all"), [query, setQuery] = useState("");
@@ -53,7 +55,7 @@ export function RatesTable({ mode, onUsdc, usdcNote }: { mode: "earn" | "borrow"
       })}
     </div>
     <div className="fv-panel-foot">Finalized Rhea view · USD totals at Ref prices. Every market runs in-app: prices from Rhea’s own oracle, your reserve, health and limits checked, approved in your wallet.</div>
-    {open && <RheaSheet tokenId={open.token} symbol={open.symbol} icon={open.icon} mode={mode} rates={{ supply: open.supplyApy, borrow: open.borrowApy }} initial={mode === "borrow" && !open.canBorrow ? "collateral_add" : undefined} close={() => setOpen(null)} />}
+    {open && <RheaSheet tokenId={open.token} symbol={open.symbol} icon={open.icon} mode={mode} rates={{ supply: open.supplyApy, borrow: open.borrowApy }} initial={mode === "borrow" && !open.canBorrow ? "collateral_add" : undefined} close={() => setOpen(null)} fund={fund && { ...fund, onFlow: (id) => { setOpen(null); fund.onFlow(id); } }} />}
   </section>;
 }
 function fmtRate(v: number | null) { return v === null ? "—" : v < 0.01 && v > 0 ? "<0.01%" : v.toFixed(2) + "%"; }
