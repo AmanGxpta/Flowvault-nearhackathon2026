@@ -32,6 +32,7 @@ import { RatesTable } from "./RatesTable";
 import { SupplyFlowView } from "./earn/SupplyFlowView";
 import { CollectSend } from "./collect/CollectSend";
 import { TodayCards } from "./today/TodayCards";
+import { Community } from "./growth/Community";
 import { OrderTicket, type OrderDraft } from "./OrderTicket";
 
 export const destinations = [
@@ -118,6 +119,7 @@ export function PortfolioHome({ v }: { v: any }) {
     {gaps.length > 0 && <section className="fv-coverage" role="status"><button type="button" aria-expanded={gapsOpen} onClick={() => setGapsOpen(!gapsOpen)}><span className="fv-status-dot" /><span>{gaps.length === 1 ? gaps[0].name : gaps.length + " parts of your portfolio aren’t fully read"}</span><small>{gaps.every((g: any) => g.tag === "PARTIAL") ? "The total shows what’s read so far" : "Not counted until they read"}</small>{gapsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
       {gapsOpen && <ul>{gaps.map((g: any, i: number) => <li key={i}><strong>{g.name}</strong><small>{g.sub}</small></li>)}</ul>}</section>}
     {!openWallet && <TodayCards key={String(!!v.judge)} owner={v.acc ?? ""} example={!!v.judge} navigate={v.navigate} />}
+    {!openWallet && <Community key={"c" + String(!!v.judge)} example={!!v.judge} signedIn={!!v.acc && !v.judge} navigate={v.navigate} />}
     {openWallet && <WalletBar wallets={wallets} value={wallet} set={pickWallet} />}
     {openWallet ? <WalletHeader w={openWallet} back={() => pickWallet("")} copy={(a) => { try { void navigator.clipboard.writeText(a); } catch { /* clipboard blocked */ } }} /> : <WalletCards wallets={summaries} open={pickWallet} />}
     <Allocation rows={scoped} network={network} setNetwork={setNetwork} multiWallet={!wallet && wallets.length > 1} wallets={walletNames} setWallet={pickWallet} />
@@ -218,7 +220,7 @@ function CommandBody({ v, query, setQuery, done }: { v: any; query: string; setQ
     </div></>;
 }
 
-export function ShareCard({ title, subtitle, lines, amount, example, link, close }: { title: string; subtitle: string; lines: string[]; amount?: string; example?: boolean; link?: string; close: () => void }) {
+export function ShareCard({ title, subtitle, lines, amount, example, link, linkLabel, linkNote, close }: { title: string; subtitle: string; lines: string[]; amount?: string; example?: boolean; link?: string; linkLabel?: string; linkNote?: string; close: () => void }) {
   const [showAmount, setShowAmount] = useState(false), [status, setStatus] = useState("");
   const canvas = useRef<HTMLCanvasElement>(null);
   const linesKey = JSON.stringify(lines);
@@ -243,7 +245,7 @@ export function ShareCard({ title, subtitle, lines, amount, example, link, close
     return ()=>{cancelled=true;};
   }, [title, subtitle, linesKey, amount, showAmount, example]);
   function download() { const c = canvas.current; if (!c) return; const a = document.createElement("a"); a.download = "flowvault-card.png"; a.href = c.toDataURL("image/png"); a.click(); setStatus("Image downloaded. Only the fields in this preview are included."); }
-  return <Modal title="Share your moment" close={close}><canvas ref={canvas} className="fv-share-canvas" aria-label="Share card preview" />{amount && <label className="fv-share-option"><input type="checkbox" checked={showAmount} onChange={e => setShowAmount(e.target.checked)} /> Show amount</label>}<p className="fv-muted">Wallet addresses and private notes are never included. Downloading does not publish this card.</p><div className="fv-actions"><Button primary onClick={download}><Download size={16} /> Download image</Button>{link && <Button onClick={() => { void navigator.clipboard.writeText(link).then(() => setStatus("Public token watchlist link copied. No private notes or balances are included."), () => setStatus("Could not copy the link in this browser.")); }}><Share2 size={16}/> Copy watchlist link</Button>}</div>{status && <p role="status">{status}</p>}</Modal>;
+  return <Modal title="Share your moment" close={close}><canvas ref={canvas} className="fv-share-canvas" aria-label="Share card preview" />{amount && <label className="fv-share-option"><input type="checkbox" checked={showAmount} onChange={e => setShowAmount(e.target.checked)} /> Show amount</label>}<p className="fv-muted">Wallet addresses and private notes are never included. Downloading does not publish this card.</p><div className="fv-actions"><Button primary onClick={download}><Download size={16} /> Download image</Button>{link && <Button onClick={() => { void navigator.clipboard.writeText(link).then(() => setStatus(linkNote ?? "Public token watchlist link copied. No private notes or balances are included."), () => setStatus("Could not copy the link in this browser.")); }}><Share2 size={16}/> {linkLabel ?? "Copy watchlist link"}</Button>}</div>{status && <p role="status">{status}</p>}</Modal>;
 }
 
 export function ScheduledDesk({ v }: { v: any }) {
