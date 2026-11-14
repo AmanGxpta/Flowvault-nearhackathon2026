@@ -6,7 +6,7 @@ import { OpenSupplyFlows } from "./earn/OpenSupplyFlows";
 import { PairPicker, type Pair } from "./PairPicker";
 import { SpotDesk } from "./SpotDesk";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
-import { ArrowDownUp, ArrowUpRight, BarChart3, Sparkles, Wallet, Search, SlidersHorizontal, Plus, X, ChevronRight, Send, Sprout, Activity, Share2, Download, Landmark, TrendingUp } from "lucide-react";
+import { ArrowDownUp, ArrowUpRight, BarChart3, Layers, Sparkles, Wallet, Search, SlidersHorizontal, Plus, X, ChevronRight, Send, Sprout, Activity, Share2, Download, Landmark, TrendingUp } from "lucide-react";
 import { MarketPanel } from "./MarketPanel";
 import { TokenIcon, tokenLogo } from "./AssetIdentity";
 import { Skel } from "./Skel";
@@ -196,7 +196,12 @@ export function TradeDesk({ v }: { v: any }) {
 }
 export function SwapDesk({ v }: { v: any }) {
   const [tab, setTab] = useState("Swap tokens");
-  return <><PageHeading title="Swap" description="Best route across Rhea / Ref and NEAR Intents, checked against your limits."/><Tabs values={["Swap tokens","Managed funding"]} value={tab} set={setTab}/>{tab === "Swap tokens" ? <SwapExplorer owner={v.acc ?? ""} example={!!v.judge} onManaged={()=>setTab("Managed funding")} onConnect={v.openConnect ?? v.connectFirst} onSettled={v.refreshPortfolio}/> : <><section className="fv-panel fv-managed-swap-callout"><div className="fv-section-head"><div><h2>USDC → NEAR</h2><p>Fund your NEAR account from a supported connected wallet.</p></div><Button primary onClick={v.openConvert ?? v.openConnect ?? v.connectFirst}>Choose wallet and amount <ChevronRight size={16}/></Button></div></section><div className="fv-managed-sales"><ApprovedAssetSales scope={v.lendingScope} accounts={v.lendingAccounts}/></div></>}</>;
+  // Swap one token, or combine many holdings across chains into one (Multi-swap, delivered to your own wallet).
+  const [multi, setMulti] = useState(() => typeof window !== "undefined" && new URL(window.location.href).searchParams.get("mode") === "multi");
+  const pickMode = (m: boolean) => { setMulti(m); try { const u = new URL(window.location.href); if (m) u.searchParams.set("mode", "multi"); else u.searchParams.delete("mode"); window.history.replaceState(null, "", u); } catch { /* address bar is cosmetic */ } };
+  const modes = <div className="fv-swap-mode" role="tablist" aria-label="Swap mode"><button type="button" role="tab" aria-selected={!multi} onClick={() => pickMode(false)}><ArrowDownUp size={14} /> Swap</button><button type="button" role="tab" aria-selected={multi} onClick={() => pickMode(true)}><Layers size={14} /> Multi-swap</button></div>;
+  const nearCard = v.sendNeedsNear ? <div className="fv-send-near" role="status"><Wallet size={18} /><div><strong>Swapping needs your NEAR wallet too</strong><p>{v.sendWalletName ? `Your ${v.sendWalletName} wallet is connected. ` : ""}Every swap FlowVault prepares, from any chain, is checked against your NEAR account’s limits. Connecting only signs you in; nothing moves.</p></div><span><Button primary onClick={v.connectNear}>Connect NEAR wallet</Button></span></div> : null;
+  return <><PageHeading title="Swap" description="Best route across Rhea / Ref and NEAR Intents, checked against your limits."/><Tabs values={["Swap tokens","Managed funding"]} value={tab} set={setTab}/>{tab === "Swap tokens" && modes}{tab === "Swap tokens" && multi ? <div className="fv-multi-swap"><CollectSend key={"swap:" + String(!!v.judge)} mode="swap" owner={v.acc ?? ""} example={!!v.judge} connect={() => (v.openConnect ?? v.connectFirst)?.()} needsNear={nearCard} /></div> : tab === "Swap tokens" ? <SwapExplorer owner={v.acc ?? ""} example={!!v.judge} onManaged={()=>setTab("Managed funding")} onConnect={v.openConnect ?? v.connectFirst} onSettled={v.refreshPortfolio}/> : <><section className="fv-panel fv-managed-swap-callout"><div className="fv-section-head"><div><h2>USDC → NEAR</h2><p>Fund your NEAR account from a supported connected wallet.</p></div><Button primary onClick={v.openConvert ?? v.openConnect ?? v.connectFirst}>Choose wallet and amount <ChevronRight size={16}/></Button></div></section><div className="fv-managed-sales"><ApprovedAssetSales scope={v.lendingScope} accounts={v.lendingAccounts}/></div></>}</>;
 }
 export function SendDesk({ v }: { v: any }) {
   const [tab, setTab] = useState(() => v.isCalendar ? "Scheduled" : typeof window !== "undefined" && new URL(window.location.href).searchParams.get("tab") === "collect" ? "Collect & send" : "Send now");

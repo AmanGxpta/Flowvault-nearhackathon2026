@@ -5,6 +5,7 @@
 // a green tick once the recipient has it, and the gas paid across all chains.
 // Live: transfers are approved one after another in the wallet that holds each one (FlowVault never signs).
 // Demo Mode: the same run plays as a labelled simulation.
+// Multi-swap (mode "swap"): the same run, each leg a swap into one token delivered to your own wallet.
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Check, ChevronDown, CircleAlert, RefreshCw } from "lucide-react";
 import { TokenIcon } from "../AssetIdentity";
@@ -14,6 +15,8 @@ import { api } from "../live";
 import { fmtAmount, fmtUsd } from "../swap-format";
 import { decimal } from "@/lib/flowvault/money";
 import { exampleHash } from "@/lib/flowvault/demo-sim";
+import { applySwap } from "@/lib/flowvault/demo-ledger";
+import { demoLedger, saveDemoLedger } from "../demo/ledger-store";
 import type { CollectSource } from "@/lib/flowvault/collect";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 import { NET_NAME } from "./CollectSend";
@@ -27,7 +30,8 @@ const PROFILE: Record<string, { s: number; conf: number }> = { near: { s: 4, con
 const prof = (n: string) => PROFILE[n] ?? { s: 10, conf: 12 };
 const EXPLORER: Record<string, string> = { eth: "https://etherscan.io/tx/", base: "https://basescan.org/tx/", arb: "https://arbiscan.io/tx/", bsc: "https://bscscan.com/tx/", pol: "https://polygonscan.com/tx/", sol: "https://solscan.io/tx/", near: "https://nearblocks.io/txns/" };
 
-export function CollectRun({ legs, dest, recipient, target, owner, example, back }: { legs: RunLeg[]; dest: SwapToken; recipient: string; target: string; owner: string; example: boolean; back: () => void }) {
+export function CollectRun({ legs, dest, recipient, target, owner, example, back, mode = "send" }: { legs: RunLeg[]; dest: SwapToken; recipient: string; target: string; owner: string; example: boolean; back: () => void; mode?: "send" | "swap" }) {
+  const swap = mode === "swap", noun = swap ? "swap" : "transfer";
   const { tokens } = useTokenCatalog();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, []);
@@ -37,7 +41,7 @@ export function CollectRun({ legs, dest, recipient, target, owner, example, back
   // Live run: the journal attempt behind each transfer, and its latest reading.
   const [attempts, setAttempts] = useState<Record<string, string>>({}), [reads, setReads] = useState<Record<string, LiveRead>>({}), [active, setActive] = useState(0);
 
-  const views: LegView[] = useMemo(() => legs.map((l, i) => example ? demoLeg(l, i, startedAt, now) : liveLeg(l, reads[l.key], attempts[l.key], i === active)), [legs, example, startedAt, now, reads, attempts, active]);
+  const views: LegView[] = useMemo(() => legs.map((l, i) => example ? demoLeg(l, i, startedAt, now, swap) : liveLeg(l, reads[l.key], attempts[l.key], i === active, Number(dest.price ?? 1))), [legs, example, startedAt, now, reads, attempts, active, swap, dest.price]);
   useEffect(() => {
     if (example) return;
     const ids = Object.entries(attempts).filter(([k]) => !["done", "failed"].includes(views[legs.findIndex((l) => l.key === k)]?.state ?? ""));
@@ -57,13 +61,27 @@ export function CollectRun({ legs, dest, recipient, target, owner, example, back
   const done = views.filter((v) => v.state === "done").length, moving = views.filter((v) => v.state === "moving" || v.state === "signing").length;
   const gasPaid = legs.reduce((n, l, i) => n + (views[i].originHash ? l.gasUsd : 0), 0);
   const tok = (l: RunLeg) => tokens.find((t) => t.id === l.source.tokenId);
+  // Demo Mode multi-swap: once every leg has arrived, the example balances move (what was paid leaves, the target arrives).
+  const [ledgerDone, setLedgerDone] = useState(false);
+  useEffect(() => {
+    if (!example || !swap || ledgerDone || startedAt === null || done < legs.length) return;
+    const t = setTimeout(() => {
+      setLedgerDone(true);
+      try {
+        let l = demoLedger();
+        for (const [i, leg] of legs.entries()) l = applySwap(l, { id: leg.source.tokenId, symbol: leg.source.symbol, amount: Number(decimal(BigInt(leg.amountRaw), leg.source.decimals)) }, { id: dest.id, symbol: dest.symbol, amount: (views[i].deliveredUsd ?? leg.outUsd) / Number(dest.price ?? 1) });
+        saveDemoLedger(l);
+      } catch { /* example ledger unavailable: the run still shows */ }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [example, swap, ledgerDone, startedAt, done, legs, views, dest]);
 
   return <section className="fv-panel fv-collect-run">
     <div className="fv-stake-flow-top"><button type="button" className="fv-text-button" onClick={back} disabled={!!moving && !example}><ArrowLeft size={14} /> Change sources</button><span className={"fv-flow-badge " + (complete ? "is-ok" : moving ? "is-busy" : "is-turn")}>{example ? "Example · " : ""}{complete ? "Delivered" : moving ? `${moving} moving` : done ? `${done} of ${legs.length} done` : "Ready"}</span></div>
     {example && <p className="fv-demo-note">Example workspace: this run is a simulation with fictional balances. Nothing is signed and nothing moves.</p>}
-    <h2>Sending {target} {dest.symbol} on {NET_NAME[dest.network]} to {recipient.length > 22 ? recipient.slice(0, 10) + "…" + recipient.slice(-6) : recipient}</h2>
+    <h2>{swap ? <>Swapping into {target} {dest.symbol} on {NET_NAME[dest.network]}</> : <>Sending {target} {dest.symbol} on {NET_NAME[dest.network]} to {recipient.length > 22 ? recipient.slice(0, 10) + "…" + recipient.slice(-6) : recipient}</>}</h2>
 
-    <FlowMap legs={legs} views={views} tokens={tokens} dest={dest} recipient={recipient} />
+    <FlowMap legs={legs} views={views} tokens={tokens} dest={dest} recipient={swap ? "Your wallet" : recipient} />
 
     <ol className="fv-collect-legs">{legs.map((l, i) => { const v = views[i], t = tok(l), isOpen = open === l.key; return <li key={l.key} className={"is-" + v.state}>
       <button type="button" className="fv-collect-leg" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : l.key)}>
@@ -82,18 +100,18 @@ export function CollectRun({ legs, dest, recipient, target, owner, example, back
         <div><span>Arrives as</span><strong>{v.deliveredUsd !== null ? fmtAmount(String(v.deliveredUsd / Number(dest.price ?? 1)), 4) : "≈ " + fmtAmount(String(l.outUsd / Number(dest.price ?? 1)), 4)} {dest.symbol}{v.destHash ? <> · <HashText h={v.destHash} network={dest.network} example={example} /></> : null}</strong></div>
       </div>}
       {!example && i === active && v.state === "signing" && t && <div className="fv-collect-sign">
-        <SwapReview inline from={t} to={dest} amount={decimal(BigInt(l.amountRaw), l.source.decimals)} slippage={100} route="intents" payTo sender={l.source.account} recipient={recipient}
+        <SwapReview inline from={t} to={dest} amount={decimal(BigInt(l.amountRaw), l.source.decimals)} slippage={100} route="intents" payTo={!swap} sender={l.source.account} recipient={recipient}
           close={() => undefined} onSettled={() => setActive((n) => n + 1)} onAttempt={(a) => { setAttempts((m) => ({ ...m, [l.key]: a.id })); }} />
       </div>}
     </li>; })}</ol>
 
     <div className={"fv-collect-total-run" + (complete ? " is-complete" : "")}>
       <span className={"fv-collect-tick" + (complete ? " is-on" : "")}>{complete ? <Check size={18} /> : <RefreshCw size={15} className={moving ? "fv-spin" : ""} />}</span>
-      <div><strong>{fmtAmount(String(deliveredUsd / Number(dest.price ?? 1)), 4)} of {target} {dest.symbol} delivered</strong><small>Gas paid across {new Set(legs.filter((_, i) => views[i].originHash).map((l) => l.source.network)).size} chains: {fmtUsd(gasPaid)} · {done} of {legs.length} transfers done</small></div>
-      {example && startedAt === null && <button type="button" className="fv-button fv-primary" onClick={() => setStartedAt(Date.now())}>Approve {legs.length} transfers · example</button>}
+      <div><strong>{fmtAmount(String(deliveredUsd / Number(dest.price ?? 1)), 4)} of {target} {dest.symbol} {swap ? "received" : "delivered"}</strong><small>Gas paid across {new Set(legs.filter((_, i) => views[i].originHash).map((l) => l.source.network)).size} chains: {fmtUsd(gasPaid)} · {done} of {legs.length} {noun}s done</small></div>
+      {example && startedAt === null && <button type="button" className="fv-button fv-primary" onClick={() => setStartedAt(Date.now())}>Approve {legs.length} {noun}s · example</button>}
       {!example && active >= legs.length && complete && <button type="button" className="fv-button" onClick={back}>Done</button>}
     </div>
-    {!example && <small className="fv-muted">Each transfer opens in the wallet that holds it, one after another. Every one is checked against your limits and the recipient against your permissions first.{owner ? "" : ""}</small>}
+    {!example && <small className="fv-muted">{swap ? "Each swap opens in the wallet that holds it, one after another, and delivers only to your own wallet. Every one is checked against your limits first." : "Each transfer opens in the wallet that holds it, one after another. Every one is checked against your limits and the recipient against your permissions first."}{owner ? "" : ""}</small>}
   </section>;
 }
 
@@ -105,7 +123,7 @@ function HashText({ h, network, example }: { h: string; network: string; example
 }
 
 /** Example run: leg i is approved 1.4s after the one before; it then settles at its chain's typical pace. */
-function demoLeg(l: RunLeg, i: number, startedAt: number | null, now: number): LegView {
+function demoLeg(l: RunLeg, i: number, startedAt: number | null, now: number, swap = false): LegView {
   const p = prof(l.source.network), etaS = p.s * 3;
   const base: LegView = { state: "waiting", originHash: null, destHash: null, confirmations: 0, needed: p.conf, etaS, leftS: etaS, final: false, deliveredUsd: null, deliveredRaw: null, note: "Waiting to be approved" };
   if (startedAt === null) return base;
@@ -113,18 +131,19 @@ function demoLeg(l: RunLeg, i: number, startedAt: number | null, now: number): L
   if (now < approved) return { ...base, note: "Next in line for your wallet" };
   if (now < signed) return { ...base, state: "signing", note: "Example: approving in the wallet…" };
   const originHash = exampleHash(l.key + ":origin"), frac = Math.min(1, (now - signed) / (landed - signed));
-  if (now < landed) return { ...base, state: "moving", originHash, confirmations: Math.max(1, Math.round(frac * p.conf)), leftS: Math.max(1, Math.ceil((landed - now) / 1000) * 3), note: `Sent · NEAR Intents is delivering to the recipient` };
+  if (now < landed) return { ...base, state: "moving", originHash, confirmations: Math.max(1, Math.round(frac * p.conf)), leftS: Math.max(1, Math.ceil((landed - now) / 1000) * 3), note: `Sent · NEAR Intents is delivering to ${swap ? "your wallet" : "the recipient"}` };
   const deliveredUsd = l.outUsd * (1 - 0.0008);
   return { ...base, state: "done", originHash, destHash: exampleHash(l.key + ":dest"), confirmations: p.conf, leftS: 0, final: true, deliveredUsd, note: `Arrived · ${fmtUsd(deliveredUsd)} delivered` };
 }
 
 interface LiveRead { state: string; message: string; hashes: string[]; preparation?: { result?: { deliveredRaw?: string | null; destinationHashes?: string[] } | null; to?: { decimals: number }; eta?: number | null } }
-function liveLeg(l: RunLeg, r: LiveRead | undefined, attemptId: string | undefined, isActive: boolean): LegView {
+function liveLeg(l: RunLeg, r: LiveRead | undefined, attemptId: string | undefined, isActive: boolean, destPrice = 1): LegView {
   const p = prof(l.source.network);
   const base: LegView = { state: "waiting", originHash: null, destHash: null, confirmations: 0, needed: p.conf, etaS: p.s * 3, leftS: p.s * 3, final: false, deliveredUsd: null, deliveredRaw: null, note: isActive ? "Your turn: review and approve" : "Waiting for the transfer before it" };
   if (!r) return attemptId || isActive ? { ...base, state: "signing", note: "Review and approve in your wallet" } : base;
   const res = r.preparation?.result, delivered = res?.deliveredRaw ?? null, dec = r.preparation?.to?.decimals ?? 6;
-  const deliveredUsd = delivered ? Number(decimal(BigInt(delivered), dec)) : null;
+  // Delivered amount in the target token, valued at its price (stablecoins ≈ 1, but a multi-swap can target ETH or NEAR).
+  const deliveredUsd = delivered ? Number(decimal(BigInt(delivered), dec)) * destPrice : null;
   if (r.state === "confirmed" || r.state === "partial") return { ...base, state: "done", originHash: r.hashes[0] ?? null, destHash: res?.destinationHashes?.[0] ?? null, confirmations: p.conf, final: true, deliveredUsd, deliveredRaw: delivered, leftS: 0, note: r.message };
   if (r.state === "failed") return { ...base, state: "failed", originHash: r.hashes[0] ?? null, note: r.message };
   if (r.hashes.length) return { ...base, state: "moving", originHash: r.hashes[0], confirmations: 1, note: r.message || "Sent · delivering" };

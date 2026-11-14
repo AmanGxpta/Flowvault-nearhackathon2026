@@ -1408,3 +1408,13 @@ summary.fv-borrow-heading{cursor:pointer}.fv-borrow-heading::-webkit-details-mar
 .fv-send-near>span{display:flex;align-items:center;gap:6px}
 .fv-collect>.fv-send-near{margin-top:0}
 @media(max-width:760px){.fv-send-near{grid-template-columns:auto minmax(0,1fr)}.fv-send-near>span{grid-column:1/-1}}
+/* Swap page: Swap one token, or Multi-swap many holdings into one. */
+.fv-swap-mode{display:flex;width:max-content;margin:24px auto -6px;padding:4px;gap:4px;border-radius:12px;border:1px solid var(--fvb-E3E6DB);background:var(--fvb-F1F2EB)}
+.fv-swap-mode button{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border:0;border-radius:9px;background:transparent;color:var(--fvc-5B6458);font:inherit;font-size:13.5px;font-weight:500;cursor:pointer}
+.fv-swap-mode button[aria-selected="true"]{background:var(--fvb-FFFFFF);color:var(--fvc-1E2A22);box-shadow:0 1px 2px rgba(30,42,34,.08)}
+.fv-multi-swap{max-width:1150px;margin:28px auto}
+.fv-collect-amount+.fv-collect-max,.fv-collect-max{align-self:flex-start;padding:4px 0;font-size:12.5px;color:var(--fvc-3F6B3C)}
+.fv-collect-to{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--fvc-5B6458)}
+.fv-collect-to strong{display:flex;align-items:center;min-height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--fvb-DDE1D4);background:var(--fvb-F7F8F3);font-size:14.5px;font-weight:500;color:var(--fvc-1E2A22)}
+.fv-collect-to small{font-size:11.5px;color:var(--fvc-8A9285)}
+.fv-collect>.fv-panel>.fv-section-head{padding:0}
