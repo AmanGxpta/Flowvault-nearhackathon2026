@@ -152,16 +152,34 @@ export const perpPnl = (p: DemoPerp, mark: number) => (mark - p.entry) * p.size 
 /** Isolated estimate: maintenance ≈ half the initial margin at max leverage. */
 export const perpLiq = (p: DemoPerp, maxLev: number) => { const mm = 1 / (2 * maxLev); return p.side === "long" ? p.entry * (1 - 1 / p.leverage + mm) : p.entry * (1 + 1 / p.leverage - mm); };
 export function freeMargin(l: DemoLedger) { return round(l.perps.margin - l.perps.positions.reduce((s, p) => s + perpMargin(p), 0)); }
+/** An order nets against an open position the way Hyperliquid does: the same side adds (averaging the entry), the
+ * opposite side reduces it and realizes PnL on the closed part, and anything beyond flips the position. */
 export function applyPerpOpen(l: DemoLedger, o: { coin: string; side: "long" | "short"; notional: number; leverage: number; price: number }, now = Date.now()): DemoLedger {
   if (!(o.notional > 0) || !(o.price > 0)) throw new Error("Enter a size above zero.");
-  const n = clone(l), margin = o.notional / o.leverage, free = freeMargin(n);
+  const n = clone(l), size = round(o.notional / o.price), same = n.perps.positions.find((p) => p.coin === o.coin);
+  let rest = size;
+  if (same && same.side !== o.side) {
+    const closed = Math.min(size, same.size), pnl = round(perpPnl({ ...same, size: closed }, o.price));
+    same.size = round(same.size - closed); rest = round(size - closed);
+    n.perps.margin = round(n.perps.margin + pnl); n.perps.realized = round(n.perps.realized + pnl);
+    if (same.size <= 1e-9) n.perps.positions = n.perps.positions.filter((p) => p !== same);
+    n.activity.unshift({ at: now, text: `Reduced ${o.coin} ${same.side} by ${fmt(closed)} at $${fmt(o.price)}: ${pnl >= 0 ? "+" : "−"}$${fmt(Math.abs(pnl))}` });
+    if (rest <= 1e-9) return n;
+  }
+  const margin = rest * o.price / o.leverage, free = freeMargin(n);
   if (margin > free + 1e-9) throw new Error(`This needs ${fmt(margin)} USDC of margin; ${fmt(free)} USDC is free.`);
-  const size = round(o.notional / o.price), same = n.perps.positions.find((p) => p.coin === o.coin);
-  if (same && same.side !== o.side) throw new Error(`Close your ${o.coin} ${same.side} before opening a ${o.side}.`);
-  if (same) { const total = same.size + size; same.entry = round((same.entry * same.size + o.price * size) / total); same.size = round(total); same.leverage = o.leverage; }
-  else n.perps.positions.push({ coin: o.coin, side: o.side, size, entry: o.price, leverage: o.leverage, openedAt: now });
-  n.activity.unshift({ at: now, text: `Opened ${o.side} ${fmt(size)} ${o.coin} at $${fmt(o.price)} (${o.leverage}×)` });
+  const keep = n.perps.positions.find((p) => p.coin === o.coin);
+  if (keep) { const total = keep.size + rest; keep.entry = round((keep.entry * keep.size + o.price * rest) / total); keep.size = round(total); keep.leverage = o.leverage; }
+  else n.perps.positions.push({ coin: o.coin, side: o.side, size: rest, entry: o.price, leverage: o.leverage, openedAt: now });
+  n.activity.unshift({ at: now, text: `${same && same.side !== o.side ? "Flipped to" : keep ? "Added to" : "Opened"} ${o.side} ${fmt(rest)} ${o.coin} at $${fmt(o.price)} (${o.leverage}×)` });
   return n;
+}
+/** Closes part of a position (reduce-only) at the price, realizing PnL on that part. */
+export function applyPerpReduce(l: DemoLedger, coin: string, fraction: number, price: number, now = Date.now()): DemoLedger {
+  const p = l.perps.positions.find((x) => x.coin === coin);
+  if (!p) throw new Error(`No open ${coin} position.`);
+  if (fraction >= 1) return applyPerpClose(l, coin, price, now);
+  return applyPerpOpen(l, { coin, side: p.side === "long" ? "short" : "long", notional: p.size * fraction * price, leverage: p.leverage, price }, now);
 }
 export function applyPerpClose(l: DemoLedger, coin: string, price: number, now = Date.now()): DemoLedger {
   const n = clone(l), p = n.perps.positions.find((x) => x.coin === coin);
@@ -210,5 +228,16 @@ export function applySwap(l: DemoLedger, from: { id: string; symbol: string; amo
   if (a) n.wallet[a] = round(Math.max(0, (n.wallet[a] ?? 0) - from.amount));
   if (b) n.wallet[b] = round((n.wallet[b] ?? 0) + to.amount);
   n.activity.unshift({ at: now, text: `Swapped ${fmt(from.amount)} ${from.symbol} for ${fmt(to.amount)} ${to.symbol}` });
+  return n;
+}
+
+/** The swap-then-supply demo landing: the source leaves the wallet (if it was on the NEAR account) and the delivered
+ * amount is supplied on Rhea. */
+export function applySwapSupply(l: DemoLedger, from: { id: string; symbol: string; amount: number }, token: string, symbol: string, supplied: number, now = Date.now()): DemoLedger {
+  const n = clone(l), a = ledgerKey(from.id);
+  if (a) n.wallet[a] = round(Math.max(0, (n.wallet[a] ?? 0) - from.amount));
+  const p = n.rhea[token] ?? { supplied: 0, collateral: 0, borrowed: 0 };
+  n.rhea[token] = { ...p, supplied: round(p.supplied + supplied) };
+  n.activity.unshift({ at: now, text: `Swapped ${fmt(from.amount)} ${from.symbol} into ${fmt(supplied)} ${symbol} and supplied it on Rhea` });
   return n;
 }

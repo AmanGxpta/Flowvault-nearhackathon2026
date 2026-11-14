@@ -3,7 +3,7 @@
 // done right here. Live flows read their progress from the journal, so leaving, declining a wallet prompt or
 // reloading never loses the place. Demo Mode flows play the same steps as a labelled simulation: nothing is signed
 // and nothing moves.
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Check, CircleAlert, RefreshCw, Repeat } from "lucide-react";
 import { api } from "../live";
 import { TokenIcon } from "../AssetIdentity";
@@ -17,10 +17,12 @@ import { deriveSupplyFlow, SUPPLY_STATUS_LABEL, tokenText, type SupplyAttemptVie
 import { exampleChecks, simAttempt, simDelivered } from "@/lib/flowvault/demo-sim";
 import { HazardScan } from "../approvals/HazardScan";
 import { demoGet, demoPut, isDemoId } from "../demo/demo-store";
+import { demoLedger, saveDemoLedger } from "../demo/ledger-store";
+import { applySwapSupply } from "@/lib/flowvault/demo-ledger";
 import type { SwapToken } from "@/lib/flowvault/swap-explorer";
 
 export interface SupplyFlowRead { flow: SupplyFlow; attempts: { pay: SupplyAttemptView | null; supply: SupplyAttemptView | null }; steps: SupplyStep[]; status: SupplyFlowStatus; current: SupplyStep["id"] | null; done: number; total: number; supplyRaw: string | null }
-export type DemoSupplyRow = { id: string; kind: "supply"; updatedAt: number; flow: SupplyFlow; payAt: number | null; supplyAt: number | null };
+export type DemoSupplyRow = { id: string; kind: "supply"; updatedAt: number; flow: SupplyFlow; payAt: number | null; supplyAt: number | null; ledgered?: boolean };
 const MOVING = ["awaiting_wallet", "submitted", "unknown", "partial"];
 type Props = { id: string; owner: string; back: () => void; connect: () => void };
 
@@ -40,9 +42,21 @@ function DemoSupplyFlow({ id, back }: Props) {
   const [row, setRow] = useState<DemoSupplyRow | null>(() => demoGet<DemoSupplyRow>(id)), [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, []);
   const { tokens } = useTokenCatalog();
+  // Once the example supply lands, the example ledger records it once, so Earn and Borrow show the new supply.
+  const recorded = useRef(false);
+  useEffect(() => {
+    if (!row || row.ledgered || recorded.current) return;
+    const got = demoSupplyRead(row, now).attempts.supply;
+    if (got?.state !== "confirmed" || !got.suppliedRaw) return;
+    recorded.current = true;
+    const f0 = row.flow;
+    saveDemoLedger(applySwapSupply(demoLedger(), { id: f0.source.from, symbol: f0.source.fromSymbol, amount: Number(f0.source.amount) }, f0.tokenId, f0.symbol, Number(tokenText(got.suppliedRaw, f0.decimals).replace(/,/g, ""))));
+    setTimeout(() => setRow(demoPut({ ...row, ledgered: true })), 0); // not cancelled: the flag must stick
+  }, [row, now]);
   if (!row) return <section className="fv-panel fv-stake-flow"><p className="fv-notice">This example flow ended with the tab that started it.</p><button type="button" className="fv-button" onClick={back}><ArrowLeft size={14} /> Back to Earn</button></section>;
   const data = demoSupplyRead(row, now);
   const save = (patch: Partial<DemoSupplyRow>) => setRow(demoPut({ ...row, ...patch }));
+
   const f = data.flow;
   const supplyAmount = data.supplyRaw ? tokenText(data.supplyRaw, f.decimals) : "";
   return <SupplyFlowPanel data={data} tokens={tokens} back={back} demo busy={false} error=""

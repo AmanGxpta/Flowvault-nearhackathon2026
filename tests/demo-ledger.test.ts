@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyClaim, applyPerpClose, applyPerpOpen, applyRhea, applyStake, applyUnstake, borrowCapacity, freeMargin, MIN_HEALTH, rheaHealth, seedLedger, STRESS, UNSTAKE_DEMO_MS, USDC_ID, WNEAR_ID, type Markets } from "../lib/flowvault/demo-ledger.ts";
+import { applyClaim, applyPerpClose, applyPerpOpen, applyPerpReduce, applyRhea, applyStake, applyUnstake, borrowCapacity, freeMargin, MIN_HEALTH, rheaHealth, seedLedger, STRESS, UNSTAKE_DEMO_MS, USDC_ID, WNEAR_ID, type Markets } from "../lib/flowvault/demo-ledger.ts";
 
 const M: Markets = {
   [WNEAR_ID]: { symbol: "wNEAR", decimals: 24, price: 3.2, vr: 0.75, supplyApr: 0.3, borrowApr: 2.5, liquidity: 1e6, stable: false },
@@ -59,7 +59,15 @@ test("staking, unstaking and claiming after the wait", () => {
 test("perps: margin is notional over leverage, PnL lands in margin on close", () => {
   let l = applyPerpOpen(seedLedger(), { coin: "ETH", side: "long", notional: 1000, leverage: 5, price: 2000 });
   assert.equal(freeMargin(l), 1800);
-  assert.throws(() => applyPerpOpen(l, { coin: "ETH", side: "short", notional: 100, leverage: 5, price: 2000 }), /Close your ETH long/);
+  // A short against the long reduces it and realizes the PnL on the closed part; a bigger one flips it.
+  const reduced = applyPerpOpen(l, { coin: "ETH", side: "short", notional: 210, leverage: 5, price: 2100 });
+  assert.equal(reduced.perps.positions[0].size, 0.4);
+  assert.equal(reduced.perps.realized, 10);
+  const flipped = applyPerpOpen(l, { coin: "ETH", side: "short", notional: 2100, leverage: 5, price: 2100 });
+  assert.equal(flipped.perps.positions[0].side, "short");
+  assert.equal(flipped.perps.positions[0].size, 0.5);
+  assert.equal(flipped.perps.realized, 50);
+  assert.equal(applyPerpReduce(l, "ETH", 0.5, 2000).perps.positions[0].size, 0.25);
   assert.throws(() => applyPerpOpen(l, { coin: "BTC", side: "long", notional: 10_000, leverage: 5, price: 90_000 }), /1,800 USDC is free/);
   l = applyPerpClose(l, "ETH", 2100);
   assert.equal(l.perps.margin, 2050);

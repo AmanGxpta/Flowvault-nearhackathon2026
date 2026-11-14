@@ -79,7 +79,8 @@ export function SupplyFundOffer({ tokenId, symbol, apy, owner: liveOwner, exampl
   const head = none ? `You don't hold any ${symbol} on NEAR yet` : `You have ${fmtAmount(held)} ${symbol} on NEAR`;
   if (!owner) return <div className="fv-fund-offer"><strong>{head}</strong><p>Connect your wallet and FlowVault can swap something you hold into {symbol}, then supply it.</p>{connect && <button type="button" className="fv-button fv-primary" onClick={connect}>Connect wallet</button>}</div>;
   if (tokens.length && !target) return <div className="fv-fund-offer"><strong>{head}</strong><p>NEAR Intents can&apos;t deliver {symbol}, so FlowVault can&apos;t swap into it here. Swap into it on the Swap page, then supply.</p></div>;
-  if (holdings.state !== "ready" && !payable.length) return <div className="fv-fund-offer"><strong>{head}</strong><p className="fv-muted"><RefreshCw size={13} className="fv-spin" /> Looking at what you hold…</p></div>;
+  // Wait for the catalog and every balance read (the example's balances report "ready" before the catalog arrives).
+  if ((holdings.state !== "ready" || !holdings.loaded || !tokens.length) && !payable.length) return <div className="fv-fund-offer"><strong>{head}</strong><p className="fv-muted"><RefreshCw size={13} className="fv-spin" /> Looking at what you hold…</p></div>;
   if (!payable.length) return <div className="fv-fund-offer"><strong>{head}</strong><p>Nothing in your connected wallets on NEAR, Ethereum, Base or Arbitrum can pay for a swap into {symbol} right now.</p></div>;
 
   const cta = example && from && intents ? `Yes, swap and supply ${symbol} · example` : !from ? "Choose what to pay with" : over ? `That wallet holds ${fmtAmount(walletAmount)} ${from.symbol}` : !sender ? `Connect your ${NET[from.network]} wallet` : q.busy && !intents ? "Getting a quote…" : !intents ? (q.error || "No route for this amount") : `Yes, swap and supply ${symbol}`;
