@@ -4,8 +4,8 @@
 import { z } from "zod";
 import { session, mutation, json, failure, type SessionInfo } from "@/lib/flowvault/store";
 import { checkAutomation, describe, nextRun, template, type Automation } from "@/lib/flowvault/automations";
-import { automationDelete, automationGet, automationList, automationPut, eventList, eventStatus } from "@/lib/flowvault/automation-store";
-import { runAutomation } from "@/lib/flowvault/automation-runner";
+import { automationDelete, automationGet, automationList, automationPut, eventAdd, eventList, eventStatus } from "@/lib/flowvault/automation-store";
+import { evaluate, runAutomation, runDueForWorkspace } from "@/lib/flowvault/automation-runner";
 
 const MAX = 20;
 function owner(s: SessionInfo) {
@@ -20,6 +20,8 @@ const body = z.discriminatedUnion("op", [
   z.object({ op: z.literal("update"), id: z.string().uuid(), enabled: z.boolean().optional(), schedule: schedule.optional(), params: params.optional() }).strict(),
   z.object({ op: z.enum(["delete", "run"]), id: z.string().uuid() }).strict(),
   z.object({ op: z.literal("event"), id: z.string().uuid(), status: z.enum(["seen", "done", "dismissed"]) }).strict(),
+  z.object({ op: z.literal("brief_now"), tzOffsetMin: z.number().int() }).strict(),
+  z.object({ op: z.literal("preview"), kind, tzOffsetMin: z.number().int() }).strict(),
 ]);
 const present = (a: Automation) => ({ ...a, ...describe(a) });
 
@@ -27,8 +29,10 @@ export async function GET(r: Request) {
   try {
     const s = await session(r);
     if (s.workspace.mode !== "live" || s.slot !== "personal") return json({ automations: [], events: [] }, s.cookie);
+    // Anything that came due while the app was closed runs now (claimed, so the cron never doubles it).
+    const ran = s.workspace.accountId ? await runDueForWorkspace({ id: s.id, workspace: s.workspace, revision: s.revision }).catch(() => [] as string[]) : [];
     const [list, events] = await Promise.all([automationList(s.id), eventList(s.id)]);
-    return json({ automations: list.map(present), events }, s.cookie);
+    return json({ automations: list.map(present), events, ran }, s.cookie);
   } catch (e) {
     return failure(e);
   }
@@ -51,6 +55,17 @@ export async function POST(r: Request) {
       return json({ automation: present(await automationPut(s.id, a)) }, s.cookie);
     }
     if (b.op === "event") return json({ event: await eventStatus(s.id, b.id, b.status) }, s.cookie);
+    const ctx = { id: s.id, workspace: s.workspace, revision: s.revision };
+    // A one-off brief, right now (no automation needed).
+    if (b.op === "brief_now") {
+      const out = await evaluate(ctx, { id: "now", ...template("brief", b.tzOffsetMin), enabled: true, createdAt: new Date(now).toISOString(), createdBy: "you", lastRunAt: null, nextRunAt: null }, now);
+      return json({ event: out ? await eventAdd(s.id, { ...out, id: crypto.randomUUID(), automationId: "now", createdAt: new Date(now).toISOString(), status: "new" }) : null }, s.cookie);
+    }
+    // What an automation would say right now, without recording it (e.g. what this week's sweep would propose).
+    if (b.op === "preview") {
+      const out = await evaluate(ctx, { id: "preview", ...template(b.kind, b.tzOffsetMin), enabled: true, createdAt: new Date(now).toISOString(), createdBy: "you", lastRunAt: null, nextRunAt: null, lastFiredDay: null }, now);
+      return json({ preview: out }, s.cookie);
+    }
     const a = await automationGet(s.id, b.id);
     if (!a) throw new Error("That automation isn't here any more.");
     if (b.op === "delete") { await automationDelete(s.id, b.id); return json({ ok: true }, s.cookie); }

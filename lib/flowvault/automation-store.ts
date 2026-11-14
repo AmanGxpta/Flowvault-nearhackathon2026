@@ -46,3 +46,13 @@ export async function eventStatus(sessionId: string, id: string, status: Automat
   await d.prepare("UPDATE automation_events SET status=?, payload=? WHERE id=? AND session_id=?").bind(status, JSON.stringify(e), id, sessionId).run();
   return e;
 }
+
+/** Claims a due run: moves next_run_at forward only if nobody else has (compare-and-set), so overlapping cron runs
+ * and app opens never run one automation twice. */
+export async function automationClaim(sessionId: string, a: Automation, now: number) {
+  const { nextRun } = await import("./automations");
+  const was = a.nextRunAt ? Date.parse(a.nextRunAt) : null;
+  if (was === null) return false;
+  const r = await (await db()).prepare("UPDATE automations SET next_run_at=? WHERE id=? AND session_id=? AND next_run_at=?").bind(nextRun(a, now), a.id, sessionId, was).run();
+  return (r.meta?.changes ?? 0) > 0;
+}

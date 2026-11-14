@@ -31,8 +31,10 @@ export interface AutomationEvent {
   title: string;
   lines: string[];
   /** What the event's button opens. Nothing executes from an event. */
-  action?: { kind: "supply"; tokenId: string; amount?: string } | { kind: "swap"; from: string; to: string; amount?: string } | { kind: "view"; screen: string };
+  action?: { kind: "supply"; tokenId: string; amount?: string } | { kind: "swap"; from: string; to: string; amount?: string } | { kind: "view"; screen: string; tab?: string };
   checks?: { id: string; label: string; ok: boolean | null; detail?: string }[];
+  /** A brief's lines, each with its own action. */
+  items?: import("./brief.ts").BriefItem[];
   createdAt: string;
   status: "new" | "seen" | "done" | "dismissed";
 }

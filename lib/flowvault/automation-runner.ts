@@ -6,13 +6,14 @@ import { database, type SessionInfo } from "./store";
 import { migrateWorkspace } from "./obligations";
 import { ensureAccounts } from "./account-registry";
 import { liveReads } from "./chat-reads";
-import { todayCards, USDC_NEAR } from "./today";
+import { USDC_NEAR } from "./today";
+import { buildBrief } from "./brief";
 import { defaultPolicy, evaluatePolicy, hazardChecks } from "./policy";
 import { readLedger } from "./policy-store";
 import { policyAction } from "./plans-service";
 import { bestPairs, CHAINS } from "./market-scan";
 import { describe, localDay, nextRun, type Automation, type AutomationEvent } from "./automations";
-import { automationGet, automationPut, automationsDue, eventAdd } from "./automation-store";
+import { automationClaim, automationGet, automationList, automationPut, automationsDue, eventAdd } from "./automation-store";
 import type { Workspace } from "./types";
 
 const STABLE = /^(USDC|USDT|USDT\.E|USDC\.E|DAI|USDE|FRAX|PYUSD)$/i;
@@ -34,23 +35,12 @@ export async function evaluate(c: Ctx, a: Automation, now = Date.now()): Promise
 
   if (a.kind === "brief") {
     const [m, limits] = await Promise.all([reads.markets().catch(() => null), reads.limits().catch(() => null)]);
-    const cards = todayCards({ holdings: wallet.filter((r) => r.catalogId).map((r) => ({ tokenId: r.catalogId!, symbol: r.asset, network: r.network, amount: Number(r.amount), usd: r.usd !== null ? Number(r.usd) : null })), rates: (m?.rows ?? []).map((r) => ({ tokenId: r.tokenId, symbol: r.symbol, supplyApy: r.supplyApy })), stakeApy: null, held24h: {}, trending: [] }, 3);
-    // Largest holdings by asset across chains and wallets.
-    const byAsset = new Map<string, number>();
-    for (const r of h.rows) if (r.kind !== "debt" && r.usd !== null) byAsset.set(r.asset, (byAsset.get(r.asset) ?? 0) + Number(r.usd));
-    const top = [...byAsset].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([asset, v]) => ({ asset, usd: v }));
-    const pending = (c.workspace.obligations ?? []).filter((o) => o.status === "pending");
-    const overdue = pending.filter((o) => Date.parse(o.dueDate + "T23:59:59Z") < now);
-    const soon = pending.filter((o) => !overdue.includes(o) && Date.parse(o.dueDate + "T23:59:59Z") - now < 7 * 86_400_000);
-    const pay = (o: (typeof pending)[number]) => `${o.amount} ${o.token} to ${o.label} on ${o.dueDate}`;
-    return { kind: "brief", title: "Your brief", lines: [
-      `Portfolio ≈ ${usd(total)}${h.unvalued ? ` (${h.unvalued} holdings unpriced)` : ""}. Largest: ${top.map((r) => `${r.asset} ${usd(r.usd)}`).join(", ") || "none"}.`,
-      limits ? `Spendable now ${limits.spendableNow ? "$" + limits.spendableNow : "unknown"}; available after your plan ${limits.surplus ? "$" + limits.surplus : "unknown"}.` : "Limits couldn't be read.",
-      ...(idle >= 1 ? [`${usd(idle)} in stablecoins is sitting in wallets.`] : []),
-      ...cards.map((x) => x.title + "."),
-      ...(overdue.length ? [`Overdue: ${overdue.slice(0, 3).map(pay).join("; ")}.`] : []),
-      soon.length ? `Due in the next 7 days: ${soon.slice(0, 3).map(pay).join("; ")}.` : "Nothing else due in the next 7 days.",
-    ], action: { kind: "view", screen: "hub" } };
+    const items = buildBrief({
+      rows: h.rows.map((r) => ({ asset: r.asset, kind: r.kind, usd: r.usd !== null ? Number(r.usd) : null, catalogId: r.catalogId, network: r.network, amount: Number(r.amount) })),
+      totalUsd: total, unvalued: h.unvalued, limits: limits ? { spendableNow: limits.spendableNow, surplus: limits.surplus, reserve: limits.reserve } : null,
+      rates: (m?.rows ?? []).filter((r) => r.canSupply).map((r) => ({ tokenId: r.tokenId, symbol: r.symbol, supplyApy: r.supplyApy })), obligations: c.workspace.obligations ?? [], now,
+    });
+    return { kind: "brief", title: "Your brief", lines: items.map((x) => `${x.label}: ${x.text}`), items };
   }
 
   if (a.kind === "sweep") {
@@ -109,6 +99,18 @@ export async function runAutomation(c: Ctx, a: Automation, now = Date.now()) {
   return { automation: next, event };
 }
 
+/** Catch-up when the owner opens the app: due automations for this workspace run now (a few at most), so they work
+ * without waiting for the cron (and in local development, where no cron fires). Each is claimed first. */
+export async function runDueForWorkspace(c: Ctx, now = Date.now(), limit = 3) {
+  const ran: string[] = [];
+  for (const a of (await automationList(c.id)).filter((x) => x.enabled && x.nextRunAt && Date.parse(x.nextRunAt) <= now).slice(0, limit)) {
+    if (!(await automationClaim(c.id, a, now))) continue;
+    await runAutomation(c, a, now);
+    ran.push(a.id);
+  }
+  return ran;
+}
+
 /** Cron: every due automation across workspaces, each re-read before it runs. */
 export async function runDueAutomations(limit = 50, now = Date.now()) {
   const due = await automationsDue(now, limit);
@@ -118,7 +120,7 @@ export async function runDueAutomations(limit = 50, now = Date.now()) {
     try {
       const ws = await d.prepare("SELECT payload, revision FROM workspaces WHERE id = ?").bind(sessionId).first<{ payload: string; revision: number }>();
       const fresh = await automationGet(sessionId, automation.id);
-      if (!ws || !fresh?.enabled) continue;
+      if (!ws || !fresh?.enabled || !(await automationClaim(sessionId, fresh, now))) continue;
       const { workspace } = migrateWorkspace(JSON.parse(ws.payload));
       ensureAccounts(workspace);
       if (workspace.mode !== "live") continue;
