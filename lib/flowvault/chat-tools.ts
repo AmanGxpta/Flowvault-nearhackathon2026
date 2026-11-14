@@ -259,6 +259,17 @@ export const TOOLS = [
     },
   }),
   def({
+    name: "get_brief", label: "Putting your brief together",
+    description: "A brief of the owner's money right now: portfolio and largest holdings, cash and surplus after the reserve and payments, idle money and the best way to put it to work, NEAR to stake. Use for 'brief me', 'give me a brief now', 'what should I know today'. Doesn't include scheduled payments; mention the Scheduled page for those.",
+    input: z.object({}).strict(),
+    async run(ctx) {
+      const { buildBrief } = await import("./brief.ts");
+      const [h, limits, m] = await Promise.all([ctx.reads.holdings(), ctx.reads.limits().catch(() => null), ctx.reads.markets().catch(() => null)]);
+      const items = buildBrief({ rows: h.rows.map((r) => ({ asset: r.asset, kind: r.kind, usd: r.usd !== null ? Number(r.usd) : null, catalogId: r.catalogId, network: r.network, amount: Number(r.amount) })), totalUsd: Number(h.totalUsd ?? 0), unvalued: h.unvalued, limits: limits ? { spendableNow: limits.spendableNow, surplus: limits.surplus, reserve: limits.reserve } : null, rates: (m?.rows ?? []).filter((r) => r.canSupply).map((r) => ({ tokenId: r.tokenId, symbol: r.symbol, supplyApy: r.supplyApy })), obligations: null, now: ctx.now });
+      return { result: { source: ctx.reads.mode === "demo" ? "fictional example" : "live", capturedAt: h.capturedAt, brief: items.map((x) => ({ topic: x.label, text: x.text, nextStep: x.action?.label ?? null })) }, cards: [] };
+    },
+  }),
+  def({
     name: "draft_automation", label: "Drafting an automation",
     description: "Draft an automation the owner turns on from the card: brief (daily summary at a time), sweep (weekly proposal to supply USDC surplus above the reserve and dated payments to Rhea, for approval), idle_alert (stablecoins in wallets above an amount), allocation_alert (an asset above a share of the portfolio), price_alert (an asset moving a percentage in a day). Times are the owner's local 24h time (HH:MM); day is 0=Sunday..6=Saturday. Automations never sign or move funds.",
     input: z.object({ kind: z.enum(["brief", "sweep", "idle_alert", "allocation_alert", "price_alert"]), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(), day: z.number().int().min(0).max(6).optional(), thresholdUsd: z.number().min(1).optional(), asset: ticker.optional(), pct: z.number().min(1).max(99).optional() }).strict(),
