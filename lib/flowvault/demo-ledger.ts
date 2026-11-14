@@ -28,6 +28,8 @@ export interface DemoLedger {
   perps: { margin: number; positions: DemoPerp[]; realized: number };
   /** Strategy-vault activity this session, per vault: shares gained or redeemed, and open requests. */
   vaults?: Record<string, { shares: number; requests: DemoVaultRequest[]; pps?: number }>;
+  /** Aave v3 per "chain:account": collateral by asset id, USDC debt, and USDC borrowed into (or repaid from) the wallet. */
+  aave?: Record<string, { collateral: Record<string, number>; debt: number; usdcWallet: number }>;
   activity: { at: number; text: string }[];
 }
 /** What a market looks like right now (from the public Rhea read): USD price, volatility ratio 0–1, rates, liquidity. */
@@ -370,4 +372,70 @@ export function applyVaultCancel(l: DemoLedger, cid: string, id: number, now = D
   if (r.kind === "deposit") n.wallet[USDC_ID] = round((n.wallet[USDC_ID] ?? 0) + r.amount); else v.shares = round(v.shares + r.amount);
   n.activity.unshift({ at: now, text: `Cancelled ${r.kind} #${r.id} on ${cid}` });
   return n;
+}
+
+/** Aave v3 risk parameters for the example (loan-to-value and liquidation threshold), by collateral symbol. */
+export const AAVE_RISK: Record<string, { ltv: number; liq: number }> = { WETH: { ltv: 0.805, liq: 0.83 }, wstETH: { ltv: 0.785, liq: 0.81 }, cbBTC: { ltv: 0.73, liq: 0.78 } };
+export const AAVE_DEMO_APR = 0.054;
+export type AaveAsset = { id: string; symbol: string; price: number | null };
+type AavePos = { collateral: Record<string, number>; debt: number; usdcWallet: number };
+const aaveSums = (p: AavePos, assets: AaveAsset[], stress = 0) => assets.reduce((a, x) => {
+  const amt = p.collateral[x.id] ?? 0, r = AAVE_RISK[x.symbol]; if (!amt || !x.price || !r) return a;
+  const v = amt * x.price * (1 - stress); return { ltv: a.ltv + v * r.ltv, liq: a.liq + v * r.liq, value: a.value + v };
+}, { ltv: 0, liq: 0, value: 0 });
+export function aaveHealth(p: AavePos, assets: AaveAsset[], stress = 0) { return p.debt > 0 ? aaveSums(p, assets, stress).liq / p.debt : null; }
+/** USDC that can still be borrowed: within loan-to-value now and above MIN_HEALTH after the price stress. */
+export function aaveCapacity(p: AavePos, assets: AaveAsset[]) {
+  const now = aaveSums(p, assets), stressed = aaveSums(p, assets, STRESS);
+  return Math.max(0, Math.min(now.ltv - p.debt, stressed.liq / MIN_HEALTH - p.debt));
+}
+/** One Aave operation on the example wallet; `held` is what that wallet holds of the asset involved. */
+export function applyAave(l: DemoLedger, key: string, kind: "collateral_add" | "collateral_release" | "borrow" | "repay", asset: AaveAsset, amount: number, assets: AaveAsset[], held: number, now = Date.now()): DemoLedger {
+  if (!(amount > 0)) throw new Error("Enter an amount above zero.");
+  const n = clone(l); n.aave = { ...(n.aave ?? {}) };
+  const p: AavePos = n.aave[key] ? { ...n.aave[key], collateral: { ...n.aave[key].collateral } } : { collateral: {}, debt: 0, usdcWallet: 0 };
+  if (kind === "collateral_add") {
+    if (amount > held + 1e-9) throw new Error(`The example wallet holds ${fmt(held)} ${asset.symbol === "WETH" ? "ETH" : asset.symbol} for this.`);
+    p.collateral[asset.id] = round((p.collateral[asset.id] ?? 0) + amount);
+  } else if (kind === "collateral_release") {
+    const have = p.collateral[asset.id] ?? 0;
+    if (amount > have + 1e-9) throw new Error(`You have ${fmt(have)} ${asset.symbol} as collateral.`);
+    p.collateral[asset.id] = round(have - amount);
+    const h = aaveHealth(p, assets, STRESS);
+    if (h !== null && h < MIN_HEALTH) throw new Error(`That would take health below ${MIN_HEALTH} after a ${STRESS * 100}% price drop. Repay first or release less.`);
+  } else if (kind === "borrow") {
+    const cap = aaveCapacity(p, assets);
+    if (amount > cap + 1e-9) throw new Error(cap > 0 ? `You can borrow up to ${fmt(cap)} USDC and stay above health ${MIN_HEALTH} after a ${STRESS * 100}% price drop.` : "Add collateral first: it's what you borrow against.");
+    p.debt = round(p.debt + amount); p.usdcWallet = round(p.usdcWallet + amount);
+  } else {
+    if (!(p.debt > 0)) throw new Error("You don't owe any USDC here.");
+    const pay = Math.min(amount, p.debt);
+    if (pay > held + 1e-9) throw new Error(`The example wallet holds ${fmt(held)} USDC to repay with.`);
+    p.debt = round(p.debt - pay); p.usdcWallet = round(p.usdcWallet - pay);
+  }
+  n.aave[key] = p;
+  n.activity.unshift({ at: now, text: `${{ collateral_add: "Added collateral", collateral_release: "Released collateral", borrow: "Borrowed", repay: "Repaid" }[kind]} ${fmt(kind === "repay" ? Math.min(amount, (l.aave?.[key]?.debt ?? 0)) : amount)} ${kind === "borrow" || kind === "repay" ? "USDC" : asset.symbol} on Aave v3 (${key.split(":")[0]})` });
+  return n;
+}
+/** Demo Mode's Aave v3 account for one example wallet and chain, in the live snapshot's shape. */
+export function demoAaveSnapshot(l: DemoLedger, key: string, market: { collateral: { id: string; symbol: string; decimals: number; chain: string }[]; debt: { id: string; symbol: string; decimals: number; chain: string } }, prices: Record<string, number | null>, held: Record<string, number>, accountId: string, now = Date.now()) {
+  const raw = (n: number, d: number) => (d >= 6 ? BigInt(Math.max(0, Math.round(n * 1e6))) * 10n ** BigInt(d - 6) : BigInt(Math.max(0, Math.round(n * 10 ** d)))).toString();
+  const p = l.aave?.[key] ?? { collateral: {}, debt: 0, usdcWallet: 0 };
+  const assets = market.collateral.map((a) => ({ id: a.id, symbol: a.symbol, price: prices[a.id] ?? null }));
+  const h = aaveHealth(p, assets), hs = aaveHealth(p, assets, STRESS), cap = aaveCapacity(p, assets);
+  const text = (x: number | null) => (x === null ? "no debt" : x.toFixed(4));
+  return {
+    venueId: "aave-v3:" + key.split(":")[0], accountId, source: "demo" as const, capturedAt: new Date(now).toISOString(), freshUntil: new Date(now + 10 * 60_000).toISOString(),
+    collateralAssets: market.collateral, debtAssets: [market.debt],
+    positions: [
+      ...market.collateral.map((a) => ({ asset: a, suppliedRaw: "0", collateralRaw: raw(p.collateral[a.id] ?? 0, a.decimals), liabilityRaw: "0", walletRaw: raw(held[a.id] ?? 0, a.decimals), valueUsdcRaw: prices[a.id] ? raw((p.collateral[a.id] ?? 0) * prices[a.id]!, 6) : null })),
+      { asset: market.debt, suppliedRaw: "0", collateralRaw: "0", liabilityRaw: raw(p.debt, market.debt.decimals), walletRaw: raw(held[market.debt.id] ?? 0, market.debt.decimals), valueUsdcRaw: raw(p.debt, 6) },
+    ],
+    pricesAndRisk: [...market.collateral.map((a) => ({ assetId: a.id, priceUsdcRaw: prices[a.id] ? raw(prices[a.id]!, 6) : null, ltvBps: Math.round((AAVE_RISK[a.symbol]?.ltv ?? 0) * 10_000), liquidationThresholdBps: Math.round((AAVE_RISK[a.symbol]?.liq ?? 0) * 10_000), liquidationBonusBps: 500 })), { assetId: market.debt.id, priceUsdcRaw: "1000000", ltvBps: 0, liquidationThresholdBps: 0, liquidationBonusBps: null }],
+    liquidityUsdcRaw: raw(25_000_000, 6), currentCapacityUsdcRaw: raw(cap, 6), stressedCapacityUsdcRaw: raw(cap, 6), debtUsdcRaw: raw(p.debt, 6),
+    health: text(h), stressedHealth: text(hs), minHealth: String(MIN_HEALTH), borrowApr: String(AAVE_DEMO_APR),
+    interest: { variable: true, accruedIncludedInLiability: true, basis: "Aave v3 variable rate (example)" },
+    liquidation: { exposed: p.debt > 0, thresholdHealth: "1", reasons: [] as string[] },
+    exit: { instant: true, reasons: [] as string[] }, reasons: [] as string[],
+  };
 }

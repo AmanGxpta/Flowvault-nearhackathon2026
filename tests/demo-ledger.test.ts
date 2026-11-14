@@ -110,3 +110,18 @@ test("vaults: deposit queues, settles into shares at the price, redeems after th
   l = applyVaultCancel(applyVaultDeposit(l, cid, 4, t0), cid, 102, t0);
   assert.equal(l.wallet[USDC_ID], 504);
 });
+
+test("Aave: collateral within what the wallet holds, borrowing capped by stressed health, release refused when needed", async () => {
+  const { applyAave, aaveCapacity, aaveHealth } = await import("../lib/flowvault/demo-ledger.ts");
+  const weth = { id: "0xweth", symbol: "WETH", price: 2000 }, assets = [weth], key = "eth:0xabc";
+  assert.throws(() => applyAave(seedLedger(), key, "collateral_add", weth, 2, assets, 1), /holds 1 ETH/);
+  let l = applyAave(seedLedger(), key, "collateral_add", weth, 1, assets, 1);
+  // min(2000 × 0.805, 2000 × 0.7 × 0.83 ÷ 1.2) = min(1610, 968.33)
+  assert.ok(Math.abs(aaveCapacity(l.aave![key], assets) - 2000 * 0.7 * 0.83 / 1.2) < 1e-6);
+  l = applyAave(l, key, "borrow", { id: "usdc", symbol: "USDC", price: 1 }, 900, assets, 0);
+  assert.equal(l.aave![key].usdcWallet, 900);
+  assert.ok(aaveHealth(l.aave![key], assets)! > 1.8);
+  assert.throws(() => applyAave(l, key, "collateral_release", weth, 0.5, assets, 0), /health below/);
+  l = applyAave(l, key, "repay", { id: "usdc", symbol: "USDC", price: 1 }, 1000, assets, 900);
+  assert.equal(l.aave![key].debt, 0);
+});

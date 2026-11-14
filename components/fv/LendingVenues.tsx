@@ -13,9 +13,29 @@ import { openPlan } from "./PlanDock";
 import { TokenIcon } from "./AssetIdentity";
 import { RheaSheet, type RheaAction } from "./RheaSheet";
 import { ago, fmtAmount } from "./swap-format";
-import { demoLedger, demoMarkets } from "./demo/ledger-store";
-import { demoLendingSnapshot } from "@/lib/flowvault/demo-ledger";
-import { EXAMPLE_NEAR_ACCOUNT } from "@/lib/flowvault/example-wallets";
+import { demoLedger, demoMarkets, saveDemoLedger, simulateApproval } from "./demo/ledger-store";
+import { useTokenCatalog } from "./useTokenCatalog";
+import type { SwapToken } from "@/lib/flowvault/swap-explorer";
+import { applyAave, demoAaveSnapshot, demoLendingSnapshot, type AaveAsset } from "@/lib/flowvault/demo-ledger";
+import { EXAMPLE_NEAR_ACCOUNT, EXAMPLE_WALLETS, exampleWalletHoldings } from "@/lib/flowvault/example-wallets";
+
+/** The example's EVM wallets, shaped like verified accounts for the Aave wallet picker. */
+const DEMO_EVM = [EXAMPLE_WALLETS.defi, EXAMPLE_WALLETS.main].map(w => ({ id: "demo:" + w.address, chain: "evm", address: w.address, label: w.label + " · example", proof: { method: "siwe" } })) as unknown as LinkedAccount[];
+const NET: Record<string, string> = { eth: "eth", base: "base", arb: "arb" };
+/** Demo Aave account for one example wallet on one chain: live catalog prices, what the wallet holds, the snapshot. */
+function demoAave(chain: AaveChain, account: string, catalog: SwapToken[]) {
+  const mk = AAVE_MARKETS[chain]; if (!mk || !account) return null;
+  const price = (id: string) => { const t = catalog.find(x => x.id.toLowerCase() === `${chain}:${id}`.toLowerCase()); return t?.price ? Number(t.price) : null; };
+  const prices: Record<string, number | null> = Object.fromEntries(mk.collateral.map(a => [a.id, price(a.id)]));
+  if (!Object.values(prices).some(v => v)) return null;
+  const hold = (sym: string) => exampleWalletHoldings().filter(h => h.network === NET[chain] && h.account.toLowerCase() === account.toLowerCase() && h.symbol.toUpperCase() === sym).reduce((a, h) => a + Number(h.amount), 0);
+  const l = demoLedger(), key = chain + ":" + account, pos = l.aave?.[key];
+  const weth = mk.collateral.find(a => a.symbol === "WETH");
+  const held: Record<string, number> = { [mk.debt.id]: Math.max(0, hold("USDC") + (pos?.usdcWallet ?? 0)) };
+  if (weth) held[weth.id] = Math.max(0, hold("ETH") - (pos?.collateral[weth.id] ?? 0));
+  const assets: AaveAsset[] = mk.collateral.map(a => ({ id: a.id, symbol: a.symbol, price: prices[a.id] }));
+  return { snapshot: demoAaveSnapshot(l, key, mk, prices, held, account), assets, held };
+}
 
 const MARKETS = [{id:"rhea",name:"Rhea",network:"NEAR",symbol:"RHEA"},{id:"eth",name:"Aave v3",network:"Ethereum",symbol:"ETH"},{id:"base",name:"Aave v3",network:"Base",symbol:"ETH"},{id:"arb",name:"Aave v3",network:"Arbitrum",symbol:"ETH"}];
 const short = (s:string) => s.length > 22 ? s.slice(0,10)+"…"+s.slice(-6) : s;
@@ -35,7 +55,9 @@ export function LendingVenues({ scope, accounts = [], expanded = false, hideSale
   const [kind,setKind]=useState("borrow"), [asset,setAsset]=useState("USDC"), [amount,setAmount]=useState(""), [form,setForm]=useState(false);
   const [sheet,setSheet]=useState<{token:VenueAsset;action:RheaAction}|null>(null), [now,setNow]=useState(()=>Date.now());
   const request=useRef(0), formId=useId();
-  const evm=accounts.filter(a=>a.chain==="evm" && a.proof?.method==="siwe");
+  // Demo Mode borrows on Aave from the example's EVM wallets, at live catalog prices.
+  const evm=scope==="example" ? DEMO_EVM : accounts.filter(a=>a.chain==="evm" && a.proof?.method==="siwe");
+  const {tokens:catalog}=useTokenCatalog();
   const market=MARKETS.find(m=>m.id===venue)!;
   const load=useCallback(async()=>{
     const version=++request.current;
@@ -44,7 +66,7 @@ export function LendingVenues({ scope, accounts = [], expanded = false, hideSale
     try {
       // Demo Mode: the example ledger's Rhea account at today's markets, in the live snapshot's shape.
       if(scope==="example"){
-        if(venue!=="rhea"){setSnapshot(null);setMessage("The example workspace borrows on Rhea. Aave v3 works with your own verified Ethereum, Base or Arbitrum wallet.");return;}
+        if(venue!=="rhea"){const d=demoAave(venue as AaveChain,account,catalog);if(!d){setSnapshot(null);setMessage("Reading today's prices…");return;}setSnapshot(d.snapshot as LendingVenueSnapshot);setNow(Date.now());return;}
         const {m,rows}=await demoMarkets();
         if(version!==request.current)return;
         setSnapshot(demoLendingSnapshot(demoLedger(),m,rows,EXAMPLE_NEAR_ACCOUNT) as LendingVenueSnapshot);setNow(Date.now());return;
@@ -56,7 +78,7 @@ export function LendingVenues({ scope, accounts = [], expanded = false, hideSale
       setSnapshot(next);setNow(Date.now());setMessage(next ? "" : (r.reasons??[]).map(explainVenueReason).join(" · "));
     }catch(e){if(version===request.current){setSnapshot(null);setMessage(explainVenueReason((e as Error).message));}}
     finally{if(version===request.current)setBusy(false);}
-  },[venue,account,scope]);
+  },[venue,account,scope,catalog]);
   useEffect(()=>{if(!opened)return;const t=setTimeout(()=>void load(),0);return()=>{clearTimeout(t);request.current++;};},[load,opened]);
   useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),15000);return()=>clearInterval(t);},[]);
   const stale=!!snapshot && (!Number.isFinite(Date.parse(snapshot.freshUntil)) || Date.parse(snapshot.freshUntil)<=now);
@@ -78,7 +100,18 @@ export function LendingVenues({ scope, accounts = [], expanded = false, hideSale
     setKind(action);setAsset(token.symbol);setAmount("");setForm(true);
     setTimeout(()=>document.getElementById(formId)?.scrollIntoView({behavior:"smooth",block:"center"}),0);
   }
+  /** Demo Mode: the Aave operation plays the example wallet and changes the example ledger. */
+  function demoPlan(){
+    const chainKey=venue as AaveChain, d=demoAave(chainKey,account,catalog);
+    if(!d)return;
+    const mk=AAVE_MARKETS[chainKey], chosen=kind==="borrow"||kind==="repay"?{id:mk.debt.id,symbol:"USDC",price:1}:d.assets.find(a=>a.symbol===asset)??d.assets[0];
+    const held=kind==="repay"?d.held[mk.debt.id]??0:kind==="collateral_add"?d.held[chosen.id]??0:0;
+    let next;try{next=applyAave(demoLedger(),chainKey+":"+account,kind as "borrow"|"repay"|"collateral_add"|"collateral_release",chosen,Number(amount),d.assets,held);}catch(e){setNoticeKind("plan");setMessage((e as Error).message);return;}
+    setPlanning(true);setMessage("");
+    simulateApproval("demo-aave-"+crypto.randomUUID(),{submitted:()=>{},landed:()=>{saveDemoLedger(next);setPlanning(false);setForm(false);setAmount("");setNoticeKind("read");void load();}},{wallet:1200,settle:2400});
+  }
   async function plan(){
+    if(scope==="example")return demoPlan();
     setPlanning(true);setMessage("");setNoticeKind("plan");
     try {const r=await api("/api/lending/venues",{action:"plan",chain:venue,account,kind,asset,amount,key:crypto.randomUUID()},"POST",scope);openPlan({plan:r.plan});}
     catch(e){setMessage(explainVenueReason((e as Error).message));}finally{setPlanning(false);}
@@ -92,7 +125,7 @@ export function LendingVenues({ scope, accounts = [], expanded = false, hideSale
       {venue!=="rhea" && <label className="fv-borrow-wallet"><span>Wallet</span><select value={account} aria-label="Lending wallet" onChange={e=>{request.current++;setAccount(e.target.value);setSnapshot(null);setMessage("");setForm(false);}}><option value="">Choose a verified wallet</option>{evm.map(a=><option key={a.id} value={a.address}>{a.label} · {short(a.address)}</option>)}</select></label>}
       <div className="fv-borrow-read"><span role="status">{busy ? "Updating account…" : snapshot ? <><i className={stale?"is-stale":""}/>{scope==="example" ? "Example data" : stale ? "Refresh needed" : `Updated ${ago(snapshot.capturedAt)}`}</> : ""}</span><button type="button" className="fv-button" aria-label="Refresh borrowing account" title="Refresh borrowing account" disabled={busy || venue!=="rhea"&&!account} onClick={()=>void load()}><RefreshCw size={15} className={busy?"fv-spin":""}/><span>Refresh</span></button></div>
     </div>
-    {scope==="example" && <p className="fv-demo-note">Example workspace: fictional balances at today’s Rhea prices and rates. Every action plays its review and a simulated wallet; nothing is signed.</p>}
+    {scope==="example" && <p className="fv-demo-note">{venue==="rhea" ? "Example workspace: fictional balances at today’s Rhea prices and rates." : "Example workspace: the example’s EVM wallets at today’s prices, with Aave’s collateral limits and an example borrow rate."} Every action plays a simulated wallet; nothing is signed.</p>}
     {message && <div className="fv-borrow-alert" role="alert"><CircleAlert size={18}/><div><strong>{noticeKind === "plan" ? "This operation needs attention" : "We couldn’t load this account"}</strong><p>{message}</p></div>{connect && /connect|account|wallet|prove|sign in/i.test(message) && <button type="button" className="fv-button" onClick={connect}>Connect wallet</button>}</div>}
     {!snapshot && !message && !busy && <div className="fv-borrow-empty"><Wallet size={28}/><h3>{venue!=="rhea"&&!account?"Choose the wallet you borrow with":"Your borrowing account will appear here"}</h3><p>{venue!=="rhea"&&!account?"Balances and health are separate for every wallet and network.":"Refresh to read collateral, borrowing capacity and existing loans."}</p>{venue!=="rhea"&&!evm.length && connect && <button type="button" className="fv-button" onClick={connect}>Connect an EVM wallet</button>}</div>}
     {(snapshot || busy) && <>
@@ -120,7 +153,7 @@ export function LendingVenues({ scope, accounts = [], expanded = false, hideSale
         </aside>
       </div>}
     </>}
-    {venue!=="rhea" && form && scope==="personal" && <section id={formId} className="fv-borrow-operation"><div className="fv-section-head"><h3>Review an operation</h3><button type="button" className="fv-text-button" onClick={()=>setForm(false)}>Close</button></div><div className="fv-borrow-operation-fields"><label>Action<select value={kind} onChange={e=>{const k=e.target.value;setKind(k);setAsset(k==="borrow"||k==="repay"?"USDC":AAVE_MARKETS[chain].collateral[0].symbol);}}><option value="borrow">Borrow USDC</option><option value="repay">Repay USDC</option><option value="collateral_add">Add collateral</option><option value="collateral_release">Release collateral</option></select></label><label>Asset<select value={asset} onChange={e=>setAsset(e.target.value)}>{assets.map(t=><option key={t.id} value={t.symbol}>{t.symbol}</option>)}</select></label><label>Amount<input inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00"/></label><button type="button" className="fv-button fv-primary" onClick={()=>void plan()} disabled={planning||unavailable||!/^\d+(\.\d+)?$/.test(amount)||Number(amount)<=0}>{planning?"Preparing…":"Review operation"}<ArrowRight size={14}/></button></div><p className="fv-muted">WETH is wrapped ETH. Review fees, permissions and the health factor before signing. Borrowing requires explicit approval of the new debt.</p></section>}
+    {venue!=="rhea" && form && (scope==="personal"||scope==="example") && <section id={formId} className="fv-borrow-operation"><div className="fv-section-head"><h3>Review an operation</h3><button type="button" className="fv-text-button" onClick={()=>setForm(false)}>Close</button></div><div className="fv-borrow-operation-fields"><label>Action<select value={kind} onChange={e=>{const k=e.target.value;setKind(k);setAsset(k==="borrow"||k==="repay"?"USDC":AAVE_MARKETS[chain].collateral[0].symbol);}}><option value="borrow">Borrow USDC</option><option value="repay">Repay USDC</option><option value="collateral_add">Add collateral</option><option value="collateral_release">Release collateral</option></select></label><label>Asset<select value={asset} onChange={e=>setAsset(e.target.value)}>{assets.map(t=><option key={t.id} value={t.symbol}>{t.symbol}</option>)}</select></label><label>Amount<input inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00"/></label><button type="button" className="fv-button fv-primary" onClick={()=>void plan()} disabled={planning||unavailable||!/^\d+(\.\d+)?$/.test(amount)||Number(amount)<=0}>{planning?"Preparing…":"Review operation"}<ArrowRight size={14}/></button></div><p className="fv-muted">WETH is wrapped ETH. Review fees, permissions and the health factor before signing. Borrowing requires explicit approval of the new debt.</p></section>}
     {snapshot && <details className="fv-borrow-risk-details"><summary><Info size={15}/>Risk & market details<ChevronDown size={14}/></summary><div className="fv-borrow-risk-grid"><div><small>Health after price stress</small><strong>{snapshot.stressedHealth==="no debt"?"No debt":snapshot.stressedHealth?fmtAmount(snapshot.stressedHealth,2):"Unavailable"}</strong></div><div><small>Your minimum health</small><strong>{fmtAmount(snapshot.minHealth,2)}</strong></div><div><small>Liquidation threshold</small><strong>{fmtAmount(snapshot.liquidation.thresholdHealth,2)}</strong></div><div><small>Market liquidity</small><strong>{usdc(snapshot.liquidityUsdcRaw)} USDC</strong></div><div><small>Capacity before price stress</small><strong>{usdc(snapshot.currentCapacityUsdcRaw)} USDC</strong></div></div><p>{snapshot.interest.basis}</p>{snapshot.exit.reasons.map((reason,i)=><p key={i}>{reason}</p>)}{issues.length>0&&<div><strong>What affects availability</strong><ul>{issues.map(reason=><li key={reason}>{reason}</li>)}</ul></div>}<p>Posted collateral is not spendable cash. Health is measured for this market and wallet. Submitted and uncertain transactions can be recovered in Activity.</p><small>Read {new Date(snapshot.capturedAt).toLocaleString()} · {snapshot.venueId}</small></details>}
     {!hideSales&&<ApprovedAssetSales scope={scope} accounts={accounts}/>}
     {sheet && <RheaSheet key={sheet.token.id+sheet.action} tokenId={sheet.token.id} symbol={sheet.token.symbol} mode="borrow" initial={sheet.action} close={()=>{setSheet(null);void load();}} onSettled={()=>void load()}/>}
