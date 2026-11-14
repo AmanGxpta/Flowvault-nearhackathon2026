@@ -70,3 +70,6 @@ yarn-error.log*
 *.pfx
 *.har
 /gitleaks*.json
+
+# Set-aside drafts (local only)
+/docs/ignore/

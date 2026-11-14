@@ -6,3 +6,8 @@ useDefault = true
 description = "Circle's public NEAR native-USDC token contract ID; not a credential"
 regexTarget = "secret"
 regexes = ['''^17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1$''']
+
+[[allowlists]]
+description = "Solana's public SPL Memo v2 program ID; not a credential"
+regexTarget = "secret"
+regexes = ['''^MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr$''']
