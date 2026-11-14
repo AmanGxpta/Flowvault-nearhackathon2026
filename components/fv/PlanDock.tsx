@@ -2,8 +2,9 @@
 // Persistent action-plan surface. One plan follows the owner across Assistant, Pay, Strategies, Credit,
 // the wallet handoff and Activity. Every figure comes from the saved plan (engine output); this component
 // only reviews, prepares through /api/plans, hands prepared journal records to the existing wallet flow,
-// and reconciles. It never signs, and an example plan can never be prepared.
+// and reconciles. It never signs. An example plan's steps play a labelled simulation in Demo Mode (nothing is sent).
 import { useCallback, useEffect, useRef, useState } from "react";
+import { exampleHash } from "@/lib/flowvault/demo-sim";
 import type { ActionPlan, FundingChoice, PlanStep } from "@/lib/flowvault/contracts";
 import { api, type Scope } from "./live";
 import { reasonText } from "./live-adapt";
@@ -145,8 +146,25 @@ const btn = (primary: boolean, disabled = false): React.CSSProperties => ({
   color: disabled ? "var(--fvc-8A9285)" : primary ? "var(--fvc-EAF0E2)" : "var(--fvc-1E2A22)",
 });
 
+/** Demo Mode: what the viewer has run of an example plan, laid over the saved plan (steps advance in order). */
+type Sim = Record<string, { state: string; message: string; granted?: boolean }>;
+function overlay(p: Plan, sim: Sim): Plan {
+  const steps: PlanStep[] = [];
+  for (const s of p.steps) {
+    const x = sim[p.id + ":" + s.id];
+    const depsDone = s.dependsOn.every((d) => steps.find((y) => y.id === d)?.state === "confirmed" || (!steps.find((y) => y.id === d) && p.steps.find((y) => y.id === d)?.state === "confirmed"));
+    const state = x ? x.state : s.state === "pending" && depsDone && steps.every((y) => y.state === "confirmed") ? "ready" : s.state;
+    steps.push({ ...s, state: state as PlanStep["state"], timeline: x ? [...s.timeline, { at: new Date().toISOString(), state: x.state, message: x.message } as unknown as PlanStep["timeline"][number]] : s.timeline });
+  }
+  const approvals = p.approvals.map((a) => (a.stepId && sim[p.id + ":" + a.stepId]?.granted ? { ...a, grantedAt: a.grantedAt ?? new Date().toISOString() } : a));
+  const all = steps.length > 0 && steps.every((x) => x.state === "confirmed" || x.state === "skipped");
+  return { ...p, steps, approvals, state: (all ? "completed" : p.state) as Plan["state"] };
+}
+
 export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
-  const [plan, setPlan] = useState<Plan | null>(null);
+  const [planRaw, setPlan] = useState<Plan | null>(null);
+  const [sim, setSim] = useState<Sim>({});
+  const plan = planRaw && planRaw.source === "demo" ? overlay(planRaw, sim) : planRaw;
   const [active, setActive] = useState<Plan[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -272,8 +290,28 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
     }
   };
 
+  /** Demo Mode: an example plan's step runs as a labelled simulation (example wallet, settlement, example hash). */
+  const demoAct = (label: string, stepId: string) => {
+    if (!plan) return null;
+    const key = plan.id + ":" + stepId, step = plan.steps.find((x) => x.id === stepId);
+    if (!step) return null;
+    if (label === "approve") { setSim((m) => ({ ...m, [key]: { state: step.state, message: "Example: approved by you.", granted: true } })); return null; }
+    const signed = step.approval === "owner_wallet", hash = exampleHash(key), granted = sim[key]?.granted;
+    const set = (state: string, message: string) => setSim((m) => ({ ...m, [key]: { state, message, granted } }));
+    setBusy(label);
+    if (signed) {
+      set("awaiting_wallet", "Example wallet approving…");
+      setTimeout(() => set("submitted", `Example: submitted · ${hash} (example, not on chain)`), 1400);
+      setTimeout(() => { set("confirmed", `Example: confirmed · ${hash} (example). Nothing was signed.`); setBusy(null); }, 4200);
+    } else {
+      set("submitted", step.kind === "pay_quote" ? "Example: getting an exact-output quote…" : step.kind === "verify_payout" ? "Example: checking the recipient’s balance…" : "Example: running…");
+      setTimeout(() => { set("confirmed", step.kind === "pay_quote" ? "Example quote locked: the recipient receives exactly the amount due." : step.kind === "verify_payout" ? "Example: delivery verified at the destination. Paid." : step.kind === "wait_until" ? "Example: wait skipped for the demo." : "Example: done."); setBusy(null); }, 1800);
+    }
+    return null;
+  };
   const act = async (label: string, body: Record<string, unknown>) => {
     if (!plan) return null;
+    if (plan.source === "demo" && typeof body.stepId === "string") return demoAct(label, body.stepId);
     setBusy(label);
     setError(null);
     try {
@@ -342,7 +380,7 @@ export function PlanDock({ scope, sign, canSign }: PlanDockProps) {
       <div style={{ padding: "16px 18px 12px", borderBottom: "1px solid var(--fvb-EEF0E8)", display: "flex", gap: "10px", alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: "11px", letterSpacing: ".08em", fontWeight: 700, color: example ? "var(--fvc-8A5F25)" : "var(--fvc-3F6B3C)" }}>
-            {plan ? (example ? "EXAMPLE · FICTIONAL · NOTHING CAN BE SIGNED" : "LIVE · YOU APPROVE EVERY STEP IN YOUR WALLET") : "ACTION PLAN"}
+            {plan ? (example ? "EXAMPLE · SIMULATED · NOTHING IS SIGNED" : "LIVE · YOU APPROVE EVERY STEP IN YOUR WALLET") : "ACTION PLAN"}
           </div>
           <h2 style={{ margin: "6px 0 0", fontSize: "16px", lineHeight: 1.3, color: "var(--fvc-1E2A22)" }}>{plan?.title ?? (plan ? OBJECTIVE[plan.objective] : "Loading plan…")}</h2>
           {st ? (
@@ -598,13 +636,13 @@ function StepRow({ n, s, isNext, example, canSign, busy, prep, needsDebtApproval
       {isNext ? (
         <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {s.state === "ready" && needsDebtApproval ? (
-            <button type="button" style={btn(true, !!busy || example)} disabled={!!busy || example} onClick={onApprove}>
+            <button type="button" style={btn(true, !!busy)} disabled={!!busy} onClick={onApprove}>
               {busy === "approve" ? "Recording…" : isStake ? "Approve staking " + (raw24(s.expected.amountRaw) ?? "this amount") + " NEAR" : "Approve new debt of " + (raw6(s.expected.amountRaw) ?? "this amount") + " USDC"}
             </button>
           ) : null}
           {s.state === "ready" && !needsDebtApproval ? (
-            <button type="button" style={btn(true, !!busy || example)} disabled={!!busy || example} onClick={onPrepare} title={example ? "Example plans can't be prepared" : undefined}>
-              {busy === "prepare" ? "Preparing…" : s.kind === "pay_quote" ? "Get a live quote" : signed ? "Prepare for review" : "Run"}
+            <button type="button" style={btn(true, !!busy)} disabled={!!busy} onClick={onPrepare}>
+              {busy === "prepare" ? (example ? "Running…" : "Preparing…") : s.kind === "pay_quote" ? (example ? "Get a quote · example" : "Get a live quote") : signed ? (example ? "Approve in wallet · example" : "Prepare for review") : example ? "Run · example" : "Run"}
             </button>
           ) : null}
           {s.state === "prepared" && signed && !prep && !example ? (
@@ -615,7 +653,7 @@ function StepRow({ n, s, isNext, example, canSign, busy, prep, needsDebtApproval
               {busy === "wallet" ? "Waiting for wallet…" : "Open wallet to approve →"}
             </button>
           ) : null}
-          {example ? <span style={{ fontSize: "12px", color: "var(--fvc-8A5F25)" }}>Example plan: nothing can be prepared or signed.</span> : null}
+          {example ? <span style={{ fontSize: "12px", color: "var(--fvc-8A5F25)" }}>Example plan: each step plays a simulated wallet; nothing is signed.</span> : null}
         </div>
       ) : null}
     </li>

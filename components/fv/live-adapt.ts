@@ -1648,7 +1648,7 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
   const rawPay: any = ob ? (snap.workspace?.obligations ?? []).find((x: any) => x.id === ob.id) : null;
   const needsRecipient = !example && !!rawPay && !String(rawPay.recipient ?? "").trim();
   if (s.screen === "pay" && needsRecipient) out.planCta = { label: "Add the recipient →", onClick: () => withRemove(self, example, ob).onEdit?.(), note: "Every source needs the address it pays" };
-  else if (s.screen === "pay") out.planCta = ob ? { label: "Plan this payment →", onClick: () => void startPlan({ objective: "pay_obligation", obligationId: ob.id }).catch(() => undefined), note: example ? "Example plan · reviewable, never signable" : "Saved as a plan you can leave and resume" } : null;
+  else if (s.screen === "pay") out.planCta = ob ? { label: "Plan this payment →", onClick: () => void startPlan({ objective: "pay_obligation", obligationId: ob.id }).catch(() => undefined), note: example ? "Example plan · each step runs as a simulation; nothing is signed" : "Saved as a plan you can leave and resume" } : null;
   // A route is payable live when the backend's comparison says so (BNB/Ethereum USDT arrive this way), or it is a known Base/Arbitrum USDC route.
   const liveRoute = (o: any) => livePayoutSupported(o.chain, o.asset) || (s.payEval?.res?.comparison?.obligationId === o.id && s.payEval.res.comparison.executionSupported === true && s.payEval.res.comparison.source === "live");
   const evalMode = (o: any) => example || !liveRoute(o);
@@ -1680,12 +1680,14 @@ export function liveExecute(snap: LiveSnapshot, v: any, ctx: { self: any; s: any
       buf: q ? usd(Number(q.buffer)) + " · refundable if unused" : "—",
     };
     const live = !example;
-    const planOnly = { cta: live ? "Live payout not supported" : "Example · plan only", disabled: true, onClick: () => {} };
+    const planOnly = { cta: live ? "Live payout not supported" : "Plan it · example", disabled: true, onClick: () => {} };
+    // Demo Mode: a source the engine allows opens the same plan, which then runs step by step as a simulation.
+    const demoPlan = () => void startPlan({ objective: "pay_obligation", obligationId: ob.id }).catch(() => undefined);
     const card = (o: any) => ({
       name: o.name, sub: o.sub, tag: o.tag, tagBg: o.tag === "ENGINE PICK" ? "#C9E86B" : o.ok ? "#EEF0E8" : "#F6EBDD", tagColor: o.tag === "ENGINE PICK" ? "#1E2A22" : o.ok ? "#1E2A22" : "#8A5F25",
       costF: o.costF ?? "—", costColor: o.ok ? "#1E2A22" : "#8A9285", costSub: o.costSub, subColor: o.ok ? "#8A9285" : "#8A5F25",
-      rows: o.rows.map(([k, val]: any) => ({ k, v: val })), border: o.tag === "ENGINE PICK" ? "#9DB48C" : "#E3E6DB", opacity: o.ok || o.preview ? 1 : 0.82, disabled: true,
-      cta: o.cta ?? planOnly.cta, btnBg: "#F4F5EF", btnColor: "#8A9285", btnBorder: "1px solid #E3E6DB", onClick: () => self.toastMsg(example ? "Example workspace: this is the engine’s plan with fictional route costs. Nothing can be prepared or signed." : "FlowVault can’t pay " + ob.asset + " on " + ob.chain + " live yet. It stays in your calendar and holdback."),
+      rows: o.rows.map(([k, val]: any) => ({ k, v: val })), border: o.tag === "ENGINE PICK" ? "#9DB48C" : "#E3E6DB", opacity: o.ok || o.preview ? 1 : 0.82, disabled: !(example && o.ok),
+      cta: o.cta ?? planOnly.cta, btnBg: "#F4F5EF", btnColor: "#8A9285", btnBorder: "1px solid #E3E6DB", onClick: example && o.ok ? demoPlan : () => self.toastMsg(example ? "Example workspace: this is the engine’s plan with fictional route costs. Nothing can be prepared or signed." : "FlowVault can’t pay " + ob.asset + " on " + ob.chain + " live yet. It stays in your calendar and holdback."),
     });
     const sellable = Object.entries(s.pol.assets ?? {}).filter(([, a]: any) => a.uses?.includes("sell")).map(([k]) => ASSET_ROWS[k]?.label ?? k);
     out.pyPlans = [
